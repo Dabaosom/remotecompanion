@@ -4,14 +4,14 @@ Control your jailbroken iPhone from anywhere. RemoteCompanion triggers media, ap
 
 > [!NOTE] 
 > **What's New in v1.1.0**
-> - **New Hardware Triggers**: Added **Home Button Double, Triple, & Quadruple Click**.
+> - **New Hardware Triggers**: Added **Volume Up + Down** and **Home Button Double, Triple, & Quadruple Click**.
 > - **Smart App Picker**: Search and select any installed app to launch via triggers.
 > - **Connectivity Toggles**: New commands for `wifi`, `bluetooth`, `dnd`, `low power mode`, `orientation lock`, and `mute`.
 > - **Powercuts Support**: Trigger any RemoteCompanion action directly from iOS Shortcuts.
 > - **Native RC Commands**: Run `rc` commands directly from the terminal or the custom command action.
 
 <p align="center">
-  <img src="images/IMG_1331.PNG" width="250" alt="RemoteCompanion Interface" />
+  <img src="images/IMG_1331-1.PNG" width="250" alt="RemoteCompanion Interface" />
   <img src="images/IMG_1332-1.PNG" width="250" alt="Settings View" />
   <img src="images/IMG_1334.PNG" width="250" alt="Action Picker" />
 </p>
@@ -65,7 +65,7 @@ Control your jailbroken iPhone from anywhere. RemoteCompanion triggers media, ap
 ### Hardware Triggers (Tweak App)
 Configure these in the `RemoteCompanion` app for custom action sequences. Tip: **Long-press** any trigger in the app to instantly test and run its assigned actions.
 - **NFC Triggers**: Scan physical NFC tags to run actions. Automatically scans for tags briefly when the screen wakes.
-- **Volume Buttons**: Long hold Up/Down (0.3s).
+- **Volume Buttons**: Long hold Up/Down (0.3s) or **Volume Up + Down** combo.
 - **Power Button**: Double-tap or Long-press.
 - **Status Bar**: Hold (Left/Center/Right) or Swipe Left/Right (80pt+).
 - **Edge Gestures**: Vertical swipe on left/right edges (within 50pt).

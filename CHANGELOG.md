@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [1.1.0] - 2026-01-29
 
+### Added
+- **Volume Combo Trigger**: Added support for **Volume Up + Down** simultaneous press.
+
 ### Fixed
 - **NFC Scanning Regression**: Resolved an issue where NFC scanning would fail to start after waking the device by reverting conflicting HID listener changes in `Tweak.x`.
 - **System Resource Unavailable**: Fixed error when adding tags in the App by restoring IPC callbacks to properly release NFC hardware.
