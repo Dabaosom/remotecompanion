@@ -214,6 +214,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"trigger_home_quadruple_click": @"Home Button (Quadruple Click)",
         @"trigger_home_double_click": @"Home Button (Double Click)",
         @"touchid_hold": @"Touch ID Hold (Rest Finger)",
+        @"touchid_tap": @"Touch ID Single Tap",
         @"trigger_edge_left_swipe_up": @"Left Edge Swipe Up",
         @"trigger_edge_left_swipe_down": @"Left Edge Swipe Down",
         @"trigger_edge_right_swipe_up": @"Right Edge Swipe Up",
