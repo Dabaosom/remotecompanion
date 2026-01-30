@@ -195,7 +195,15 @@
         self.onActionSelected(command);
     }
     
-    [self dismissViewControllerAnimated:YES completion:nil];
+    if (self.searchController.isActive) {
+        // Dismiss search first, then self (or just self which now dismisses search? No, we need self gone.)
+        // Robust pattern: Dismiss search (no animation), then dismiss self.
+        [self.searchController dismissViewControllerAnimated:NO completion:^{
+            [self dismissViewControllerAnimated:YES completion:nil];
+        }];
+    } else {
+        [self dismissViewControllerAnimated:YES completion:nil];
+    }
 }
 
 - (void)handleValueInputForCommand:(NSString *)commandPlaceholder {
@@ -225,7 +233,13 @@
         if (self.onActionSelected) {
             self.onActionSelected(finalCommand);
         }
-        [self dismissViewControllerAnimated:YES completion:nil];
+        if (self.searchController.isActive) {
+            [self.searchController dismissViewControllerAnimated:NO completion:^{
+                [self dismissViewControllerAnimated:YES completion:nil];
+            }];
+        } else {
+            [self dismissViewControllerAnimated:YES completion:nil];
+        }
     }];
     
     UIAlertAction *cancelAction = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction * _Nonnull action) {
