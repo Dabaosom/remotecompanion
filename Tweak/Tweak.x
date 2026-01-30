@@ -2670,6 +2670,7 @@ static BOOL g_powerVolComboTriggered = NO;
 static NSTimeInterval g_bioFingerDownTime = 0;
 static BOOL g_bioHoldTriggered = NO;
 static NSTimer *g_bioWatchdogTimer = nil;
+static NSTimeInterval g_bioIgnoreUntil = 0;
 
 
 // static NSTimeInterval g_lastPowerUpTime = 0; // Removed unused variable
@@ -3066,6 +3067,12 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
             BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && [g_triggerConfig[@"triggers"][@"touchid_hold"][@"enabled"] boolValue];
             if (!enabled) return;
 
+            // DEBOUNCE CHECK:
+            if (now < g_bioIgnoreUntil) {
+                // SRLog(@"[SpringRemote-Bio] Ignoring Event (Debounce)");
+                return;
+            }
+
             // STATE-BASED TOGGLE LOGIC:
             NSTimeInterval diff = (g_bioFingerDownTime == 0) ? 0 : (now - g_bioFingerDownTime);
             BOOL isStale = (diff > 5.0); // If >5s, assume we missed a lift event and reset.
@@ -3082,6 +3089,9 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                 }
                 g_bioFingerDownTime = 0; // Reset State to UP.
                 g_bioHoldTriggered = NO;
+                
+                // START DEBOUNCE (Ignore subsequent events for 0.5s to squash "bouncing")
+                g_bioIgnoreUntil = now + 0.5;
 
             } else {
                 // STATE = UP (or Stale). This event must be DOWN.
