@@ -18,7 +18,11 @@
     [super viewDidLoad];
     
     // Elegant grey tint
-    self.navigationController.navigationBar.tintColor = [UIColor systemGrayColor];
+    self.navigationController.navigationBar.tintColor = [UIColor labelColor];
+    
+    // Enable Large Titles
+    self.navigationController.navigationBar.prefersLargeTitles = YES;
+    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     
     self.title = @"Select Action";
     self.view.backgroundColor = [UIColor systemBackgroundColor];
@@ -26,9 +30,10 @@
     // Reduce gap above first section (below search bar)
     self.tableView.tableHeaderView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, CGFLOAT_MIN)];
     if (@available(iOS 15.0, *)) {
-        self.tableView.sectionHeaderTopPadding = 0;
+        self.tableView.sectionHeaderTopPadding = 15;
     }
     
+    // Use proper Cancel button style
     self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc]
         initWithBarButtonSystemItem:UIBarButtonSystemItemCancel
         target:self
@@ -115,7 +120,7 @@
     ];
     
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"ActionCell"];
-    self.tableView.rowHeight = 48;
+    self.tableView.rowHeight = 60; // Increased touch target
 }
 
 - (void)cancel {
@@ -131,15 +136,25 @@
     return _sections.count;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    NSString *title = nil;
     if (self.searchController.isActive && self.searchController.searchBar.text.length > 0) {
-        return @"Search Results";
+        title = @"SEARCH RESULTS";
+    } else {
+        title = _sectionTitles[section];
     }
-    return _sectionTitles[section];
+    
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(20, 15, tableView.bounds.size.width - 40, 20)];
+    label.text = [title uppercaseString];
+    label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    label.textColor = [UIColor secondaryLabelColor];
+    [headerView addSubview:label];
+    return headerView;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return 30.0f;
+    return 40.0f;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -167,6 +182,22 @@
     }
     
     cell.accessoryType = UITableViewCellAccessoryNone;
+    
+    // Add disclosure for items requiring input
+    NSString *cmd = action[@"command"];
+    if ([cmd isEqualToString:@"__SET_VOLUME__"] || 
+        [cmd isEqualToString:@"__SET_BRIGHTNESS__"] || 
+        [cmd isEqualToString:@"__BT_CONNECT__"] || 
+        [cmd isEqualToString:@"__BT_DISCONNECT__"] || 
+        [cmd isEqualToString:@"__AIRPLAY_CONNECT__"] || 
+        [cmd isEqualToString:@"__SHORTCUT_PICKER__"] || 
+        [cmd isEqualToString:@"__OPEN_APP__"] || 
+        [cmd isEqualToString:@"__LUA_SCRIPT__"] || 
+        [cmd isEqualToString:@"__DELAY__"] || 
+        [cmd isEqualToString:@"__CUSTOM__"]) {
+        
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    }
     
     return cell;
 }
