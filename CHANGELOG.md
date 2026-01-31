@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Section Polish**: Refined section headers with smaller, all-caps styling and better spacing.
 - **Action Sequence**: Overhauled the action list with Large Titles, subtitle-style rows for commands (showing code neatly), and a proper Edit button.
 - **Action Selection**: Updated the "Add Action" screen with Large Titles, larger touch targets (60pt), and visual cues (chevrons) for actions that require input.
+- **Settings**: Polished the Settings page with Large Titles, consistent headers, and a cleaner footer layout for version info.
 
 ## [2.0.0~beta4] - 2026-01-30
 

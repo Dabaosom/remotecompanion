@@ -17,7 +17,12 @@
     [super viewDidLoad];
     
     self.title = @"Settings";
-    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeNever;
+    
+    // Enable Large Titles
+    self.navigationController.navigationBar.prefersLargeTitles = YES;
+    self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
+    self.navigationController.navigationBar.tintColor = [UIColor labelColor];
+
     self.view.backgroundColor = [UIColor systemGroupedBackgroundColor];
     
     // Close button
@@ -29,50 +34,59 @@
     self.tableView.dataSource = self;
     self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
     self.tableView.rowHeight = 50;
+    
+    // Improved Section Spacing
+    if (@available(iOS 15.0, *)) {
+        self.tableView.sectionHeaderTopPadding = 10;
+    }
+    
     [self.view addSubview:self.tableView];
     
-    // Setup Version Label (Fixed at bottom)
-    self.versionLabel = [[UILabel alloc] init];
-    self.versionLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.versionLabel.textAlignment = NSTextAlignmentCenter;
-    self.versionLabel.font = [UIFont systemFontOfSize:13]; // Standard footer size
-    self.versionLabel.textColor = [UIColor secondaryLabelColor]; // Standard footer color
-    self.versionLabel.numberOfLines = 1;
-    
-    NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
-    NSString *version = [infoDict objectForKey:@"CFBundleShortVersionString"];
-    self.versionLabel.text = [NSString stringWithFormat:@"v%@", version];
-    
-    [self.view addSubview:self.versionLabel];
-    
-    // Setup App Title Label
-    self.appTitleLabel = [[UILabel alloc] init];
-    self.appTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    self.appTitleLabel.textAlignment = NSTextAlignmentCenter;
-    self.appTitleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold]; // Bold to match headers
-    self.appTitleLabel.textColor = [UIColor secondaryLabelColor]; // Match opacity of Volume Buttons header
-    self.appTitleLabel.text = @"RemoteCompanion";
-    
-    [self.view addSubview:self.appTitleLabel];
-    
-    // Constraints
+    // Constraints (Full Screen)
     [NSLayoutConstraint activateConstraints:@[
-        // Table View: Top, Left, Right, Bottom-to-Label
         [self.tableView.topAnchor constraintEqualToAnchor:self.view.topAnchor],
         [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
-        [self.tableView.bottomAnchor constraintEqualToAnchor:self.appTitleLabel.topAnchor constant:-8], // Padding above title
-        
-        // App Title Label
-        [self.appTitleLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [self.appTitleLabel.bottomAnchor constraintEqualToAnchor:self.versionLabel.topAnchor constant:0], // Stack directly on top
-        [self.appTitleLabel.heightAnchor constraintEqualToConstant:20],
-        
-        // Version Label: Centered, Pinned to Bottom Guide
-        [self.versionLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
-        [self.versionLabel.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-8], // Padding from bottom
-        [self.versionLabel.heightAnchor constraintEqualToConstant:16]
+        [self.tableView.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor]
     ]];
+    
+    [self setupTableFooter];
+}
+
+- (void)setupTableFooter {
+    UIView *footerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 100)]; // Height for padding
+    
+    // App Title Label
+    UILabel *appTitleLabel = [[UILabel alloc] init];
+    appTitleLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    appTitleLabel.textAlignment = NSTextAlignmentCenter;
+    appTitleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightSemibold];
+    appTitleLabel.textColor = [UIColor secondaryLabelColor];
+    appTitleLabel.text = @"RemoteCompanion";
+    
+    // Version Label
+    UILabel *versionLabel = [[UILabel alloc] init];
+    versionLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    versionLabel.textAlignment = NSTextAlignmentCenter;
+    versionLabel.font = [UIFont systemFontOfSize:13];
+    versionLabel.textColor = [UIColor secondaryLabelColor];
+    
+    NSDictionary *infoDict = [[NSBundle mainBundle] infoDictionary];
+    NSString *version = [infoDict objectForKey:@"CFBundleShortVersionString"];
+    versionLabel.text = [NSString stringWithFormat:@"v%@", version];
+    
+    [footerView addSubview:appTitleLabel];
+    [footerView addSubview:versionLabel];
+    
+    [NSLayoutConstraint activateConstraints:@[
+        [appTitleLabel.centerXAnchor constraintEqualToAnchor:footerView.centerXAnchor],
+        [appTitleLabel.topAnchor constraintEqualToAnchor:footerView.topAnchor constant:20],
+        
+        [versionLabel.centerXAnchor constraintEqualToAnchor:footerView.centerXAnchor],
+        [versionLabel.topAnchor constraintEqualToAnchor:appTitleLabel.bottomAnchor constant:2]
+    ]];
+    
+    self.tableView.tableFooterView = footerView;
 }
 
 - (void)dismissSettings {
@@ -85,10 +99,20 @@
     return 2;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    if (section == 0) return @"General";
-    if (section == 1) return @"Backup";
-    return nil;
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    NSString *title = (section == 0) ? @"General" : @"Backup";
+    
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(20, 15, tableView.bounds.size.width - 40, 20)];
+    label.text = [title uppercaseString];
+    label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    label.textColor = [UIColor secondaryLabelColor];
+    [headerView addSubview:label];
+    return headerView;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
+    return 40.0f;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
