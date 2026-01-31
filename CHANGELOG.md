@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+
+## [2.0.0~beta5] - 2026-01-31
+
+### UI Overhaul (Visual Refresh)
+- **Modern Header**: Updated the main navigation bar to use Large Titles with a native translucent blur effect (frosted glass), moving away from the "web-view" look.
+- **Improved Readability**: Command strings (like `curl`) now use a Monospace font and are middle-truncated (e.g., `curl -X...7DB5fjv`) to keep the UI clean.
+- **Visual Contrast**: Added SF Symbols (icons) to every trigger row for faster scanning.
+- **Section Polish**: Refined section headers with smaller, all-caps styling and better spacing.
+
 ## [2.0.0~beta4] - 2026-01-30
 
 ### Removed
