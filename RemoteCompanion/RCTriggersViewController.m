@@ -19,6 +19,18 @@
     return [[RCConfigManager sharedManager] nameForCommand:cmd truncate:shouldTruncate];
 }
 
+- (NSString *)iconNameForTrigger:(NSString *)triggerKey {
+    if ([triggerKey containsString:@"volume"]) return @"speaker.wave.2.fill";
+    if ([triggerKey containsString:@"power"]) return @"power";
+    if ([triggerKey containsString:@"statusbar"]) return @"platter.top.applewatch.case"; // Approximation for status bar
+    if ([triggerKey containsString:@"home"]) return @"circle.circle"; // Home button
+    if ([triggerKey containsString:@"ringer"]) return @"bell.fill";
+    if ([triggerKey containsString:@"edge"]) return @"iphone.homebutton.radiowaves.left.and.right"; // Edge gestures
+    if ([triggerKey containsString:@"touchid"]) return @"touchid";
+    if ([triggerKey hasPrefix:@"nfc_"]) return @"wave.3.right.circle.fill";
+    return @"hand.tap"; // Default
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     
@@ -49,8 +61,9 @@
     self.navigationItem.rightBarButtonItems = @[addItem, settingsItem];
     
     self.tableView.rowHeight = 64;
-    self.tableView.sectionHeaderTopPadding = 0;
-    self.tableView.contentInset = UIEdgeInsetsMake(30, 0, 0, 0);
+    self.tableView.rowHeight = 64;
+    self.tableView.sectionHeaderTopPadding = 15; // increased padding
+    self.tableView.contentInset = UIEdgeInsetsMake(0, 0, 0, 0); // Reset inset since we have large titles handling spacing better now
     
     self.tableView.tableHeaderView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 0.1)];
     self.tableView.tableHeaderView.clipsToBounds = YES;
@@ -227,12 +240,18 @@
     return _sections.count;
 }
 
-- (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
-    return _sectionTitles[section];
+- (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
+    UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
+    UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(20, 15, tableView.bounds.size.width - 40, 20)];
+    label.text = [_sectionTitles[section] uppercaseString];
+    label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+    label.textColor = [UIColor secondaryLabelColor];
+    [headerView addSubview:label];
+    return headerView;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    return 35.0f;
+    return 40.0f;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
@@ -265,7 +284,13 @@
     cell.textLabel.text = [config displayNameForTrigger:triggerKey];
     cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
     cell.textLabel.textColor = [UIColor labelColor];
-    cell.imageView.image = nil; // Reset in case reused
+    
+    // Add Icon with tint based on section or type?
+    // Using dark gray tint for a "premium" but subtle look
+    UIImage *icon = [UIImage systemImageNamed:[self iconNameForTrigger:triggerKey]];
+    cell.imageView.image = icon;
+    cell.imageView.tintColor = [UIColor systemGrayColor];
+    
     cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     
     // Action names joined by >
