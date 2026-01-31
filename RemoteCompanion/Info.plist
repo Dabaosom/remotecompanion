@@ -14,8 +14,6 @@
 			<array>
 				<string>AppIcon60x60</string>
 			</array>
-			<key>UIPrerenderedIcon</key>
-			<true/>
 		</dict>
 	</dict>
 	<key>CFBundleIdentifier</key>
