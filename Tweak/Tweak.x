@@ -3205,13 +3205,16 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                     // If user is clicking, they are not "Holding" for the gesture.
                     // Suppress bio events for 1.5s (covers triple clicks).
                     g_bioIgnoreUntil = now + 1.5;
-                    // Also cancel any pending hold timer
-                    if (g_bioWatchdogTimer) {
-                        [g_bioWatchdogTimer invalidate];
-                        g_bioWatchdogTimer = nil;
-                    }
-                    g_bioFingerDownTime = 0;
-                    g_bioHoldTriggered = NO;
+                    
+                    // Dispatch state reset to Main Thread to ensure synchronization with Bio handlers
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (g_bioWatchdogTimer) {
+                            [g_bioWatchdogTimer invalidate];
+                            g_bioWatchdogTimer = nil;
+                        }
+                        g_bioFingerDownTime = 0;
+                        g_bioHoldTriggered = NO;
+                    });
                 }
             } else { // UP
                 if (g_hidButtonDown) {
@@ -3578,8 +3581,21 @@ static void setup_background_hid_listener() {
     BOOL masterEnabled = [g_triggerConfig[@"masterEnabled"] boolValue];
     BOOL triggerEnabled = [trigger[@"enabled"] boolValue];
     
-    if (masterEnabled && triggerEnabled) {
+        if (masterEnabled && triggerEnabled) {
         SRLog(@"[SpringRemote] Home Double Tap Trigger Fired! Suppressing default Reachability.");
+        
+        // Suppress Touch ID triggers (Bio Lift) that might occur after this
+        // Dispatch to Main Queue to ensure it overrides pending Bio handlers
+        dispatch_async(dispatch_get_main_queue(), ^{
+             if (g_bioWatchdogTimer) {
+                 [g_bioWatchdogTimer invalidate];
+                 g_bioWatchdogTimer = nil;
+             }
+             g_bioFingerDownTime = 0;
+             g_bioHoldTriggered = NO;
+             // Set ignore window just in case
+             g_bioIgnoreUntil = [[NSDate date] timeIntervalSince1970] + 1.0;
+        });
         
         // Haptic feedback
         trigger_haptic();
