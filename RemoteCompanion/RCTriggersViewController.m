@@ -45,7 +45,7 @@
     
     self.tableView.rowHeight = 64;
     self.tableView.sectionHeaderTopPadding = 0;
-    self.tableView.contentInset = UIEdgeInsetsZero;
+    self.tableView.contentInset = UIEdgeInsetsMake(30, 0, 0, 0);
     
     self.tableView.tableHeaderView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 0, 0.1)];
     self.tableView.tableHeaderView.clipsToBounds = YES;
