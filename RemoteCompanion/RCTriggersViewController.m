@@ -195,12 +195,6 @@
         [self startNFCScan];
     }]];
     
-    [alert addAction:[UIAlertAction actionWithTitle:@"Bluetooth / Power (Planned)" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-        UIAlertController *soon = [UIAlertController alertControllerWithTitle:@"Coming Soon" message:@"Bluetooth and Power-state triggers are being developed for the next update!" preferredStyle:UIAlertControllerStyleAlert];
-        [soon addAction:[UIAlertAction actionWithTitle:@"Cool!" style:UIAlertActionStyleDefault handler:nil]];
-        [self presentViewController:soon animated:YES completion:nil];
-    }]];
-    
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     
     if (alert.popoverPresentationController) {
