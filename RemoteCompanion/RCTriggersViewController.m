@@ -109,6 +109,16 @@
     [footerView addSubview:appTitleLabel];
     [footerView addSubview:versionLabel];
     
+    // Add Tap Gesture to Footer Labels
+    appTitleLabel.userInteractionEnabled = YES;
+    versionLabel.userInteractionEnabled = YES;
+    
+    UITapGestureRecognizer *titleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openGitHub)];
+    [appTitleLabel addGestureRecognizer:titleTap];
+    
+    UITapGestureRecognizer *versionTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openGitHub)];
+    [versionLabel addGestureRecognizer:versionTap];
+    
     [NSLayoutConstraint activateConstraints:@[
         // Stack Title on top of Version
         [appTitleLabel.centerXAnchor constraintEqualToAnchor:footerView.centerXAnchor],
@@ -203,6 +213,10 @@
 - (void)startNFCScan {
     RCNFCTriggerViewController *vc = [[RCNFCTriggerViewController alloc] init];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)openGitHub {
+    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/saihgupr/RemoteCompanion"] options:@{} completionHandler:nil];
 }
 
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {

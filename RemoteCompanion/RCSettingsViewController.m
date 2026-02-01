@@ -64,6 +64,16 @@
     versionLabel.text = [NSString stringWithFormat:@"v%@", version];
     [self.view addSubview:versionLabel];
     
+    // Add Tap Gesture to Footer Labels
+    appTitleLabel.userInteractionEnabled = YES;
+    versionLabel.userInteractionEnabled = YES;
+    
+    UITapGestureRecognizer *titleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openGitHub)];
+    [appTitleLabel addGestureRecognizer:titleTap];
+    
+    UITapGestureRecognizer *versionTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(openGitHub)];
+    [versionLabel addGestureRecognizer:versionTap];
+    
     // Constraints for Sticky Footer
     [NSLayoutConstraint activateConstraints:@[
         [versionLabel.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
@@ -258,6 +268,10 @@
     picker.delegate = self;
     picker.modalPresentationStyle = UIModalPresentationFormSheet;
     [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)openGitHub {
+    [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/saihgupr/RemoteCompanion"] options:@{} completionHandler:nil];
 }
 
 #pragma mark - UIDocumentPickerDelegate
