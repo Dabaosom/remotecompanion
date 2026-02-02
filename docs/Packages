@@ -26,60 +26,6 @@ Section: Tweaks
 Replaces: com.pizzaman.remotecommand
 Conflicts: com.pizzaman.remotecommand
 Architecture: iphoneos-arm64
-Version: 2.0.0~beta5
-Installed-Size: 1060
-Filename: ./com.saihgupr.remotecompanion_2.0.0~beta5_iphoneos-arm64.deb
-Size: 250962
-MD5sum: c7f9f4b482a155c705915279f80692d4
-SHA1: eefcbb133d55a40d24a49c17048c17c0e1fff4ff
-SHA256: e21355c59e01f8f6e516b19405c106d93a5a150017654992205273204284d7bf
-
-Package: com.saihgupr.remotecompanion
-Name: RemoteCompanion
-Depends: mobilesubstrate, firmware (>= 15.0), netcat
-Description: Remote Companion App & Tweak
-Maintainer: Saihgupr
-Author: Saihgupr
-Section: Tweaks
-Replaces: com.pizzaman.remotecommand
-Conflicts: com.pizzaman.remotecommand
-Architecture: iphoneos-arm64
-Version: 2.0.0~beta6
-Installed-Size: 1060
-Filename: ./com.saihgupr.remotecompanion_2.0.0~beta6_iphoneos-arm64.deb
-Size: 251248
-MD5sum: 9f12a8ccdfdf87f56c22821b03e35c94
-SHA1: b18ad78557369b1957920b08d925d1a25916397c
-SHA256: ab36906c3fe6db23e768c9725137324225d8b8699e5ad9e905f0617e9c926454
-
-Package: com.saihgupr.remotecompanion
-Name: RemoteCompanion
-Depends: mobilesubstrate, firmware (>= 15.0), netcat
-Description: Remote Companion App & Tweak
-Maintainer: Saihgupr
-Author: Saihgupr
-Section: Tweaks
-Replaces: com.pizzaman.remotecommand
-Conflicts: com.pizzaman.remotecommand
-Architecture: iphoneos-arm64
-Version: 2.0.0~beta3
-Installed-Size: 1048
-Filename: ./com.saihgupr.remotecompanion_2.0.0~beta3_iphoneos-arm64.deb
-Size: 248922
-MD5sum: b9554339225297058ede27cb759278c3
-SHA1: 91d56bd1920e2c470bacedb2f77e2d800b497501
-SHA256: ebb28298101e73c31342e27909523c892543d378e808279f6f44c950f78d0b56
-
-Package: com.saihgupr.remotecompanion
-Name: RemoteCompanion
-Depends: mobilesubstrate, firmware (>= 15.0), netcat
-Description: Remote Companion App & Tweak
-Maintainer: Saihgupr
-Author: Saihgupr
-Section: Tweaks
-Replaces: com.pizzaman.remotecommand
-Conflicts: com.pizzaman.remotecommand
-Architecture: iphoneos-arm64
 Version: 1.0.3
 Installed-Size: 1068
 Filename: ./com.saihgupr.remotecompanion_1.0.3_iphoneos-arm64.deb
@@ -101,28 +47,10 @@ Architecture: iphoneos-arm64
 Version: 2.0.0
 Installed-Size: 1060
 Filename: ./com.saihgupr.remotecompanion_2.0.0_iphoneos-arm64.deb
-Size: 251076
-MD5sum: 81008b1f103eafca4c816c54aba07405
-SHA1: 7ff6baaceb010ad4d48ad01f0d3504ff80a219d4
-SHA256: a10b4a771a5d3f20b39dd4754387958eb760678371e02db811e23f3423af35e8
-
-Package: com.saihgupr.remotecompanion
-Name: RemoteCompanion
-Depends: mobilesubstrate, firmware (>= 15.0), netcat
-Description: Remote Companion App & Tweak
-Maintainer: Saihgupr
-Author: Saihgupr
-Section: Tweaks
-Replaces: com.pizzaman.remotecommand
-Conflicts: com.pizzaman.remotecommand
-Architecture: iphoneos-arm64
-Version: 2.0.0~beta2
-Installed-Size: 1048
-Filename: ./com.saihgupr.remotecompanion_2.0.0~beta2_iphoneos-arm64.deb
-Size: 248258
-MD5sum: 4e56a56ac0b04035bf197c557ee3b690
-SHA1: c976c3328495793eea6df62f53635bd4b304204d
-SHA256: 416bf9514ad179ae2013d3fcbe1142dc75bd9442e44f90ed7284c441c34f44ba
+Size: 251374
+MD5sum: 397c4cd0055d5ec4b50d828d780a7780
+SHA1: ca9bf296f6357d2782c088386139bed68ab7477f
+SHA256: fe00c294aba860b680d76385021042882aa6bde4ea8b50f4864b1e1d974414d5
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -170,24 +98,6 @@ Section: Tweaks
 Replaces: com.pizzaman.remotecommand
 Conflicts: com.pizzaman.remotecommand
 Architecture: iphoneos-arm64
-Version: 2.0.0~beta1
-Installed-Size: 1048
-Filename: ./com.saihgupr.remotecompanion_2.0.0~beta1_iphoneos-arm64.deb
-Size: 248096
-MD5sum: a202ab7c4634b618da71a58279b76d87
-SHA1: d9ce41a5808a9954cb3404ce82da1eb2cd939998
-SHA256: ae9f8db120950c933f4164e6b23c6e4bab7a362e71b86f44ddbab55a2660c52b
-
-Package: com.saihgupr.remotecompanion
-Name: RemoteCompanion
-Depends: mobilesubstrate, firmware (>= 15.0), netcat
-Description: Remote Companion App & Tweak
-Maintainer: Saihgupr
-Author: Saihgupr
-Section: Tweaks
-Replaces: com.pizzaman.remotecommand
-Conflicts: com.pizzaman.remotecommand
-Architecture: iphoneos-arm64
 Version: 1.0.4
 Installed-Size: 1068
 Filename: ./com.saihgupr.remotecompanion_1.0.4_iphoneos-arm64.deb
@@ -213,22 +123,4 @@ Size: 247746
 MD5sum: 18d80968e586a03e10a1263ab5d650a8
 SHA1: 87d859934be58ac7c474bccb1e9f49792c996971
 SHA256: ac7bc08313bf45ffe4312d8b6ea7e9e1b74c829a2f7e9b32a460d042f138d3cc
-
-Package: com.saihgupr.remotecompanion
-Name: RemoteCompanion
-Depends: mobilesubstrate, firmware (>= 15.0), netcat
-Description: Remote Companion App & Tweak
-Maintainer: Saihgupr
-Author: Saihgupr
-Section: Tweaks
-Replaces: com.pizzaman.remotecommand
-Conflicts: com.pizzaman.remotecommand
-Architecture: iphoneos-arm64
-Version: 2.0.0~beta4
-Installed-Size: 1048
-Filename: ./com.saihgupr.remotecompanion_2.0.0~beta4_iphoneos-arm64.deb
-Size: 248954
-MD5sum: 6fc452164622af23f7eeef9d6c68cb82
-SHA1: 7f1752de305f1b4d0b95228f4bd9523766f3b2ad
-SHA256: eb9232f978bf42aa69d00c24664dd1d0fe29c7d71fbc91c18ed317bf647f6043
 
