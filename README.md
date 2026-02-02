@@ -172,4 +172,4 @@ This ensures the tweak does not attempt to access the NFC controller on wake, re
 
 If you encounter any issues or have feature requests, please [open an issue](https://github.com/saihgupr/RemoteCompanion/issues) on GitHub.
 
-If you find this project useful, please consider giving it a **star**, or [buy me a coffee](https://ko-fi.com/saihgupr) if you'd like!
+If you like this project, consider giving it a star ⭐ or making a small donation.
