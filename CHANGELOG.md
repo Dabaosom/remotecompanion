@@ -3,7 +3,7 @@
 All notable changes to this project will be documented in this file.
 
 
-## [2.0.0~beta6] - 2026-02-01
+## [2.0.0] - 2026-02-02
 
 ### Fixed
 - **Safe Mode Crash**: Resolved a race condition and main-thread violation when re-enabling triggers from Settings.
