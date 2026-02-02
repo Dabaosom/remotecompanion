@@ -4,9 +4,11 @@ Control your jailbroken iPhone from anywhere. RemoteCompanion triggers media, ap
 
 > [!NOTE] 
 > **What's New in v2.0**
-> - **Ringer Automation**: Mute, Unmute, or Toggle triggers when you flip the ringer switch.
-> - **Respring**: Added a native "Respring Device" action to the UI.
-> - **Shortcuts Search**: Quickly find shortcuts in the app.
+> - **Full UI Redesign**: Modern native look with Large Titles and translucent frosted glass effects.
+> - **Power & Touch ID Triggers**: Added **Power + Volume** combos, **Touch ID (Tap/Hold)**, and **Triple/Quadruple Power clicks**.
+> - **Ringer & Siri Automation**: Hardware ringer switch triggers and a dedicated native Siri action.
+> - **Search Everywhere**: Find actions and shortcuts instantly with new search bars in every picker.
+> - **Native Respring**: Dedicated "Respring Device" action added directly to the UI.
 
 <p align="center">
   <img src="images/IMG_1331-1.PNG" width="250" alt="RemoteCompanion Interface" />
@@ -62,13 +64,16 @@ Control your jailbroken iPhone from anywhere. RemoteCompanion triggers media, ap
 
 ### Hardware Triggers (Tweak App)
 Configure these in the `RemoteCompanion` app for custom action sequences. Tip: **Long-press** any trigger in the app to instantly test and run its assigned actions.
-- **NFC Triggers**: Scan physical NFC tags to run actions. Automatically scans for tags briefly when the screen wakes. (Optional toggle **NFC Scanning** off in Settings).
-- **Ringer Switch**: Mute/Unmute toggle.
-- **Volume Buttons**: Long hold Up/Down (0.3s) or **Volume Up + Down** combo.
-- **Power Button**: Double-tap or Long-press.
-- **Status Bar**: Hold (Left/Center/Right) or Swipe Left/Right (80pt+).
-- **Edge Gestures**: Vertical swipe on left/right edges (within 50pt).
-- **Home Button**: Double-tap (Touch ID). Requires "Reachability" enabled. Double, Triple, or Quadruple click.
+- **Hardware Buttons**:
+  - **Power**: Double-tap, Long-press, **Triple/Quadruple click**, or **Power + Volume Up/Down** combos.
+  - **Volume**: Long hold Up/Down (0.3s) or **Volume Up + Down** combo.
+  - **Home**: Double-tap (Touch ID), Double, Triple, or Quadruple click.
+- **Biometrics**: **Touch ID Single Tap** and **Hold (Rest Finger)** triggers.
+- **NFC Triggers**: Scan physical NFC tags to run actions on screen wake (Optional toggle in Settings).
+- **Ringer Switch**: Mute, Unmute, or Toggle triggers.
+- **Gestures**: 
+  - **Status Bar**: Hold (Left/Center/Right) or Swipe Left/Right.
+  - **Edge Gestures**: Vertical swipe on left/right edges.
 
 ### Text & Notifications
 - `rc type "Text"` - Type text (supports symbols).
