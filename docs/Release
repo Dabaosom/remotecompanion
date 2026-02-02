@@ -4,12 +4,12 @@ Suite: stable
 Version: 1.0
 Codename: ios
 Architectures: iphoneos-arm iphoneos-arm64
-Description: Official repository for RemoteCompanion tweaks.
+Description: A modern Activator replacement for rootless jailbreaks. Bind triggers to system actions, Siri automation, and custom TCP commands.
 MD5Sum:
- 4f1c7ed12f5370a560e9e3aa529cd544 5310 Packages
- 5db7f66723c7c6b92e5afe7ee75da1d1 1433 Packages.bz2
- 27ae442e7329a2b2019a2af279ef48af 1170 Packages.zst
+ 3dd4def62dcb50b84cc58c035e1cd5b8 805 Packages
+ 772f8a0d762e6f74e38563c7fb317e63 574 Packages.bz2
+ e5a013b1843b602386e2404d851c2cfc 526 Packages.zst
 SHA256:
- 953a7b7bb85acc9bfcb59e44d0e9a382306a31c14d922f92b1048accae49c6fc 5310 Packages
- 2784d0af9ab719dbb6cf75e9aec8dbecbe3b450aa57b48fd7e15692400bf0fa4 1433 Packages.bz2
- c7410e57604ac5bb3bc922fcff0187acc5460f4f3171c52d3f72f21afa63f4a3 1170 Packages.zst
+ 01834d23df78baca31d4bf4ea508274acdd2d9d71655ae23700ef5bc2a4cd44e 805 Packages
+ 69603154bc5adeb423092ab0071e017d58a29c271b9c37e600b6d521d020085e 574 Packages.bz2
+ 952c40ecb6ff5920d5466d9950e62218f15794d9baec40a31bc879ac7e2773b9 526 Packages.zst
