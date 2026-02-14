@@ -8,7 +8,8 @@ RemoteCompanion brings fast, scriptable system control to modern rootless jailbr
 > - **New System Utilities**: Native support for `ldrestart`, `userspace-reboot`, and `uicache`, built directly into the core and available as preset UI actions.
 > - **Action Favorites**: Mark any app, shortcut, or command as a favorite for instant access at the top of the picker.
 > - **Device Status Queries**: Poll device state from the CLI. Includes DND, Low Power Mode, WiFi, Bluetooth, and **Player Status** (`rc player status`).
-> - **Turn On/Off Vibration**: You can now explicitly enable or disable system vibration settings (Vibrate on Ring/Silent) directly from the app or CLI.
+> - **System Vibration Control**: New `rc vibration` command to **Turn On/Off** or Toggle the system-wide "Vibrate on Silent" and "Vibrate on Ring" settings directly from the CLI or Action Picker. Added status commands for CLI usage.
+> - **Lua Dynamic Bridge & Logging**: Lua scripts now support `dlopen` and `objc_call`. Added `rc log` command to instantly stream debug logs from the device.
 > - **Bottom Bar Gestures**: New swipe triggers for the bottom edge of the screen (left/right) with refined haptic feedback.
 
 <p align="center">
@@ -98,6 +99,7 @@ Get instant feedback from your device state.
 - `rc is-locked` / `rc lock status` - Returns `locked` or `unlocked`.
 - `rc player status` - Returns detailed playback state (`Playing`, `Paused`, `Stopped`, etc.).
 - `rc mute status` - Returns current media mute state and level.
+- `rc log` - Streams live debug logs from the device (`/tmp/remotecommand.log`).
 
 ## Lua Scripting & Objective-C Bridge
 

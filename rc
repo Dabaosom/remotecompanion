@@ -93,7 +93,9 @@ if [ -z "$1" ]; then
     echo "  rotate lock/unlock - Toggle orientation lock"
     echo "  is-locked         - Check if device is locked"
     echo "  notify \"Title\" \"Body\" - Send push notification (via ntfy)"
+    echo "  notify \"Title\" \"Body\" - Send push notification (via ntfy)"
     echo "  dnd on/off/debug   - Toggle Do Not Disturb or inspect state"
+    echo "  log               - Stream device logs"
     echo ""
     exit 1
 fi
@@ -148,9 +150,17 @@ elif [[ "$CMD" == "respring" ]]; then
         ssh -o StrictHostKeyChecking=no mobile@$TARGET_IP "sbreload"
     fi
     exit 0
-elif [[ "$CMD" == "shortcut "* ]]; then
     # Convert "shortcut Name" to "shortcut:Name"
     CMD="shortcut:${CMD#shortcut }"
+elif [[ "$CMD" == "log" ]]; then
+    # Stream logs from the device
+    echo "Streaming logs from /tmp/remotecommand.log (showing last 50 lines)..."
+    IP="${RC_IPHONE_IP:-iphone.local}"
+    
+    # Use tail -f -n 50 to follow the log file and show history
+    # Also check if file exists
+    ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "if [ -f /tmp/remotecommand.log ]; then tail -n 50 /tmp/remotecommand.log; tail -f /tmp/remotecommand.log; else echo 'Log file not found at /tmp/remotecommand.log (Has the tweak loaded?)'; fi"
+    exit 0
 fi
 
 # Send command to the SpringRemote tweak on the iPhone

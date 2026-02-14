@@ -11,7 +11,9 @@ All notable changes to this project will be documented in this file.
 - **CLI Root Support**: The `rc` command-line tool now supports `-r` and `--root` flags to quickly fire off root commands from your Mac (e.g., `rc -r ldrestart`).
 - **New System Actions**: Added `ldrestart`, `userspace-reboot`, and `uicache` as first-class selectable actions in the app for quick system maintenance.
 - **Bottom Bar Gestures**: Added new "Bottom Bar Swipe Left" and "Bottom Bar Swipe Right" triggers, allowing you to run actions by swiping horizontally along the home bar area.
-- **System Vibration Control**: New `rc vibration` command to **Turn On/Off** or Toggle the system-wide "Vibrate on Silent" and "Vibrate on Ring" settings directly from the CLI or Action Picker. Added status commands for CLI usage.
+- **System Vibration Control**: New `rc vibration` command to **Turn On/Off** or Toggle the system-wide "Vibrate on Silent" and "Vibrate on Ring" settings directly from the CLI or Action Picker. Added status commands for financial usage.
+- **Lua Dynamic Bridge**: Lua scripts now support `dlopen` and `objc_call`, allowing for full dynamic invocation of Objective-C methods and loading of private frameworks directly from your scripts.
+- **Debug Logging**: Added `rc log` to stream live logs from the device, making it easier to debug custom scripts and system actions.
 
 ### Improved
 - **Modern Terminal UI**: Redesigned the terminal input screen with a "pro" console aesthetic. Features a near-black, high-contrast text area with rounded corners and monospaced typography.
