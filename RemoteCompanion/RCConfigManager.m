@@ -132,7 +132,9 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                 @"power_volume_down": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_mute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_unmute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
+                @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"trigger_bottombar_swipe_left": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"trigger_bottombar_swipe_right": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
             } mutableCopy]
         } mutableCopy];
     }
@@ -244,7 +246,9 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"trigger_edge_right_swipe_down": @"Right Edge Swipe Down",
         @"trigger_ringer_mute": @"Ringer Muted (Silent Mode On)",
         @"trigger_ringer_unmute": @"Ringer Unmuted (Silent Mode Off)",
-        @"trigger_ringer_toggle": @"Ringer Toggled (Any Change)"
+        @"trigger_ringer_toggle": @"Ringer Toggled (Any Change)",
+        @"trigger_bottombar_swipe_left": @"Bottom Bar Swipe Left",
+        @"trigger_bottombar_swipe_right": @"Bottom Bar Swipe Right"
     };
     
     if ([triggerKey hasPrefix:@"nfc_"]) {

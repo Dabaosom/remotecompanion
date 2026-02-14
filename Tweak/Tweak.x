@@ -3940,6 +3940,12 @@ static CGFloat g_statusBarSwipeStartX = 0;
 static CGFloat g_statusBarSwipeStartY = 0;
 static BOOL g_statusBarTouchActive = NO;
 
+// Bottom Bar Swipe tracking
+static CGFloat g_bottomBarSwipeStartX = 0;
+static CGFloat g_bottomBarSwipeStartY = 0;
+static BOOL g_bottomBarTouchActive = NO;
+static BOOL g_bottomBarHapticFired = NO;
+
 %hook UIApplication
 
 - (void)sendEvent:(UIEvent *)event {
@@ -3998,6 +4004,15 @@ static BOOL g_statusBarTouchActive = NO;
                     }
                 }];
             }
+            
+            // Bottom bar region = bottom 50pts
+            CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+            if (loc.y > screenHeight - 50) {
+                g_bottomBarSwipeStartX = loc.x;
+                g_bottomBarSwipeStartY = loc.y;
+                g_bottomBarTouchActive = YES;
+                g_bottomBarHapticFired = NO;
+            }
         }
         else if (touch && touch.phase == UITouchPhaseMoved) {
             CGPoint loc = [touch locationInView:nil];
@@ -4012,6 +4027,15 @@ static BOOL g_statusBarTouchActive = NO;
                     [g_statusBarHoldTimer invalidate];
                     g_statusBarHoldTimer = nil;
                     g_pendingStatusBarTrigger = nil;
+                }
+            }
+
+            // Bottom bar: Check for horizontal swipe movement for haptic feedback
+            if (g_bottomBarTouchActive && !g_bottomBarHapticFired) {
+                CGFloat deltaX = fabs(loc.x - g_bottomBarSwipeStartX);
+                if (deltaX > 30) {
+                    trigger_haptic();
+                    g_bottomBarHapticFired = YES;
                 }
             }
         }
@@ -4039,6 +4063,28 @@ static BOOL g_statusBarTouchActive = NO;
                 }
             }
             
+            // Bottom bar swipe check
+            if (g_bottomBarTouchActive && !g_bottomBarHapticFired) { // Only check if we haven't already fired (though we don't have a hold for bottom)
+                 CGFloat deltaX = loc.x - g_bottomBarSwipeStartX;
+                 CGFloat deltaY = fabs(loc.y - g_bottomBarSwipeStartY);
+
+                 // Swipe threshold: 80pts horizontal, less than 50pts vertical
+                 // Note: Native home swipe is strictly horizontal/vertical mix, but usually starts at very bottom. 
+                 // We rely on our > 30pt haptic feedback to signal "we got it"
+                 if (fabs(deltaX) > 80 && deltaY < 50) {
+                     NSString *swipeTrigger = (deltaX > 0) ? @"trigger_bottombar_swipe_right" : @"trigger_bottombar_swipe_left";
+                     
+                     load_trigger_config();
+                     BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
+                                    [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue];
+                     
+                     if (enabled) {
+                         RCExecuteTrigger(swipeTrigger);
+                         SRLog(@"[SpringRemote] %@ FIRED!", swipeTrigger);
+                     }
+                 }
+            }
+            
             // Clean up status bar
             if (g_statusBarHoldTimer) {
                 [g_statusBarHoldTimer invalidate];
@@ -4047,6 +4093,10 @@ static BOOL g_statusBarTouchActive = NO;
             g_statusBarHoldTriggered = NO;
             g_pendingStatusBarTrigger = nil;
             g_statusBarTouchActive = NO;
+            
+            // Clean up bottom bar
+            g_bottomBarTouchActive = NO;
+            g_bottomBarHapticFired = NO;
         }
         else if (touch && touch.phase == UITouchPhaseCancelled) {
             if (g_statusBarHoldTimer) {

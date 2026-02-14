@@ -184,6 +184,11 @@
     [titles addObject:@"Screen Gestures"];
 
     [sections addObject:filterFavorites(@[@"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down"])];
+    
+    // Section 4: Bottom Bar Gestures
+    // Section 4: Bottom Bar Gestures
+    [titles addObject:@"Bottom Bar Gestures"];
+    [sections addObject:filterFavorites(@[@"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right"])];
     [titles addObject:@"Edge Gestures"];
 
     [sections addObject:filterFavorites(@[@"trigger_home_double_click", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"touchid_tap", @"touchid_hold"])];
