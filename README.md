@@ -5,9 +5,10 @@ RemoteCompanion brings fast, scriptable system control to modern rootless jailbr
 > [!IMPORTANT]
 > **What's New in v2.2**
 > - **Run as Root**: Full support for system-level actions via a native root toggle in the editor and CLI flags (`rc -r`).
-> - **System Utilities**: Native support for **system utilities** such as `ldrestart`, `userspace-reboot`, and `uicache`, built directly into the core and available as preset UI actions.
+> - **New System Utilities**: Native support for `ldrestart`, `userspace-reboot`, and `uicache`, built directly into the core and available as preset UI actions.
 > - **Action Favorites**: Mark any app, shortcut, or command as a favorite for instant access at the top of the picker.
 > - **Device Status Queries**: Poll device state from the CLI. Includes DND, Low Power Mode, WiFi, Bluetooth, and **Player Status** (`rc player status`).
+> - **Turn On/Off Vibration**: You can now explicitly enable or disable system vibration settings (Vibrate on Ring/Silent) directly from the app or CLI.
 > - **Bottom Bar Gestures**: New swipe triggers for the bottom edge of the screen (left/right) with refined haptic feedback.
 
 <p align="center">
