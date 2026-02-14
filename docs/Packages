@@ -54,6 +54,24 @@ SHA256: e2e58028bd89c7c8987636f93b9ef14b5a2eca2ac6a416706bc663de3545cb0b
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
+Depends: mobilesubstrate, firmware (>= 14.0)
+Description: A modern Activator replacement for rootless jailbreaks. Bind triggers like Touch ID, Power/Volume buttons, and Status Bar gestures to system actions, Siri automation, and custom TCP commands. https://github.com/saihgupr/RemoteCompanion
+Maintainer: Saihgupr
+Author: Saihgupr
+Section: Tweaks
+Replaces: com.pizzaman.remotecommand
+Conflicts: com.pizzaman.remotecommand
+Architecture: iphoneos-arm64
+Version: 2.2.0~beta1
+Installed-Size: 1536
+Filename: ./com.saihgupr.remotecompanion_2.2.0~beta1_iphoneos-arm64.deb
+Size: 291780
+MD5sum: 5e4aa4ac56467677cceaefe29fad6b28
+SHA1: ac9bbe8aeee04198fb97435d87427494e921c9eb
+SHA256: 905dc162dec5db697a00b3f2a0adb308856dab30ed7917de498b1998242f30e2
+
+Package: com.saihgupr.remotecompanion
+Name: RemoteCompanion
 Depends: mobilesubstrate, firmware (>= 15.0), netcat
 Description: Remote Companion App & Tweak
 Maintainer: Saihgupr
@@ -99,12 +117,12 @@ Replaces: com.pizzaman.remotecommand
 Conflicts: com.pizzaman.remotecommand
 Architecture: iphoneos-arm
 Version: 2.1.2
-Installed-Size: 1372
+Installed-Size: 1536
 Filename: ./com.saihgupr.remotecompanion_2.1.2_iphoneos-arm.deb
-Size: 286862
-MD5sum: 3cf335f9e0d55db0b55a3aec46cebf15
-SHA1: 3d7b9b4276f2cd7917daf3a7d837bf6d8ecfb1ce
-SHA256: 75bbde22cd0ed76cab689a70345e80228d29f516f4824eaa334b546bc09418af
+Size: 291550
+MD5sum: 397eeb8e51472adac1c2bab89d424762
+SHA1: 53c6138130db4b9f9750e468304ed55f68351104
+SHA256: 1afd44bca47e9cf91a9d01a302c23747526492fe459a30da64b6c2d6f0c95db1
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -141,6 +159,24 @@ Size: 239956
 MD5sum: 8e043dc5bf0f002b6ac953c19719ec91
 SHA1: f85411de8a3eef85802d0a80f4d33a6b986d4072
 SHA256: 04b21d38c9e304ae0dbf5ca398a5ff1b2a5412ed92fa5a82d71ff6ce0dc692da
+
+Package: com.saihgupr.remotecompanion
+Name: RemoteCompanion
+Depends: mobilesubstrate, firmware (>= 14.0)
+Description: A modern Activator replacement for rootless jailbreaks. Bind triggers like Touch ID, Power/Volume buttons, and Status Bar gestures to system actions, Siri automation, and custom TCP commands. https://github.com/saihgupr/RemoteCompanion
+Maintainer: Saihgupr
+Author: Saihgupr
+Section: Tweaks
+Replaces: com.pizzaman.remotecommand
+Conflicts: com.pizzaman.remotecommand
+Architecture: iphoneos-arm
+Version: 2.2.0~beta1
+Installed-Size: 1536
+Filename: ./com.saihgupr.remotecompanion_2.2.0~beta1_iphoneos-arm.deb
+Size: 291662
+MD5sum: ee41b2df327d7780dc695d0f8adf7c3a
+SHA1: 7c99c6bf9feea4da1324e20b4dd429dc6f2787ee
+SHA256: 29241b232d524f3c314c188b2479cbb4017ef23a5dc2856d30a8ba879d7bba01
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -225,10 +261,10 @@ Replaces: com.pizzaman.remotecommand
 Conflicts: com.pizzaman.remotecommand
 Architecture: iphoneos-arm64
 Version: 2.1.2
-Installed-Size: 1372
+Installed-Size: 1536
 Filename: ./com.saihgupr.remotecompanion_2.1.2_iphoneos-arm64.deb
-Size: 286684
-MD5sum: b0d9102bae0a9c6f2d8264ba401dd81a
-SHA1: 0157deae4ec35537796da1209ba7c4fd1c9d0fa5
-SHA256: 7194823c83a747cc24f5c284729d5dd3f76ac075fc06f8e9dd6d7c314e410152
+Size: 291504
+MD5sum: 956ba50ce68629397f0762fda9481c00
+SHA1: 4716429430086efad28c7b16ac23a3b7c99d2f46
+SHA256: 605949d7be3f2b1d2faaac194882d37c1d27de0a1db7b07021be7fb133a1f164
 

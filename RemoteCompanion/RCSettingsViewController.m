@@ -180,7 +180,7 @@
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
 
-    } else if (indexPath.section == 1) {
+    if (indexPath.section == 1) {
         if (indexPath.row == 0) {
             [self exportConfig];
         } else {

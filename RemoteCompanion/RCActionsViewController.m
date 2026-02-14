@@ -401,29 +401,6 @@
         }]];
 
         [self presentViewController:alert animated:YES completion:nil];
-    } else {
-        // Generic edit for other commands - show alert with current command
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Edit Action"
-            message:@"Modify the command"
-            preferredStyle:UIAlertControllerStyleAlert];
-
-        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
-            textField.text = currentAction;
-            textField.autocorrectionType = UITextAutocorrectionTypeNo;
-            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
-        }];
-
-        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-        [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
-            NSString *input = alert.textFields.firstObject.text;
-            if (input.length > 0) {
-                self.actions[indexPath.row] = input;
-                [self saveActions];
-                [self.tableView reloadData];
-            }
-        }]];
-
-        [self presentViewController:alert animated:YES completion:nil];
     } else if ([currentAction hasPrefix:@"shortcut:"]) {
         // Edit Shortcut
         RCShortcutPickerViewController *shortcutPicker = [[RCShortcutPickerViewController alloc] init];
@@ -452,6 +429,29 @@
         [self editBluetoothConnectAtIndex:indexPath.row isDisconnect:NO];
     } else if ([currentAction hasPrefix:@"bt disconnect "] || [currentAction hasPrefix:@"bluetooth disconnect "] || [currentAction hasPrefix:@"bt-disconnect "]) {
         [self editBluetoothConnectAtIndex:indexPath.row isDisconnect:YES];
+    } else {
+        // Generic edit for other commands - show alert with current command
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Edit Action"
+            message:@"Modify the command"
+            preferredStyle:UIAlertControllerStyleAlert];
+
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.text = currentAction;
+            textField.autocorrectionType = UITextAutocorrectionTypeNo;
+            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        }];
+
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *input = alert.textFields.firstObject.text;
+            if (input.length > 0) {
+                self.actions[indexPath.row] = input;
+                [self saveActions];
+                [self.tableView reloadData];
+            }
+        }]];
+
+        [self presentViewController:alert animated:YES completion:nil];
     }
 }
 
