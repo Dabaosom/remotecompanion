@@ -4065,7 +4065,7 @@ static BOOL g_bottomBarHapticFired = NO;
             }
             
             // Bottom bar swipe check
-            if (g_bottomBarTouchActive && !g_bottomBarHapticFired) { // Only check if we haven't already fired (though we don't have a hold for bottom)
+            if (g_bottomBarTouchActive) { // Allow firing even if haptic already fired
                  CGFloat deltaX = loc.x - g_bottomBarSwipeStartX;
                  CGFloat deltaY = fabs(loc.y - g_bottomBarSwipeStartY);
 
