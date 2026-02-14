@@ -103,7 +103,9 @@
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
-    NSString *title = (section == 0) ? @"General" : @"Backup";
+    NSString *title;
+    if (section == 0) title = @"General";
+    else title = @"Backup";
     
     UIView *headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tableView.bounds.size.width, 40)];
     UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(20, 15, tableView.bounds.size.width - 40, 20)];
@@ -177,8 +179,8 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    
-    if (indexPath.section == 1) {
+
+    } else if (indexPath.section == 1) {
         if (indexPath.row == 0) {
             [self exportConfig];
         } else {
@@ -186,6 +188,8 @@
         }
     }
 }
+
+
 
 #pragma mark - Actions
 
