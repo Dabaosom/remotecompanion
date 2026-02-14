@@ -4,6 +4,27 @@ IP="iphone.local"
 PORT="1234"
 NTFY_TOPIC="remotecommand-notify"
 
+# Parse global options (must come before command)
+ROOT_CMD=0
+while [[ "$1" =~ ^- ]]; do
+    case "$1" in
+        -r|--root)
+            ROOT_CMD=1
+            shift
+            ;;
+        *)
+            # Stop if we hit a non-flag or unknown flag (like --title for notify)
+            # If the command is "notify", the loop should break so "notify" is processed as $1
+            if [[ "$1" == "notify" ]]; then
+                break
+            fi
+            # For other commands, assume flags are part of the command if not recognized, or handle specific flags here.
+            # But currently only -r is global.
+            break
+            ;;
+    esac
+done
+
 # Handle notify command separately (uses ntfy.sh for true push notifications)
 if [[ "$1" == "notify" ]]; then
     shift  # Remove "notify" from args
@@ -93,6 +114,11 @@ else
         fi
     done
     CMD=$(echo "$CMD" | sed 's/^ //')
+fi
+
+# Prepend root if requested
+if [ "$ROOT_CMD" -eq 1 ]; then
+    CMD="root $CMD"
 fi
 
 # Map user-friendly commands to protocol commands
