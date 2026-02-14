@@ -134,6 +134,7 @@
             inputVC.promptTitle = @"Terminal Command";
             inputVC.promptMessage = @"Enter terminal command";
             inputVC.showRootToggle = YES;
+            inputVC.initialText = @"";
             
             __weak typeof(inputVC) weakInputVC = inputVC;
             inputVC.onComplete = ^(NSString *text) {
@@ -144,30 +145,37 @@
                     [self.tableView reloadData];
                 }
             };
-
+            
             UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:inputVC];
-
+            
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [self presentViewController:nav animated:YES completion:nil];
             });
 
         } else if ([action isEqualToString:@"__CUSTOM_ROOT__"]) {
-            // Show custom text input for root command
-            RCTextInputViewController *inputVC = [[RCTextInputViewController alloc] init];
-            inputVC.promptTitle = @"Root Command";
-            inputVC.promptMessage = @"Enter terminal command (runs as root)";
-            inputVC.onComplete = ^(NSString *text) {
-                if (text.length > 0) {
-                    [self.actions addObject:[NSString stringWithFormat:@"root %@", text]];
+            // Re-use terminal command but fixed as root
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Root Command" 
+                message:@"Enter terminal command (runs as root)" 
+                preferredStyle:UIAlertControllerStyleAlert];
+                
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+                textField.placeholder = @"ldrestart";
+                textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                textField.autocorrectionType = UITextAutocorrectionTypeNo;
+            }];
+            
+            [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Add" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull alertAction) {
+                NSString *input = alert.textFields.firstObject.text;
+                if (input.length > 0) {
+                    [self.actions addObject:[NSString stringWithFormat:@"root %@", input]];
                     [self saveActions];
                     [self.tableView reloadData];
                 }
-            };
-
-            UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:inputVC];
-
+            }]];
+            
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                [self presentViewController:nav animated:YES completion:nil];
+                [self presentViewController:alert animated:YES completion:nil];
             });
 
         } else if ([action isEqualToString:@"__BT_CONNECT__"] || [action isEqualToString:@"__BT_DISCONNECT__"] || [action isEqualToString:@"__AIRPLAY_CONNECT__"]) {
@@ -343,18 +351,13 @@
         
         [self presentViewController:alert animated:YES completion:nil];
     } else if ([currentAction hasPrefix:@"Lua "] || [currentAction hasPrefix:@"lua_eval "] || [currentAction hasPrefix:@"lua "]) {
-        // Edit Lua Script (Direct or File)
-        BOOL isDirect = [currentAction hasPrefix:@"Lua "] || [currentAction hasPrefix:@"lua_eval "];
-        int prefixLength = 0;
-        if ([currentAction hasPrefix:@"Lua "]) prefixLength = 4;
-        else if ([currentAction hasPrefix:@"lua_eval "]) prefixLength = 9;
-        else prefixLength = 4;
-
+        // Edit Lua Script
+        int prefixLength = [currentAction hasPrefix:@"lua_eval "] ? 9 : 4;
         NSString *currentCode = [currentAction substringFromIndex:prefixLength];
         
         RCTextInputViewController *inputVC = [[RCTextInputViewController alloc] init];
         inputVC.promptTitle = @"Edit Lua Script";
-        inputVC.promptMessage = isDirect ? @"Update your Lua code" : @"Update script path (convert to direct code if desired)";
+        inputVC.promptMessage = @"Update your Lua code";
         inputVC.initialText = currentCode;
         inputVC.onComplete = ^(NSString *text) {
             if (text.length > 0) {
