@@ -10,14 +10,18 @@ All notable changes to this project will be documented in this file.
 - **Enhanced Status Queries**: Added a suite of new status commands to query device state without toggling. Use `rc dnd status`, `rc lpm status`, `rc wifi status`, `rc bt status`, and the restored `rc player status` command to get instant feedback.
 - **CLI Root Support**: The `rc` command-line tool now supports `-r` and `--root` flags to quickly fire off root commands from your Mac (e.g., `rc -r ldrestart`).
 - **New System Actions**: Added `ldrestart`, `userspace-reboot`, and `uicache` as first-class selectable actions in the app for quick system maintenance.
+- **Bottom Bar Gestures**: Added new "Bottom Bar Swipe Left" and "Bottom Bar Swipe Right" triggers, allowing you to run actions by swiping horizontally along the home bar area.
 
 ### Improved
 - **Modern Terminal UI**: Redesigned the terminal input screen with a "pro" console aesthetic. Features a near-black, high-contrast text area with rounded corners and monospaced typography.
 - **Consolidated Actions**: Merged "Terminal Command" and "Terminal Command (Root)" into a single, intuitive entry.
 - **Smart Editing**: When editing an existing terminal command, the editor now correctly remembers and displays the root toggle state.
+- **Haptic Intelligence**: Haptic feedback now only fires when a trigger is actually enabled and assigned an action, eliminating phantom vibrations for unconfigured gestures (Status Bar, Bottom Bar, and Edge gestures).
+- **UI Polish**: Removed placeholder text from volume and brightness inputs for a cleaner look, and reordered the Action Picker to place "Volume Up" logically above "Volume Down".
 
 ### Changed
 - **Unified Action Picker**: Streamlined the action selection menu by removing redundant "Root" variants in favor of the new editor-integrated toggles.
+- **Gesture Organization**: The Triggers menu now correctly separates "Bottom Bar Gestures" and "Edge Gestures" into their own dedicated sections.
 
 ## [2.1.2] - 2026-02-06
 
