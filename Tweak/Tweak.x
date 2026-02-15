@@ -4148,6 +4148,10 @@ static CGFloat g_bottomBarSwipeStartY = 0;
 static BOOL g_bottomBarTouchActive = NO;
 static BOOL g_bottomBarHapticFired = NO;
 
+// Status Bar Extended State
+static BOOL g_statusBarSwipeHapticFired = NO;
+static BOOL g_statusBarSwipeTriggered = NO;
+
 %hook UIApplication
 
 - (void)sendEvent:(UIEvent *)event {
@@ -4167,6 +4171,8 @@ static BOOL g_bottomBarHapticFired = NO;
                 g_statusBarSwipeStartX = loc.x;
                 g_statusBarSwipeStartY = loc.y;
                 g_statusBarTouchActive = YES;
+                g_statusBarSwipeHapticFired = NO;
+                g_statusBarSwipeTriggered = NO;
                 
                 // Hold zones: left (first 50pts), right (last 50pts), center (middle)
                 NSString *triggerKey = nil;
@@ -4221,12 +4227,20 @@ static BOOL g_bottomBarHapticFired = NO;
             
             // Status bar: Cancel hold timer if significant movement detected (it's a swipe, not a hold)
             if (g_statusBarTouchActive && !g_statusBarHoldTriggered) {
-                CGFloat deltaX = fabs(loc.x - g_statusBarSwipeStartX);
+                CGFloat signedDeltaX = loc.x - g_statusBarSwipeStartX;
+                CGFloat deltaX = fabs(signedDeltaX);
+                CGFloat deltaY = fabs(loc.y - g_statusBarSwipeStartY);
                 
-                // If moved more than 30pts, cancel the hold...
-                if (fabs(deltaX) > 30 && g_statusBarHoldTimer) {
-                    // Check enablement before haptic
-                    NSString *swipeTrigger = (deltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
+                // Cancel hold timer early if significant movement (10pts)
+                if ((deltaX > 10 || deltaY > 10) && g_statusBarHoldTimer) {
+                    [g_statusBarHoldTimer invalidate];
+                    g_statusBarHoldTimer = nil;
+                    g_pendingStatusBarTrigger = nil;
+                }
+
+                // Swiping haptic logic (15pts threshold)
+                if (deltaX > 15 && !g_statusBarSwipeHapticFired) {
+                    NSString *swipeTrigger = (signedDeltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
                     
                     load_trigger_config();
                     BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
@@ -4234,11 +4248,20 @@ static BOOL g_bottomBarHapticFired = NO;
                     
                     if (enabled) {
                         trigger_haptic();
+                        SRLog(@"[SpringRemote] Status Bar Haptic FIRE (deltaX=%.2f)", deltaX);
                     }
-                    
-                    [g_statusBarHoldTimer invalidate];
-                    g_statusBarHoldTimer = nil;
-                    g_pendingStatusBarTrigger = nil;
+                    g_statusBarSwipeHapticFired = YES;
+                }
+
+                // Robust Fire (Moved phase, 50pts threshold)
+                if (deltaX > 50 && deltaY < 150 && !g_statusBarSwipeTriggered) {
+                    NSString *swipeTrigger = (signedDeltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
+                    load_trigger_config();
+                    if ([g_triggerConfig[@"masterEnabled"] boolValue] && [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue]) {
+                        RCExecuteTrigger(swipeTrigger);
+                        SRLog(@"[SpringRemote] Status Bar %@ FIRED (Instant)!", swipeTrigger);
+                        g_statusBarSwipeTriggered = YES;
+                    }
                 }
             }
 
@@ -4265,13 +4288,13 @@ static BOOL g_bottomBarHapticFired = NO;
         else if (touch && touch.phase == UITouchPhaseEnded) {
             CGPoint loc = [touch locationInView:nil];
             
-            // Status bar swipe check
-            if (g_statusBarTouchActive && !g_statusBarHoldTriggered) {
+            // Status bar swipe check (fallback if not already triggered in Moved)
+            if (g_statusBarTouchActive && !g_statusBarHoldTriggered && !g_statusBarSwipeTriggered) {
                 CGFloat deltaX = loc.x - g_statusBarSwipeStartX;
                 CGFloat deltaY = fabs(loc.y - g_statusBarSwipeStartY);
                 
-                // Swipe threshold: 80pts horizontal, less than 50pts vertical
-                if (fabs(deltaX) > 80 && deltaY < 50) {
+                // Fallback threshold: 40pts horizontal, less than 150pts vertical
+                if (fabs(deltaX) > 40 && deltaY < 150) {
                     NSString *swipeTrigger = (deltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
                     
                     load_trigger_config();
@@ -4279,9 +4302,9 @@ static BOOL g_bottomBarHapticFired = NO;
                                    [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue];
                     
                     if (enabled) {
-                        // Haptic already fired mid-swipe, just execute actions
                         RCExecuteTrigger(swipeTrigger);
-                        SRLog(@"[SpringRemote] %@ FIRED!", swipeTrigger);
+                        SRLog(@"[SpringRemote] %@ FIRED (Fallback)!", swipeTrigger);
+                        g_statusBarSwipeTriggered = YES;
                     }
                 }
             }
