@@ -10,7 +10,7 @@
 + (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleIdentifier format:(int)format scale:(CGFloat)scale;
 @end
 
-@interface RCActionsViewController ()
+@interface RCActionsViewController () <UITableViewDragDelegate, UITableViewDropDelegate>
 @property (nonatomic, strong) NSString *triggerKey;
 @property (nonatomic, strong) NSMutableArray<NSString *> *actions;
 @end
@@ -72,8 +72,14 @@
     // Load actions
     _actions = [[[RCConfigManager sharedManager] actionsForTrigger:_triggerKey] mutableCopy];
     
-    self.tableView.editing = NO;
-    self.navigationItem.rightBarButtonItems = @[addButton, self.editButtonItem];
+    // Always-on editing behavior
+    self.tableView.dragInteractionEnabled = YES;
+    self.tableView.dragDelegate = self;
+    self.tableView.dropDelegate = self;
+    
+    // Deletion is handled via swipe actions (trailingSwipeActionsConfigurationForRowAtIndexPath)
+    
+    self.navigationItem.rightBarButtonItems = @[addButton];
 
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"ActionCell"];
     self.tableView.rowHeight = 70; // Fixed height as in V2.1.2
@@ -656,34 +662,75 @@
         cell.imageView.tintColor = [UIColor systemGrayColor];
     }
 
-    cell.showsReorderControl = YES;
+    cell.showsReorderControl = NO; // Managed by drag/drop API
 
     return cell;
 }
 
-// Reordering
+#pragma mark - UITableViewDragDelegate
+
+- (NSArray<UIDragItem *> *)tableView:(UITableView *)tableView itemsForBeginningDragSession:(id<UIDragSession>)session atIndexPath:(NSIndexPath *)indexPath {
+    NSString *action = self.actions[indexPath.row];
+    NSData *data = [action dataUsingEncoding:NSUTF8StringEncoding];
+    NSItemProvider *itemProvider = [[NSItemProvider alloc] initWithItem:data typeIdentifier:@"com.pizzaman.rc.action"];
+    UIDragItem *dragItem = [[UIDragItem alloc] initWithItemProvider:itemProvider];
+    dragItem.localObject = action;
+    return @[dragItem];
+}
+
+#pragma mark - UITableViewDropDelegate
+
+- (UITableViewDropProposal *)tableView:(UITableView *)tableView dropSessionDidUpdate:(id<UIDropSession>)session withDestinationIndexPath:(NSIndexPath *)destinationIndexPath {
+    if (tableView.hasActiveDrag) {
+        return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationMove intent:UITableViewDropIntentInsertAtDestinationIndexPath];
+    }
+    return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationForbidden];
+}
+
+- (void)tableView:(UITableView *)tableView performDropWithCoordinator:(id<UITableViewDropCoordinator>)coordinator {
+    NSIndexPath *destinationIndexPath = coordinator.destinationIndexPath;
+    if (!destinationIndexPath) {
+        destinationIndexPath = [NSIndexPath indexPathForRow:[self.actions count] - 1 inSection:0];
+    }
+
+    for (id<UITableViewDropItem> item in coordinator.items) {
+        if (item.sourceIndexPath) {
+            NSIndexPath *sourceIndexPath = item.sourceIndexPath;
+            NSString *action = self.actions[sourceIndexPath.row];
+            [_actions removeObjectAtIndex:sourceIndexPath.row];
+            [_actions insertObject:action atIndex:destinationIndexPath.row];
+            
+            [tableView moveRowAtIndexPath:sourceIndexPath toIndexPath:destinationIndexPath];
+            [coordinator dropItem:item.dragItem toRowAtIndexPath:destinationIndexPath];
+            [self saveActions];
+        }
+    }
+}
+
+// Swipe Actions
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UIContextualAction *deleteAction = [UIContextualAction
+        contextualActionWithStyle:UIContextualActionStyleDestructive
+        title:@"Delete"
+        handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+            [_actions removeObjectAtIndex:indexPath.row];
+            [self saveActions];
+            [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+            completionHandler(YES);
+        }];
+
+    deleteAction.image = [UIImage systemImageNamed:@"trash.fill"];
+    return [UISwipeActionsConfiguration configurationWithActions:@[deleteAction]];
+}
+
+// Reordering (legacy but kept for logic reference, though drag/drop is primary now)
 - (BOOL)tableView:(UITableView *)tableView canMoveRowAtIndexPath:(NSIndexPath *)indexPath {
     return YES;
 }
 
-- (void)tableView:(UITableView *)tableView moveRowAtIndexPath:(NSIndexPath *)sourceIndexPath toIndexPath:(NSIndexPath *)destinationIndexPath {
-    NSString *action = _actions[sourceIndexPath.row];
-    [_actions removeObjectAtIndex:sourceIndexPath.row];
-    [_actions insertObject:action atIndex:destinationIndexPath.row];
-    [self saveActions];
-}
-
-// Deletion
+// Deletion (legacy - leading/trailing swipe actions are preferred now)
 - (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return UITableViewCellEditingStyleDelete;
-}
-
-- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (editingStyle == UITableViewCellEditingStyleDelete) {
-        [_actions removeObjectAtIndex:indexPath.row];
-        [self saveActions];
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-    }
+    return UITableViewCellEditingStyleNone; // Prevent standard delete indicator
 }
 
 @end
