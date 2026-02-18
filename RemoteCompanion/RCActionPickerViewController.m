@@ -107,6 +107,8 @@
             @{ @"name": @"Soft Reboot (ldrestart)", @"command": @"ldrestart", @"icon": @"arrow.clockwise" },
             @{ @"name": @"Userspace Reboot", @"command": @"userspace-reboot", @"icon": @"arrow.clockwise.circle" },
             @{ @"name": @"Refresh Icon Cache (uicache)", @"command": @"uicache", @"icon": @"square.grid.2x2" },
+            @{ @"name": @"Snapper 3", @"command": @"snapper", @"icon": @"rectangle.dashed.badge.record" },
+            @{ @"name": @"Snapper (Instant)", @"command": @"snapper-instant", @"icon": @"rectangle.dashed" },
             @{ @"name": @"Lock Status", @"command": @"lock status", @"icon": @"lock.circle" },
             @{ @"name": @"Lock Status", @"command": @"lock status", @"icon": @"lock.circle" },
             

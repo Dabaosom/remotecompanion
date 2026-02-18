@@ -7,12 +7,12 @@ Codename: ios
 Architectures: iphoneos-arm iphoneos-arm64
 Description: A modern Activator replacement for rootless jailbreaks. Bind triggers to system actions, Siri automation, and custom TCP commands.
 MD5Sum:
- 5a872861702de0a04e0fbc009f4589cf 10446 Packages
- 74a94ec502adb5c5079068da76780d36 2141 Packages.gz
- ea4a60ec686f3538b19eab695ddca3ce 2272 Packages.bz2
- 3e5d8af0576370d2b007b9e54861414a 1933 Packages.zst
+ b17591ae6551553f90573539d88aa69c 10446 Packages
+ fb11d1acf4f7d65db1ef77f05f96f846 2134 Packages.gz
+ a1793cba1c89f7656b2f936d3f8e2b4b 2279 Packages.bz2
+ bd2f5d839f79d850bba658430cefe836 1935 Packages.zst
 SHA256:
- 45e3b35d9a1a8318a166ce0b0707a97ee0ce31d14d0160fce80b2c31e4c164fd 10446 Packages
- a3c3ca0ee3e7b98020ff41e30f2dd2b7d96ffadd07b9d1160f5ec26609e7ed6f 2141 Packages.gz
- f18f048c8e5e8b82e1466b3f709093c1e4a7fdded060600cf8596e1eda5da58d 2272 Packages.bz2
- b688e44357226bb22b09c17c9b96994f58fd16693405d5f2c292b037d3c776f1 1933 Packages.zst
+ 67c6e686a8507df10d4e1b9873fe4fdede91ccdc807f4e4d38b49c63438b702c 10446 Packages
+ f1f9cd1523ea013c8143fc50fea7d84351238b87f298c07c4dd54932d5579a4d 2134 Packages.gz
+ 8334484a95b39ca4238913149c105856eccf780cb5c5f8ad86928f9193e30ae4 2279 Packages.bz2
+ 315559c25b0f395d5e28a68d3500f04bc968f1ad7965862d9dcbafbf5ae61aeb 1935 Packages.zst

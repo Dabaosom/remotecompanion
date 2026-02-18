@@ -2767,6 +2767,12 @@ static NSString *handle_command(NSString *cmd) {
              }
          });
          return @"Screenshot triggered\n";
+    } else if ([cleanCmd isEqualToString:@"snapper"]) {
+        notify_post("com.jontelang.snapper3.force.open");
+        return @"Snapper 3 triggered\n";
+    } else if ([cleanCmd isEqualToString:@"snapper-instant"]) {
+        notify_post("com.jontelang.snapper3.forceinstant.open");
+        return @"Snapper Instant triggered\n";
     } else if ([cleanCmd hasPrefix:@"delay "]) {
         NSString *delayStr = [cleanCmd substringFromIndex:6];
         float seconds = [delayStr floatValue];

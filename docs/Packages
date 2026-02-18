@@ -63,12 +63,12 @@ Replaces: com.pizzaman.remotecommand
 Conflicts: com.pizzaman.remotecommand
 Architecture: iphoneos-arm64
 Version: 2.2.0~beta1
-Installed-Size: 1568
+Installed-Size: 1600
 Filename: ./com.saihgupr.remotecompanion_2.2.0~beta1_iphoneos-arm64.deb
-Size: 303852
-MD5sum: 1fd67326b94ffe68a88709f191128262
-SHA1: 0fa0a47bf79b7d42febcd86602258f05ef971b8d
-SHA256: 6a165fa5c916ec79556247a9a2766a46e3d4f59445a8ae45cacd522b6535e5e5
+Size: 304248
+MD5sum: 73fd37d901451ac94c74957078a2982c
+SHA1: bb9a473393de5cad99866f1b4e26b1cb204f6f02
+SHA256: 3addf430418dd708f47c2cb6b1d218d59a0a02797ca9e80bd1db685b0c35ff0b
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -171,12 +171,12 @@ Replaces: com.pizzaman.remotecommand
 Conflicts: com.pizzaman.remotecommand
 Architecture: iphoneos-arm
 Version: 2.2.0~beta1
-Installed-Size: 1568
+Installed-Size: 1600
 Filename: ./com.saihgupr.remotecompanion_2.2.0~beta1_iphoneos-arm.deb
-Size: 304008
-MD5sum: e62bc7f3f4f50e6e6460382ef4186dab
-SHA1: 3ed958efc5c9d12872f0af6d99d43aeb67f911c3
-SHA256: 1d15816227b2ad6c0753608becbf54055d382c43bb6712b394524cc2ace1b7f5
+Size: 304500
+MD5sum: ae6e58c110fb54f221b4212439c9d798
+SHA1: a6ff611528be6be4cc80454f355de714e8122dea
+SHA256: 3ba60fdbeeba87d82e6552e33fbd06aed894e1992745888690f2ef2620aa843f
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
