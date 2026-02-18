@@ -72,8 +72,8 @@
     // Load actions
     _actions = [[[RCConfigManager sharedManager] actionsForTrigger:_triggerKey] mutableCopy];
     
-    // Always-on editing behavior
-    self.tableView.editing = YES;
+    // Non-editing mode to allow swipe actions
+    self.tableView.editing = NO;
     self.tableView.allowsSelectionDuringEditing = YES;
     self.tableView.dragInteractionEnabled = YES;
     self.tableView.dragDelegate = self;
@@ -664,8 +664,10 @@
         cell.imageView.tintColor = [UIColor systemGrayColor];
     }
 
-    cell.showsReorderControl = YES; 
-
+    // Custom reorder handle (since editing = NO)
+    UIImageView *handleView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
+    handleView.tintColor = [UIColor systemGray3Color];
+    cell.accessoryView = handleView;
     return cell;
 }
 
