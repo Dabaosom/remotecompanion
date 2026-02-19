@@ -6,12 +6,19 @@
 #import <unistd.h>
 #include <arpa/inet.h>
 #import <spawn.h>
+#import <notify.h>
+#import <sys/wait.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 #import <mach/mach_time.h>
 #import "native_curl.h"
+#import <CoreFoundation/CoreFoundation.h>
+
+static void trigger_haptic();
+static void toggle_system_vibration(BOOL silentMode, BOOL enable);
+static BOOL get_system_vibration(BOOL silentMode);
 
 // WorkflowKit interfaces
 @interface WFWorkflowDescriptor : NSObject
@@ -80,7 +87,7 @@ static NSHashTable *siriInteractions = nil;
 - (id)init {
     id r = %orig;
     sharedVoiceControl = r;
-    SRLog(@"[SpringRemote] Captured SBVoiceControlController init: %@", r);
+    SRLog(@"Captured SBVoiceControlController init: %@", r);
     return r;
 }
 %end
@@ -92,7 +99,7 @@ static NSHashTable *siriInteractions = nil;
         siriInteractions = [NSHashTable weakObjectsHashTable];
     }
     [siriInteractions addObject:r];
-    SRLog(@"[SpringRemote] Captured SBSiriHardwareButtonInteraction init: %@", r);
+    SRLog(@"Captured SBSiriHardwareButtonInteraction init: %@", r);
     return r;
 }
 %end
@@ -200,6 +207,7 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 - (BOOL)enabled;
 - (void)setEnabled:(BOOL)enabled;
 - (void)setPowered:(BOOL)powered;
+- (BOOL)powered;
 - (NSArray *)pairedDevices;
 - (void)connectDevice:(id)device;
 @end
@@ -231,6 +239,7 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 @interface SBWiFiManager : NSObject
 + (instancetype)sharedInstance;
 - (void)setWiFiEnabled:(BOOL)enabled;
+- (BOOL)wiFiEnabled;
 @end
 
 // MediaRemote APIs - these are stable and work on iOS 15.8
@@ -244,6 +253,7 @@ typedef enum {
 
 extern void MRMediaRemoteSendCommand(MRCommand command, NSDictionary *options);
 extern void MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_queue_t queue, void (^completion)(Boolean isPlaying));
+extern void MRMediaRemoteGetNowPlayingApplicationPlaybackState(dispatch_queue_t queue, void (^completion)(unsigned int state));
 
 // AVOutputDevice for ANC control (used by Sonitus)
 @interface AVOutputDevice : NSObject
@@ -442,7 +452,7 @@ static void toggle_dnd(BOOL state) {
             if (!ServiceClass || !DetailsClass) {
                 // Fallback for iOS 14
                 if (StateServiceClass) {
-                    SRLog(@"[SpringRemote] Using iOS 14 DND fallback");
+                    SRLog(@"Using iOS 14 DND fallback");
                     id service = [StateServiceClass serviceForClientIdentifier:@"com.apple.donotdisturb.control-center.module"];
                     (void)service;
                     if (state) {
@@ -453,7 +463,7 @@ static void toggle_dnd(BOOL state) {
                         // NOTE: Proper iOS 14 DND implementation usually involves SpringBoard hooks.
                     }
                 }
-                SRLog(@"[SpringRemote] DND toggle not fully supported on this iOS version yet");
+                SRLog(@"DND toggle not fully supported on this iOS version yet");
                 return;
             }
 
@@ -473,13 +483,13 @@ static void toggle_dnd(BOOL state) {
                                                                            lifetime:nil];
                 NSError *err = nil;
                 id assertion = [service takeModeAssertionWithDetails:details error:&err];
-                if (err) SRLog(@"[SpringRemote] Failed to enable DND: %@", err);
-                else SRLog(@"[SpringRemote] DND Enabled. Assertion: %@", assertion);
+                if (err) SRLog(@"Failed to enable DND: %@", err);
+                else SRLog(@"DND Enabled. Assertion: %@", assertion);
             } else {
-                SRLog(@"[SpringRemote] DND Disabled");
+                SRLog(@"DND Disabled");
             }
         } @catch (NSException *e) {
-            SRLog(@"[SpringRemote] EXCEPTION in toggle_dnd: %@", e);
+            SRLog(@"EXCEPTION in toggle_dnd: %@", e);
         }
     });
 }
@@ -489,13 +499,13 @@ static void toggle_lpm(BOOL state) {
         @try {
             Class BatterySaverClass = objc_getClass("_CDBatterySaver");
             if (!BatterySaverClass) {
-                SRLog(@"[SpringRemote] _CDBatterySaver class not found");
+                SRLog(@"_CDBatterySaver class not found");
                 return;
             }
             
             id saver = [BatterySaverClass batterySaver];
             if (!saver) {
-                SRLog(@"[SpringRemote] Failed to get batterySaver instance");
+                SRLog(@"Failed to get batterySaver instance");
                 return;
             }
             
@@ -504,12 +514,12 @@ static void toggle_lpm(BOOL state) {
             BOOL result = [saver setPowerMode:(state ? 1 : 0) error:&err];
             
             if (err) {
-                SRLog(@"[SpringRemote] Failed to set LPM: %@", err);
+                SRLog(@"Failed to set LPM: %@", err);
             } else {
-                SRLog(@"[SpringRemote] LPM %@. Result: %d", state ? @"Enabled" : @"Disabled", result);
+                SRLog(@"LPM %@. Result: %d", state ? @"Enabled" : @"Disabled", result);
             }
         } @catch (NSException *e) {
-            SRLog(@"[SpringRemote] EXCEPTION in toggle_lpm: %@", e);
+            SRLog(@"EXCEPTION in toggle_lpm: %@", e);
         }
     });
 }
@@ -591,6 +601,28 @@ static void inject_hid_event(uint32_t page, uint32_t usage, uint64_t durationNs,
     });
 }
 
+static void toggle_system_vibration(BOOL silentMode, BOOL enable) {
+    NSString *key = silentMode ? @"silent-vibrate" : @"ring-vibrate";
+    CFStringRef appID = CFSTR("com.apple.springboard");
+    
+    CFPreferencesSetAppValue((__bridge CFStringRef)key, (__bridge CFNumberRef)@(enable), appID);
+    CFPreferencesAppSynchronize(appID);
+    
+    // Notify SpringBoard to reload prefs
+    notify_post("com.apple.springboard.silent-vibrate.changed");
+    notify_post("com.apple.springboard.ring-vibrate.changed");
+    
+    SRLog(@"Set system vibration (%@) to: %@", key, enable ? @"YES" : @"NO");
+}
+
+static BOOL get_system_vibration(BOOL silentMode) {
+    NSString *key = silentMode ? @"silent-vibrate" : @"ring-vibrate";
+    Boolean valid;
+    Boolean val = CFPreferencesGetAppBooleanValue((__bridge CFStringRef)key, CFSTR("com.apple.springboard"), &valid);
+    if (!valid) return YES;
+    return val;
+}
+
 // Helper to detect rootless vs rootful
 static NSString* root_prefix() {
     static NSString *prefix = nil;
@@ -610,32 +642,33 @@ static void inject_consumer_key(int usage) {
     inject_hid_event(kHIDPage_Consumer, usage, 50000000, 0); // 50ms hold
 }
 
+
 static void simulate_home_press() {
     dispatch_async(dispatch_get_main_queue(), ^{
-        SRLog(@"[SpringRemote] Executing Home simulation...");
+        SRLog(@"Executing Home simulation...");
         
         // 1. Try SBUIController (Modern Home Tap)
         id uiCtrl = [objc_getClass("SBUIController") sharedInstance];
         if ([uiCtrl respondsToSelector:@selector(handleHomeButtonTap)]) {
             [uiCtrl handleHomeButtonTap];
-            SRLog(@"[SpringRemote] Triggered handleHomeButtonTap");
+            SRLog(@"Triggered handleHomeButtonTap");
         } else if ([uiCtrl respondsToSelector:@selector(handleHomeButtonTap:)]) {
             [uiCtrl handleHomeButtonTap:nil];
-            SRLog(@"[SpringRemote] Triggered handleHomeButtonTap:");
+            SRLog(@"Triggered handleHomeButtonTap:");
         } else if ([uiCtrl respondsToSelector:@selector(clickedMenuButton)]) {
             [uiCtrl clickedMenuButton];
-            SRLog(@"[SpringRemote] Triggered clickedMenuButton");
+            SRLog(@"Triggered clickedMenuButton");
         }
         
         // 2. Fallback: SpringBoard simulation
         SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
         if ([sb respondsToSelector:@selector(_simulateHomeButtonPress)]) {
             [sb _simulateHomeButtonPress];
-            SRLog(@"[SpringRemote] Triggered _simulateHomeButtonPress");
+            SRLog(@"Triggered _simulateHomeButtonPress");
         } else if ([sb respondsToSelector:@selector(_menuButtonDown:)]) {
             [sb _menuButtonDown:nil];
             [sb _menuButtonUp:nil];
-            SRLog(@"[SpringRemote] Triggered _menuButtonDown/Up");
+            SRLog(@"Triggered _menuButtonDown/Up");
         }
         
         // 3. HID Event (Last resort)
@@ -784,7 +817,7 @@ static NSString *find_config_path() {
         NSString *configPath = [NSString stringWithFormat:@"%@/%@/Documents/%@", 
                                 containersPath, uuid, kTriggerConfigFilename];
         if ([fm fileExistsAtPath:configPath]) {
-            SRLog(@"[SpringRemote] Found config in container: %@", configPath);
+            SRLog(@"Found config in container: %@", configPath);
             return configPath;
         }
     }
@@ -803,18 +836,18 @@ static void load_trigger_config() {
                 // Thread-safe update: replace the pointer
                 g_triggerConfig = newConfig;
                 g_resolvedConfigPath = path;
-                SRLog(@"[SpringRemote] Loaded trigger config from %@: masterEnabled=%@, triggers=%lu",
+                SRLog(@"Loaded trigger config from %@: triggers=%lu",
                       path,
-                      g_triggerConfig[@"masterEnabled"],
                       (unsigned long)[g_triggerConfig[@"triggers"] count]);
             } else {
-                SRLog(@"[SpringRemote] Failed to parse config at %@", path);
+                SRLog(@"Failed to parse config at %@", path);
             }
         } else {
-            SRLog(@"[SpringRemote] No trigger config found at shared path or in app containers");
+            SRLog(@"No trigger config found at shared path or in app containers");
         }
     }
 }
+
 static void update_simulation_observers();
 
 // Forward declarations for gesture management functions
@@ -825,20 +858,20 @@ static void update_edge_gestures();
 
 static void config_changed_callback(CFNotificationCenterRef center, void *observer,
                                     CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    SRLog(@"[SpringRemote] Config changed notification received.");
+    SRLog(@"Config changed notification received.");
     
     // Ensure config loading and UI/Gesture updates happen on the main thread
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            SRLog(@"[SpringRemote] Reloading config on main thread...");
+            SRLog(@"Reloading config on main thread...");
             load_trigger_config();
-            SRLog(@"[SpringRemote] Config loaded. Updating simulation observers...");
+            SRLog(@"Config loaded. Updating simulation observers...");
             update_simulation_observers();
-            SRLog(@"[SpringRemote] Simulation observers updated. Updating edge gestures...");
+            SRLog(@"Simulation observers updated. Updating edge gestures...");
             update_edge_gestures(); 
-            SRLog(@"[SpringRemote] Edge gestures updated. Config reload complete.");
+            SRLog(@"Edge gestures updated. Config reload complete.");
         } @catch (NSException *e) {
-            SRLog(@"[SpringRemote] CRITICAL ERROR in config_changed_callback: %@\nStack: %@", e, e.callStackSymbols);
+            SRLog(@"CRITICAL ERROR in config_changed_callback: %@\nStack: %@", e, e.callStackSymbols);
         }
     });
 }
@@ -852,7 +885,7 @@ static void register_config_observer() {
         NULL,
         CFNotificationSuspensionBehaviorDeliverImmediately
     );
-    SRLog(@"[SpringRemote] Registered for config change notifications");
+    SRLog(@"Registered for config change notifications");
 }
 
 // ============ SIMULATION SYSTEM (for testing from app) ============
@@ -867,7 +900,7 @@ static void execute_actions_for_simulation(NSString *triggerKey) {
     load_trigger_config();
     
     if (!g_triggerConfig) {
-        SRLog(@"[SpringRemote] SIMULATE: No trigger config loaded");
+        SRLog(@"SIMULATE: No trigger config loaded");
         return;
     }
     
@@ -875,21 +908,21 @@ static void execute_actions_for_simulation(NSString *triggerKey) {
     NSDictionary *trigger = triggers[triggerKey];
     
     if (!trigger) {
-        SRLog(@"[SpringRemote] SIMULATE: Trigger '%@' not found in config", triggerKey);
+        SRLog(@"SIMULATE: Trigger '%@' not found in config", triggerKey);
         return;
     }
     
     NSArray *actions = trigger[@"actions"];
     if (!actions || actions.count == 0) {
-        SRLog(@"[SpringRemote] SIMULATE: No actions configured for '%@'", triggerKey);
+        SRLog(@"SIMULATE: No actions configured for '%@'", triggerKey);
         return;
     }
     
-    SRLog(@"[SpringRemote] SIMULATE: Executing %lu actions for '%@'", (unsigned long)actions.count, triggerKey);
+    SRLog(@"SIMULATE: Executing %lu actions for '%@'", (unsigned long)actions.count, triggerKey);
     
     // Execute each action in sequence
     for (NSString *action in actions) {
-        SRLog(@"[SpringRemote] SIMULATE: -> Executing: %@", action);
+        SRLog(@"SIMULATE: -> Executing: %@", action);
         handle_command(action);
         // Small delay between actions to let them complete
         usleep(50000); // 50ms
@@ -942,7 +975,7 @@ static void update_simulation_observers() {
             SRLog(@"Registered %d NEW simulation observers (Total: %lu)", count, (unsigned long)g_registeredTriggers.count);
         }
     } @catch (NSException *e) {
-         SRLog(@"[SpringRemote] ERROR in update_simulation_observers: %@", e);
+         SRLog(@"ERROR in update_simulation_observers: %@", e);
     }
 }
 
@@ -953,17 +986,17 @@ static void register_simulation_observers() {
 // Execute all actions for a trigger
 void RCExecuteTrigger(NSString *triggerKey) {
     if (!g_triggerConfig) {
-        SRLog(@"[SpringRemote] Config missing, attempting to load...");
+        SRLog(@"Config missing, attempting to load...");
         load_trigger_config();
         if (!g_triggerConfig) {
-            SRLog(@"[SpringRemote] ERROR: Could not load trigger config for '%@'", triggerKey);
+            SRLog(@"ERROR: Could not load trigger config for '%@'", triggerKey);
             return;
         }
     }
     
     // Check master toggle
     if (![g_triggerConfig[@"masterEnabled"] boolValue]) {
-        SRLog(@"[SpringRemote] Master toggle is OFF, skipping trigger '%@'", triggerKey);
+        SRLog(@"Master toggle is OFF, skipping trigger '%@'", triggerKey);
         return;
     }
     
@@ -971,29 +1004,29 @@ void RCExecuteTrigger(NSString *triggerKey) {
     NSDictionary *trigger = triggers[triggerKey];
     
     if (!trigger) {
-        SRLog(@"[SpringRemote] TRIGGER NOT FOUND: '%@'", triggerKey);
+        SRLog(@"TRIGGER NOT FOUND: '%@'", triggerKey);
         // Special case: if it's an NFC tag not in config, maybe log UID?
         return;
     }
     
     if (![trigger[@"enabled"] boolValue]) {
-        SRLog(@"[SpringRemote] Trigger '%@' is DISABLED in config", triggerKey);
+        SRLog(@"Trigger '%@' is DISABLED in config", triggerKey);
         return;
     }
     
     NSArray *actions = trigger[@"actions"];
     if (!actions || actions.count == 0) {
-        SRLog(@"[SpringRemote] No actions configured for '%@'", triggerKey);
+        SRLog(@"No actions configured for '%@'", triggerKey);
         return;
     }
     
-    SRLog(@"[SpringRemote] TRIGGER FIRED: '%@' -> Executing %lu actions", triggerKey, (unsigned long)actions.count);
+    SRLog(@"TRIGGER FIRED: '%@' -> Executing %lu actions", triggerKey, (unsigned long)actions.count);
     
     // Execute on background queue to allow for delays and blocking operations
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         // Execute each action in sequence
         for (NSString *action in actions) {
-            SRLog(@"[SpringRemote] [%@] -> % @", triggerKey, action);
+            SRLog(@"[%@] -> % @", triggerKey, action);
             handle_command(action);
             // Small default delay between actions
             usleep(10000); 
@@ -1019,7 +1052,7 @@ static int lua_openURL(lua_State *L) {
     const char *urlStr = luaL_checkstring(L, 1);
     NSString *urlString = [NSString stringWithUTF8String:urlStr];
     
-    SRLog(@"[SpringRemote] Lua openURL: %@", urlString);
+    SRLog(@"Lua openURL: %@", urlString);
     
     dispatch_async(dispatch_get_main_queue(), ^{
         NSURL *url = [NSURL URLWithString:urlString];
@@ -1036,7 +1069,7 @@ static int lua_curl(lua_State *L) {
     const char *urlStr = luaL_checkstring(L, 1);
     NSString *urlString = [NSString stringWithUTF8String:urlStr];
     
-    SRLog(@"[SpringRemote] Lua curl: %@", urlString);
+    SRLog(@"Lua curl: %@", urlString);
     
     // Use native curl implementation
     NSString *curlCmd = [NSString stringWithFormat:@"curl %@", urlString];
@@ -1048,14 +1081,14 @@ static int lua_curl(lua_State *L) {
 // Lua binding: delay(seconds)
 static int lua_delay(lua_State *L) {
     double seconds = luaL_checknumber(L, 1);
-    SRLog(@"[SpringRemote] Lua delay: %.2f seconds", seconds);
+    SRLog(@"Lua delay: %.2f seconds", seconds);
     usleep((useconds_t)(seconds * 1000000));
     return 0;
 }
 
 // Lua binding: haptic()
 static int lua_haptic(lua_State *L) {
-    AudioServicesPlaySystemSound(1520);
+    trigger_haptic();
     return 0;
 }
 
@@ -1064,6 +1097,139 @@ static int lua_log(lua_State *L) {
     const char *msg = luaL_checkstring(L, 1);
     SRLog(@"[Lua] %s", msg);
     return 0;
+}
+
+// Lua binding: dlopen(path)
+static int lua_dlopen(lua_State *L) {
+    const char *path = luaL_checkstring(L, 1);
+    void *handle = dlopen(path, RTLD_NOW);
+    if (handle) {
+        lua_pushboolean(L, 1);
+        return 1;
+    } else {
+        lua_pushnil(L);
+        lua_pushstring(L, dlerror());
+        return 2;
+    }
+}
+
+// Helper to convert Lua arg to ObjC object
+static id lua_to_id(lua_State *L, int index) {
+    int type = lua_type(L, index);
+    if (type == LUA_TSTRING) {
+        return [NSString stringWithUTF8String:lua_tostring(L, index)];
+    } else if (type == LUA_TNUMBER) {
+        return @(lua_tonumber(L, index));
+    } else if (type == LUA_TBOOLEAN) {
+        return @(lua_toboolean(L, index));
+    } else if (type == LUA_TNIL) {
+        return nil;
+    }
+    return nil;
+}
+
+// Lua binding: objc_call(className, selector, args...)
+static int lua_objc_call(lua_State *L) {
+    int top = lua_gettop(L);
+    if (top < 2) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Usage: objc_call(className, selector, ...)");
+        return 2;
+    }
+
+    // 1. Target Class
+    id target = nil;
+    if (lua_type(L, 1) == LUA_TSTRING) {
+        const char *clsName = lua_tostring(L, 1);
+        target = objc_getClass(clsName);
+        if (!target) {
+             lua_pushnil(L);
+             lua_pushstring(L, "Class not found");
+             return 2;
+        }
+    } else {
+        lua_pushnil(L);
+        lua_pushstring(L, "Target must be class name (string)");
+        return 2;
+    }
+
+    // 2. Selector
+    const char *selName = luaL_checkstring(L, 2);
+    SEL selector = sel_registerName(selName);
+    
+    // 3. Signature
+    NSMethodSignature *sig = [target methodSignatureForSelector:selector];
+    if (!sig) {
+        lua_pushnil(L);
+        lua_pushstring(L, "Method signature not found");
+        return 2;
+    }
+    
+    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+    [inv setTarget:target];
+    [inv setSelector:selector];
+    
+    // 4. Arguments
+    NSUInteger numArgs = [sig numberOfArguments];
+    // arg 0 is self, 1 is _cmd. Lua args start at index 3 (mapped to ObjC arg 2)
+    for (NSUInteger i = 2; i < numArgs; i++) {
+        int luaIdx = (int)i + 1; 
+        if (luaIdx > top) break;
+        
+        const char *type = [sig getArgumentTypeAtIndex:i];
+        // Basic type handling
+        if (strcmp(type, "@") == 0) { // Object
+            id obj = lua_to_id(L, luaIdx);
+            [inv setArgument:&obj atIndex:i];
+        } else if (strcmp(type, "i") == 0 || strcmp(type, "s") == 0 || strcmp(type, "l") == 0 || strcmp(type, "q") == 0 || strcmp(type, "Q") == 0) { // Integers
+             long long val = (long long)lua_tonumber(L, luaIdx);
+             [inv setArgument:&val atIndex:i];
+        } else if (strcmp(type, "f") == 0 || strcmp(type, "d") == 0) { // Floats
+             double val = lua_tonumber(L, luaIdx);
+             [inv setArgument:&val atIndex:i];
+        } else if (strcmp(type, "B") == 0 || strcmp(type, "c") == 0) { // BOOL / char
+             BOOL val = lua_toboolean(L, luaIdx);
+             [inv setArgument:&val atIndex:i];
+        } else if (strcmp(type, ":") == 0) { // Selector
+             const char *s = lua_tostring(L, luaIdx);
+             SEL sel = sel_registerName(s);
+             [inv setArgument:&sel atIndex:i];
+        }
+    }
+    
+    [inv invoke];
+    
+    // 5. Return Value
+    const char *retType = [sig methodReturnType];
+    if (strcmp(retType, "@") == 0) {
+        __unsafe_unretained id retVal;
+        [inv getReturnValue:&retVal];
+        if (retVal == nil) {
+            lua_pushnil(L);
+        } else if ([retVal isKindOfClass:[NSString class]]) {
+            lua_pushstring(L, [retVal UTF8String]);
+        } else if ([retVal isKindOfClass:[NSNumber class]]) {
+            lua_pushnumber(L, [retVal doubleValue]);
+        } else {
+             lua_pushstring(L, [[retVal description] UTF8String]);
+        }
+        return 1;
+    } else if (strcmp(retType, "v") == 0) {
+        return 0;
+    } else if (strcmp(retType, "B") == 0 || strcmp(retType, "c") == 0) {
+        BOOL val;
+        [inv getReturnValue:&val];
+        lua_pushboolean(L, val);
+        return 1;
+    } else if (strcmp(retType, "i") == 0 || strcmp(retType, "s") == 0 || strcmp(retType, "l") == 0 || strcmp(retType, "q") == 0 || strcmp(retType, "Q") == 0) {
+        long long val;
+        [inv getReturnValue:&val];
+        lua_pushnumber(L, (double)val);
+        return 1;
+    } else {
+        // Unknown return type, return nil
+        return 0;
+    }
 }
 
 // Execute a Lua script file
@@ -1082,26 +1248,30 @@ static lua_State *setup_lua_environment() {
     lua_setglobal(L, "haptic");
     lua_pushcfunction(L, lua_log);
     lua_setglobal(L, "log");
+    lua_pushcfunction(L, lua_dlopen);
+    lua_setglobal(L, "dlopen");
+    lua_pushcfunction(L, lua_objc_call);
+    lua_setglobal(L, "objc_call");
     
     return L;
 }
 
 static NSString *execute_lua_script(NSString *scriptPath) {
     lua_State *L = setup_lua_environment();
-    if (!L) return @"[SpringRemote] Error: Could not create Lua state";
+    if (!L) return @"Error: Could not create Lua state";
     
-    SRLog(@"[SpringRemote] Executing Lua script: %@", scriptPath);
+    SRLog(@"Executing Lua script: %@", scriptPath);
     
     int result = luaL_dofile(L, [scriptPath UTF8String]);
     NSString *output = nil;
     
     if (result != LUA_OK) {
         const char *error = lua_tostring(L, -1);
-        SRLog(@"[SpringRemote] Lua error: %s", error);
-        output = [NSString stringWithFormat:@"[SpringRemote] Lua Error: %s", error];
+        SRLog(@"Lua error: %s", error);
+        output = [NSString stringWithFormat:@"Lua Error: %s", error];
         lua_pop(L, 1);
     } else {
-        SRLog(@"[SpringRemote] Lua script completed successfully");
+        SRLog(@"Lua script completed successfully");
     }
     
     lua_close(L);
@@ -1110,14 +1280,14 @@ static NSString *execute_lua_script(NSString *scriptPath) {
 
 static NSString *evaluate_lua_code(NSString *code) {
     lua_State *L = setup_lua_environment();
-    if (!L) return @"[SpringRemote] Error: Could not create Lua state";
+    if (!L) return @"Error: Could not create Lua state";
     
     int result = luaL_dostring(L, [code UTF8String]);
     NSString *output = nil;
     
     if (result != LUA_OK) {
         const char *error = lua_tostring(L, -1);
-        output = [NSString stringWithFormat:@"[SpringRemote] Lua Error: %s", error];
+        output = [NSString stringWithFormat:@"Lua Error: %s", error];
         lua_pop(L, 1);
     }
     
@@ -1169,27 +1339,51 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"debug-media"]) {
         // Introspect Media State
         MRMediaRemoteGetNowPlayingApplicationPID(dispatch_get_main_queue(), ^(int pid) {
-            SRLog(@"[SpringRemote] DEBUG: Now Playing PID: %d", pid);
+            SRLog(@"DEBUG: Now Playing PID: %d", pid);
             if (pid > 0) {
                  // Try to get process name?
                  // Simple check if it's Spotify (we don't have proc_name here easily without more headers)
-                 SRLog(@"[SpringRemote] DEBUG: System thinks an app is Now Playing (PID %d)", pid);
+                 SRLog(@"DEBUG: System thinks an app is Now Playing (PID %d)", pid);
             } else {
-                 SRLog(@"[SpringRemote] DEBUG: No Now Playing Application detected (PID 0)");
+                 SRLog(@"DEBUG: No Now Playing Application detected (PID 0)");
             }
         });
         
         MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_get_main_queue(), ^(Boolean isPlaying) {
-             SRLog(@"[SpringRemote] DEBUG: Is Playing Status: %@", isPlaying ? @"YES" : @"NO");
+             SRLog(@"DEBUG: Is Playing Status: %@", isPlaying ? @"YES" : @"NO");
         });
         
         return @"Dumping generic media state to logs...\n";
+    } else if ([cleanCmd isEqualToString:@"is-playing"] || [cleanCmd isEqualToString:@"player status"]) {
+        __block NSString *status = @"Unknown";
+        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+        
+        MRMediaRemoteGetNowPlayingApplicationPlaybackState(dispatch_get_main_queue(), ^(unsigned int state) {
+            switch (state) {
+                case 0: status = @"Unknown"; break;
+                case 1: status = @"Playing"; break;
+                case 2: status = @"Paused"; break;
+                case 3: status = @"Stopped"; break;
+                case 4: status = @"Interrupted"; break;
+                case 5: status = @"Seeking Forward"; break;
+                case 6: status = @"Seeking Backward"; break;
+                default: status = [NSString stringWithFormat:@"Other (%u)", state]; break;
+            }
+            dispatch_semaphore_signal(sema);
+        });
+        
+        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)));
+        
+        if ([cleanCmd isEqualToString:@"is-playing"]) {
+            return [status isEqualToString:@"Playing"] ? @"YES\n" : @"NO\n";
+        }
+        return [NSString stringWithFormat:@"%@\n", status];
     } else if ([cleanCmd isEqualToString:@"next"]) {
         MRMediaRemoteSendCommand(kMRNextTrack, nil);
     } else if ([cleanCmd isEqualToString:@"prev"]) {
         MRMediaRemoteSendCommand(kMRPreviousTrack, nil);
     } else if ([cleanCmd isEqualToString:@"flashlight"] || [cleanCmd isEqualToString:@"torch"]) {
-        SRLog(@"[SpringRemote] Toggling flashlight");
+        SRLog(@"Toggling flashlight");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
@@ -1201,7 +1395,7 @@ static NSString *handle_command(NSString *cmd) {
             [device unlockForConfiguration];
         }
     } else if ([cleanCmd isEqualToString:@"flashlight on"]) {
-        SRLog(@"[SpringRemote] Flashlight ON");
+        SRLog(@"Flashlight ON");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
@@ -1209,7 +1403,7 @@ static NSString *handle_command(NSString *cmd) {
             [device unlockForConfiguration];
         }
     } else if ([cleanCmd isEqualToString:@"flashlight off"]) {
-        SRLog(@"[SpringRemote] Flashlight OFF");
+        SRLog(@"Flashlight OFF");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
@@ -1527,35 +1721,35 @@ static NSString *handle_command(NSString *cmd) {
         return [NSString stringWithFormat:@"%@\n", result];
     } else if ([cleanCmd hasPrefix:@"debug-class "]) {
         NSString *className = [[cleanCmd substringFromIndex:12] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        SRLog(@"[SpringRemote] Debugging class: %@", className);
+        SRLog(@"Debugging class: %@", className);
         Class cls = objc_getClass([className UTF8String]);
         if (!cls) {
-            SRLog(@"[SpringRemote] Class not found: %@", className);
+            SRLog(@"Class not found: %@", className);
             return @"Class not found\n";
         }
         
         unsigned int count = 0;
         Method *methods = class_copyMethodList(cls, &count);
-        SRLog(@"[SpringRemote] Class %@ has %u methods:", className, count);
+        SRLog(@"Class %@ has %u methods:", className, count);
         for (unsigned int i = 0; i < count; i++) {
             SEL sel = method_getName(methods[i]);
-            SRLog(@"[SpringRemote]   - %@", NSStringFromSelector(sel));
+            SRLog(@"  - %@", NSStringFromSelector(sel));
         }
         free(methods);
         return [NSString stringWithFormat:@"Found %u methods for %@. Check logs.\n", count, className];
     } else if ([cleanCmd hasPrefix:@"debug-classes "]) {
         NSString *search = [[cleanCmd substringFromIndex:14] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        SRLog(@"[SpringRemote] Searching for classes containing: %@", search);
+        SRLog(@"Searching for classes containing: %@", search);
         
         int numClasses = objc_getClassList(NULL, 0);
         if (numClasses > 0) {
             Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
             numClasses = objc_getClassList(classes, numClasses);
-            SRLog(@"[SpringRemote] Found %d total classes. Filtering...", numClasses);
+            SRLog(@"Found %d total classes. Filtering...", numClasses);
             for (int i = 0; i < numClasses; i++) {
                 NSString *className = NSStringFromClass(classes[i]);
                 if ([className rangeOfString:search options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                    SRLog(@"[SpringRemote]   * %@", className);
+                    SRLog(@"  * %@", className);
                 }
             }
             free(classes);
@@ -1585,12 +1779,12 @@ static NSString *handle_command(NSString *cmd) {
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                             id result = [target performSelector:sel];
 #pragma clang diagnostic pop
-                            SRLog(@"[SpringRemote] debug-call [%@ %@] returned: %@", className, selName, result);
+                            SRLog(@"debug-call [%@ %@] returned: %@", className, selName, result);
                         } else {
-                            SRLog(@"[SpringRemote] debug-call: Target does not respond to %@", selName);
+                            SRLog(@"debug-call: Target does not respond to %@", selName);
                         }
                     } else {
-                        SRLog(@"[SpringRemote] debug-call: Could not get instance for %@", className);
+                        SRLog(@"debug-call: Could not get instance for %@", className);
                     }
                 });
             }
@@ -1819,7 +2013,7 @@ static NSString *handle_command(NSString *cmd) {
         
         // Append :play suffix to trigger autoplay (Spotify-specific feature)
         NSString *playableURI = [spotifyURI stringByAppendingString:@":play"];
-        SRLog(@"[SpringRemote] Spotify Request: %@ (playable: %@)", spotifyURI, playableURI);
+        SRLog(@"Spotify Request: %@ (playable: %@)", spotifyURI, playableURI);
         
         // Forwarding to main queue for UI/URL operations
         void (^launchSpotify)(void) = ^{
@@ -1833,7 +2027,7 @@ static NSString *handle_command(NSString *cmd) {
                     for (NSNumber *delayNum in delays) {
                         float delay = [delayNum floatValue];
                         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                            SRLog(@"[SpringRemote] Spotify play attempt at %.1fs", delay);
+                            SRLog(@"Spotify play attempt at %.1fs", delay);
                             
                             // Get MediaRemote handle
                             void *mrHandle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_NOW);
@@ -1841,10 +2035,10 @@ static NSString *handle_command(NSString *cmd) {
                                 Boolean (*SendCommandToApp)(unsigned int, NSDictionary *, id, NSString *, unsigned int, dispatch_queue_t, void (^)(NSError *)) = dlsym(mrHandle, "MRMediaRemoteSendCommandToApp");
                                 if (SendCommandToApp) {
                                     // Send explicit PLAY command (kMRPlay = 0) to Spotify
-                                    SRLog(@"[SpringRemote] Sending kMRPlay to com.spotify.client");
+                                    SRLog(@"Sending kMRPlay to com.spotify.client");
                                     SendCommandToApp(kMRPlay, nil, nil, @"com.spotify.client", 0, dispatch_get_main_queue(), ^(NSError *err){
-                                         if (err) SRLog(@"[SpringRemote] MR Play Error: %@", err);
-                                         else SRLog(@"[SpringRemote] MR Play sent successfully");
+                                         if (err) SRLog(@"MR Play Error: %@", err);
+                                         else SRLog(@"MR Play sent successfully");
                                     });
                                 }
                             }
@@ -1865,7 +2059,7 @@ static NSString *handle_command(NSString *cmd) {
         SBLockScreenManager *manager = SBLockScreenManagerClass ? [SBLockScreenManagerClass sharedInstance] : nil;
         
         if (manager && [manager isUILocked]) {
-            SRLog(@"[SpringRemote] Device locked, attempting smart unlock for Spotify");
+            SRLog(@"Device locked, attempting smart unlock for Spotify");
             dispatch_async(dispatch_get_main_queue(), ^{
                 // Wake screen using HID Power button (simulated)
                 inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
@@ -1891,6 +2085,9 @@ static NSString *handle_command(NSString *cmd) {
         } else if ([subCmd isEqualToString:@"off"]) {
             toggle_dnd(NO);
             return @"DND Disabled\n";
+        } else if ([subCmd isEqualToString:@"status"]) {
+            BOOL current = get_dnd_state();
+            return current ? @"DND ON\n" : @"DND OFF\n";
         } else if ([subCmd isEqualToString:@"toggle"]) {
             BOOL current = get_dnd_state();
             toggle_dnd(!current);
@@ -1904,6 +2101,9 @@ static NSString *handle_command(NSString *cmd) {
         } else if ([subCmd isEqualToString:@"off"]) {
             toggle_lpm(NO);
             return @"Low Power Mode Disabled\n";
+        } else if ([subCmd isEqualToString:@"status"]) {
+            BOOL current = get_lpm_state();
+            return current ? @"Low Power Mode ON\n" : @"Low Power Mode OFF\n";
         } else if ([subCmd isEqualToString:@"toggle"]) {
             BOOL current = get_lpm_state();
             toggle_lpm(!current);
@@ -1917,6 +2117,9 @@ static NSString *handle_command(NSString *cmd) {
         } else if ([subCmd isEqualToString:@"off"]) {
             toggle_lpm(NO);
             return @"Low Power Mode Disabled\n";
+        } else if ([subCmd isEqualToString:@"status"]) {
+            BOOL current = get_lpm_state();
+            return current ? @"Low Power Mode ON\n" : @"Low Power Mode OFF\n";
         } else if ([subCmd isEqualToString:@"toggle"]) {
             BOOL current = get_lpm_state();
             toggle_lpm(!current);
@@ -1930,6 +2133,9 @@ static NSString *handle_command(NSString *cmd) {
         } else if ([subCmd isEqualToString:@"off"]) {
             toggle_lpm(NO);
             return @"Low Power Mode Disabled\n";
+        } else if ([subCmd isEqualToString:@"status"]) {
+            BOOL current = get_lpm_state();
+            return current ? @"Low Power Mode ON\n" : @"Low Power Mode OFF\n";
         } else if ([subCmd isEqualToString:@"toggle"]) {
             BOOL current = get_lpm_state();
             toggle_lpm(!current);
@@ -1937,23 +2143,42 @@ static NSString *handle_command(NSString *cmd) {
         }
     } else if ([cleanCmd isEqualToString:@"orientation lock"] || [cleanCmd isEqualToString:@"orientation"] || [cleanCmd isEqualToString:@"rotation"] || [cleanCmd isEqualToString:@"rotate"]) {
         return handle_command(@"orientation toggle");
-    } else if ([cleanCmd hasPrefix:@"orientation "] || [cleanCmd hasPrefix:@"rotation "] || [cleanCmd hasPrefix:@"rotate "]) {
-        NSString *subCmd = [[cleanCmd componentsSeparatedByString:@" "] lastObject];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            Class managerClass = objc_getClass("SBOrientationLockManager");
-            if (managerClass) {
-                id manager = [managerClass sharedInstance];
-                if ([subCmd isEqualToString:@"on"] || [subCmd isEqualToString:@"lock"]) {
-                    [manager lock];
-                } else if ([subCmd isEqualToString:@"off"] || [subCmd isEqualToString:@"unlock"]) {
-                    [manager unlock];
-                } else if ([subCmd isEqualToString:@"toggle"]) {
-                    if ([manager isUserLocked]) [manager unlock];
-                    else [manager lock];
-                }
+    } else if ([cleanCmd hasPrefix:@"rotate "]) {
+        NSString *arg = [[cleanCmd substringFromIndex:7] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        
+        __block NSString *result = nil;
+        void (^rotateBlock)(void) = ^{
+            SBOrientationLockManager *manager = [objc_getClass("SBOrientationLockManager") sharedInstance];
+            if ([arg isEqualToString:@"lock"]) {
+                [manager lock];
+                result = @"Orientation Locked\n";
+            } else if ([arg isEqualToString:@"unlock"]) {
+                [manager unlock];
+                result = @"Orientation Unlocked\n";
+            } else if ([arg isEqualToString:@"toggle"]) {
+                if ([manager isUserLocked]) [manager unlock];
+                else [manager lock];
+                result = [NSString stringWithFormat:@"Orientation %@\n", ![manager isUserLocked] ? @"Locked" : @"Unlocked"];
+            } else {
+                BOOL isLocked = [manager isUserLocked];
+                result = [NSString stringWithFormat:@"Orientation Lock Status: %@\n", isLocked ? @"Locked" : @"Unlocked"];
             }
-        });
-        return @"OK\n";
+        };
+        
+        if ([NSThread isMainThread]) rotateBlock();
+        else dispatch_sync(dispatch_get_main_queue(), rotateBlock);
+        return result;
+    } else if ([cleanCmd isEqualToString:@"rotate"]) {
+         __block NSString *result = nil;
+         void (^statusBlock)(void) = ^{
+             SBOrientationLockManager *manager = [objc_getClass("SBOrientationLockManager") sharedInstance];
+             BOOL isLocked = [manager isUserLocked];
+             result = [NSString stringWithFormat:@"Orientation Lock Status: %@\n", isLocked ? @"Locked" : @"Unlocked"];
+         };
+         
+         if ([NSThread isMainThread]) statusBlock();
+         else dispatch_sync(dispatch_get_main_queue(), statusBlock);
+         return result;
     } else if ([cleanCmd isEqualToString:@"mute"]) {
         return @"Usage: rc mute [on|off|status]\n";
     } else if ([cleanCmd hasPrefix:@"mute "]) {
@@ -1992,7 +2217,7 @@ static NSString *handle_command(NSString *cmd) {
                                  [controller getVolume:&currentVol forCategory:@"Audio/Video"];
                                  if (currentVol > 0) {
                                      sr_previous_volume = currentVol;
-                                     SRLog(@"[SpringRemote] Saved previous volume: %f", sr_previous_volume);
+                                     SRLog(@"Saved previous volume: %f", sr_previous_volume);
                                  }
                              }
                              
@@ -2039,7 +2264,7 @@ static NSString *handle_command(NSString *cmd) {
                          }
                      }
                  } @catch (NSException *e) {
-                     SRLog(@"[SpringRemote] Exception in mute: %@", e);
+                     SRLog(@"Exception in mute: %@", e);
                  }
              }
         }
@@ -2080,7 +2305,7 @@ static NSString *handle_command(NSString *cmd) {
                                      return [NSString stringWithFormat:@"Volume set to %d%%\n", (int)(target * 100)];
                                  }
                              } else {
-                                 SRLog(@"[SpringRemote] Ignored non-numeric volume argument: %@", arg);
+                                 SRLog(@"Ignored non-numeric volume argument: %@", arg);
                                  return [NSString stringWithFormat:@"Error: Invalid volume level '%@'\n", arg];
                              }
                          }
@@ -2094,7 +2319,7 @@ static NSString *handle_command(NSString *cmd) {
                          }
                      }
                  } @catch (NSException *e) {
-                     SRLog(@"[SpringRemote] Exception volume: %@", e);
+                     SRLog(@"Exception volume: %@", e);
                  }
              }
         }
@@ -2159,8 +2384,19 @@ static NSString *handle_command(NSString *cmd) {
                 BluetoothManager *btManager = [BluetoothManagerClass sharedInstance];
                 [btManager setEnabled:YES];
                 [btManager setPowered:YES];
-                SRLog(@"[SpringRemote] Bluetooth enabled");
+                SRLog(@"Bluetooth enabled");
                 return @"Bluetooth Enabled\n";
+            }
+        }
+        return @"Error: BluetoothManager not found\n";
+    } else if ([cleanCmd isEqualToString:@"bluetooth status"] || [cleanCmd isEqualToString:@"bt status"]) {
+        void *btHandle = dlopen("/System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager", RTLD_NOW);
+        if (btHandle) {
+            Class BluetoothManagerClass = objc_getClass("BluetoothManager");
+            if (BluetoothManagerClass) {
+                BluetoothManager *btManager = [BluetoothManagerClass sharedInstance];
+                BOOL isPowered = [btManager powered];
+                return [NSString stringWithFormat:@"Bluetooth %@\n", isPowered ? @"ON" : @"OFF"];
             }
         }
         return @"Error: BluetoothManager not found\n";
@@ -2172,7 +2408,7 @@ static NSString *handle_command(NSString *cmd) {
                 BluetoothManager *btManager = [BluetoothManagerClass sharedInstance];
                 [btManager setEnabled:NO];
                 [btManager setPowered:NO];
-                SRLog(@"[SpringRemote] Bluetooth disabled");
+                SRLog(@"Bluetooth disabled");
                 return @"Bluetooth Disabled\n";
             }
         }
@@ -2206,7 +2442,7 @@ static NSString *handle_command(NSString *cmd) {
                 for (BluetoothDevice *device in [btManager pairedDevices]) {
                     if ([[device name] localizedCaseInsensitiveContainsString:deviceName]) {
                         [device connect];
-                        SRLog(@"[SpringRemote] Connecting to BT device: %@", [device name]);
+                        SRLog(@"Connecting to BT device: %@", [device name]);
                         return [NSString stringWithFormat:@"Connecting to %@\n", [device name]];
                     }
                 }
@@ -2228,7 +2464,7 @@ static NSString *handle_command(NSString *cmd) {
                 for (BluetoothDevice *device in [btManager pairedDevices]) {
                     if ([[device name] localizedCaseInsensitiveContainsString:deviceName]) {
                         [device disconnect];
-                        SRLog(@"[SpringRemote] Disconnecting BT device: %@", [device name]);
+                        SRLog(@"Disconnecting BT device: %@", [device name]);
                         return [NSString stringWithFormat:@"Disconnecting %@\n", [device name]];
                     }
                 }
@@ -2239,44 +2475,51 @@ static NSString *handle_command(NSString *cmd) {
         SBWiFiManager *manager = [objc_getClass("SBWiFiManager") sharedInstance];
         if (manager) {
             [manager setWiFiEnabled:YES];
-            SRLog(@"[SpringRemote] WiFi enabled");
+            SRLog(@"WiFi enabled");
             return @"WiFi Enabled\n";
+        }
+        return @"Error: SBWiFiManager not found\n";
+    } else if ([cleanCmd isEqualToString:@"wifi status"] || [cleanCmd isEqualToString:@"wi status"]) {
+        SBWiFiManager *manager = [objc_getClass("SBWiFiManager") sharedInstance];
+        if (manager) {
+            BOOL isEnabled = [manager wiFiEnabled];
+            return [NSString stringWithFormat:@"WiFi %@\n", isEnabled ? @"ON" : @"OFF"];
         }
         return @"Error: SBWiFiManager not found\n";
     } else if ([cleanCmd isEqualToString:@"wifi-off"] || [cleanCmd isEqualToString:@"wi-off"] || [cleanCmd isEqualToString:@"wifi off"]) {
         SBWiFiManager *manager = [objc_getClass("SBWiFiManager") sharedInstance];
         if (manager) {
             [manager setWiFiEnabled:NO];
-            SRLog(@"[SpringRemote] WiFi disabled");
+            SRLog(@"WiFi disabled");
             return @"WiFi Disabled\n";
         }
         return @"Error: SBWiFiManager not found\n";
     } else if ([cleanCmd isEqualToString:@"airplane on"]) {
-        SRLog(@"[SpringRemote] Executing airplane ON...");
+        SRLog(@"Executing airplane ON...");
         dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
         Class RPClass = objc_getClass("RadiosPreferences");
         if (RPClass) {
             RadiosPreferences *prefs = [[RPClass alloc] init];
             [prefs setAirplaneMode:YES];
             [prefs synchronize];
-            SRLog(@"[SpringRemote] Airplane Mode ON");
+            SRLog(@"Airplane Mode ON");
             return @"Airplane Mode ON\n";
         }
         return @"Error: RadiosPreferences not found\n";
     } else if ([cleanCmd isEqualToString:@"airplane off"]) {
-        SRLog(@"[SpringRemote] Executing airplane OFF...");
+        SRLog(@"Executing airplane OFF...");
         dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
         Class RPClass = objc_getClass("RadiosPreferences");
         if (RPClass) {
             RadiosPreferences *prefs = [[RPClass alloc] init];
             [prefs setAirplaneMode:NO];
             [prefs synchronize];
-            SRLog(@"[SpringRemote] Airplane Mode OFF");
+            SRLog(@"Airplane Mode OFF");
             return @"Airplane Mode OFF\n";
         }
         return @"Error: RadiosPreferences not found\n";
     } else if ([cleanCmd isEqualToString:@"airplane"] || [cleanCmd isEqualToString:@"airplane toggle"]) {
-        SRLog(@"[SpringRemote] Executing airplane toggle...");
+        SRLog(@"Executing airplane toggle...");
         dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
         Class RPClass = objc_getClass("RadiosPreferences");
         if (RPClass) {
@@ -2284,9 +2527,18 @@ static NSString *handle_command(NSString *cmd) {
             BOOL current = [prefs airplaneMode];
             [prefs setAirplaneMode:!current];
             [prefs synchronize];
-            SRLog(@"[SpringRemote] Airplane Mode Toggled: %d -> %d", current, !current);
+            SRLog(@"Airplane Mode Toggled: %d -> %d", current, !current);
             return [NSString stringWithFormat:@"Airplane Mode Toggled: %@\n", !current ? @"ON" : @"OFF"];
         }
+    } else if ([cleanCmd isEqualToString:@"airplane status"]) {
+        dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
+        Class RPClass = objc_getClass("RadiosPreferences");
+        if (RPClass) {
+            RadiosPreferences *prefs = [[RPClass alloc] init];
+            BOOL current = [prefs airplaneMode];
+            return [NSString stringWithFormat:@"Airplane Mode %@\n", current ? @"ON" : @"OFF"];
+        }
+        return @"Error: RadiosPreferences not found\n";
     } else if ([cleanCmd hasPrefix:@"brightness "]) {
         // Set screen brightness (0-100) using BackBoardServices
         NSString *valueStr = [[cleanCmd substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -2309,7 +2561,7 @@ static NSString *handle_command(NSString *cmd) {
         // Clamp 0-100 -> 0.0-1.0
         val = fmaxf(0, fminf(100, val)) / 100.0f;
         
-        SRLog(@"[SpringRemote] Setting volume to %.2f", val);
+        SRLog(@"Setting volume to %.2f", val);
         
         // Use AVSystemController
         AVSystemController *av = [objc_getClass("AVSystemController") sharedAVSystemController];
@@ -2319,12 +2571,47 @@ static NSString *handle_command(NSString *cmd) {
         } else {
             return @"Error: AVSystemController not found\n";
         }    
+    } else if ([cleanCmd hasPrefix:@"vibration "]) {
+        NSString *subcheck = [cleanCmd substringFromIndex:10];
+        
+        // Silent Mode Vibration
+        if ([subcheck isEqualToString:@"silent-on"]) {
+            toggle_system_vibration(YES, YES);
+            return @"Silent Vibrate: ON\n";
+        } else if ([subcheck isEqualToString:@"silent-off"]) {
+            toggle_system_vibration(YES, NO);
+            return @"Silent Vibrate: OFF\n";
+        } else if ([subcheck isEqualToString:@"silent-toggle"]) {
+            BOOL current = get_system_vibration(YES);
+            toggle_system_vibration(YES, !current);
+            return current ? @"Silent Vibrate: OFF\n" : @"Silent Vibrate: ON\n";
+        } else if ([subcheck isEqualToString:@"silent-status"]) {
+             BOOL current = get_system_vibration(YES);
+             return current ? @"Silent Vibrate: ON\n" : @"Silent Vibrate: OFF\n";
+        }
+        
+        // Ring Mode Vibration
+        else if ([subcheck isEqualToString:@"ring-on"]) {
+            toggle_system_vibration(NO, YES);
+            return @"Ring Vibrate: ON\n";
+        } else if ([subcheck isEqualToString:@"ring-off"]) {
+            toggle_system_vibration(NO, NO);
+            return @"Ring Vibrate: OFF\n";
+        } else if ([subcheck isEqualToString:@"ring-toggle"]) {
+            BOOL current = get_system_vibration(NO);
+            toggle_system_vibration(NO, !current);
+            return current ? @"Ring Vibrate: OFF\n" : @"Ring Vibrate: ON\n";
+        } else if ([subcheck isEqualToString:@"ring-status"]) {
+             BOOL current = get_system_vibration(NO);
+             return current ? @"Ring Vibrate: ON\n" : @"Ring Vibrate: OFF\n";
+        }
     } else if ([cleanCmd isEqualToString:@"haptic"]) {
         // Haptic feedback using UIImpactFeedbackGenerator
         dispatch_async(dispatch_get_main_queue(), ^{
-            UIImpactFeedbackGenerator *generator = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleHeavy];
-            [generator prepare];
-            [generator impactOccurred];
+            // Respect global setting for this manual command too? 
+            // The user might want this to FORCE a haptic, but let's respect the setting for consistency unless it's a "test".
+            // Actually, "haptic" command is often used for testing. Let's make it respect the setting via trigger_haptic()
+            trigger_haptic();
         });
         NSLog(@"[RemoteCommand] Haptic triggered");
     } else if ([cleanCmd isEqualToString:@"flash-on"] || [cleanCmd isEqualToString:@"flash on"]) {
@@ -2372,11 +2659,17 @@ static NSString *handle_command(NSString *cmd) {
             [device setTorchMode:AVCaptureTorchModeOff];
             [device unlockForConfiguration];
         }
+    } else if ([cleanCmd isEqualToString:@"flashlight status"]) {
+        AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        if ([device hasTorch]) {
+            return [NSString stringWithFormat:@"Flashlight %@\n", [device torchMode] == AVCaptureTorchModeOn ? @"ON" : @"OFF"];
+        }
+        return @"Error: Flashlight not found\n";
     } else if ([cleanCmd hasPrefix:@"kill "]) {
         NSString *arg = [[cleanCmd substringFromIndex:5] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         NSString *bundleID = resolve_bundle_id(arg);
         
-        SRLog(@"[SpringRemote] Killing app: %@ (mapped from %@)", bundleID, arg);
+        SRLog(@"Killing app: %@ (mapped from %@)", bundleID, arg);
         // Reason 5 = Quit via App Switcher (clean kill)
         BKSTerminateApplicationForReasonAndReportWithDescription(bundleID, 5, false, nil);
         return [NSString stringWithFormat:@"Killed %@\n", bundleID];
@@ -2452,25 +2745,25 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"screenshot"]) {
          dispatch_async(dispatch_get_main_queue(), ^{
              @try {
-                 SRLog(@"[SpringRemote] Attempting screenshot via SpringBoard takeScreenshot...");
+                 SRLog(@"Attempting screenshot via SpringBoard takeScreenshot...");
                  SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
                  if ([sb respondsToSelector:@selector(takeScreenshot)]) {
                      [sb performSelector:@selector(takeScreenshot)];
-                     SRLog(@"[SpringRemote] Screenshot triggered via [SpringBoard takeScreenshot]");
+                     SRLog(@"Screenshot triggered via [SpringBoard takeScreenshot]");
                  } else {
-                     SRLog(@"[SpringRemote] [SpringBoard takeScreenshot] selector missing");
+                     SRLog(@"[SpringBoard takeScreenshot] selector missing");
                      
                      // Fallback check for new screenshot manager location
                      if ([sb respondsToSelector:@selector(screenshotManager)]) {
                          id manager = [sb performSelector:@selector(screenshotManager)];
                          if (manager && [manager respondsToSelector:@selector(saveScreenshotToCameraRollWithCompletion:)]) {
                              [manager saveScreenshotToCameraRollWithCompletion:nil];
-                             SRLog(@"[SpringRemote] Screenshot triggered via [SB screenshotManager]");
+                             SRLog(@"Screenshot triggered via [SB screenshotManager]");
                          }
                      }
                  }
              } @catch (NSException *e) {
-                 SRLog(@"[SpringRemote] Exception triggering screenshot: %@", e);
+                 SRLog(@"Exception triggering screenshot: %@", e);
              }
          });
          return @"Screenshot triggered\n";
@@ -2478,33 +2771,98 @@ static NSString *handle_command(NSString *cmd) {
         NSString *delayStr = [cleanCmd substringFromIndex:6];
         float seconds = [delayStr floatValue];
         if (seconds > 0) {
-            SRLog(@"[SpringRemote] Delaying for %.2f seconds...", seconds);
+            SRLog(@"Delaying for %.2f seconds...", seconds);
             usleep((useconds_t)(seconds * 1000000));
         }
         return nil;
+    } else if ([cleanCmd hasPrefix:@"exec-root "] || [cleanCmd hasPrefix:@"root "]) {
+        // Execute command as root via setuid helper
+        NSString *shellCmd = [cleanCmd hasPrefix:@"root "]
+            ? [[cleanCmd substringFromIndex:5] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+            : [[cleanCmd substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        SRLog(@"Executing as root: %@", shellCmd);
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            // Use rc-root setuid helper with posix_spawn
+            pid_t pid;
+            const char *rcRootPath = "/var/jb/usr/bin/rc-root";
+            char *args[] = {(char *)rcRootPath, (char *)[shellCmd UTF8String], NULL};
+
+            extern char **environ;
+            int spawn_result = posix_spawn(&pid, rcRootPath, NULL, NULL, args, environ);
+
+            int result = -1;
+            if (spawn_result == 0) {
+                int status;
+                waitpid(pid, &status, 0);
+                if (WIFEXITED(status)) {
+                    result = WEXITSTATUS(status);
+                }
+            } else {
+                SRLog(@"posix_spawn failed: %d", spawn_result);
+            }
+            SRLog(@"Root command finished with exit code: %d", result);
+        });
+        return [NSString stringWithFormat:@"Executing as root: %@\n", shellCmd];
     } else if ([cleanCmd hasPrefix:@"exec "]) {
         NSString *shellCmd = [[cleanCmd substringFromIndex:5] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        SRLog(@"[SpringRemote] Processing command: %@", shellCmd);
-        
+        SRLog(@"Processing command: %@", shellCmd);
+
         if ([shellCmd hasPrefix:@"rc "]) {
              NSString *internalCmd = [shellCmd substringFromIndex:3];
-             SRLog(@"[SpringRemote] Intercepting 'rc' command, executing internally: %@", internalCmd);
+             SRLog(@"Intercepting 'rc' command, executing internally: %@", internalCmd);
              return handle_command(internalCmd);
         } else if ([shellCmd hasPrefix:@"curl "]) {
-            SRLog(@"[SpringRemote] Detected curl command, using native implementation");
+            SRLog(@"Detected curl command, using native implementation");
             perform_native_curl(shellCmd);
             return [NSString stringWithFormat:@"Executing via native curl: %@\n", shellCmd];
         } else {
-            // Fallback to system()
+            // Use posix_spawn with custom PATH
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                int (*sys)(const char *) = dlsym(RTLD_DEFAULT, "system");
-                int result = -1;
-                if (sys) {
-                     result = sys([shellCmd UTF8String]);
+                NSString *basePath = @"/var/jb/usr/local/bin:/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:/var/jb/sbin:/usr/bin:/bin:/usr/sbin:/sbin";
+                NSString *fullPath = basePath;
+
+                // Setup environment with custom PATH
+                extern char **environ;
+                NSMutableArray *envArray = [NSMutableArray array];
+                for (char **env = environ; *env != NULL; env++) {
+                    NSString *envStr = [NSString stringWithUTF8String:*env];
+                    if (![envStr hasPrefix:@"PATH="]) {
+                        [envArray addObject:envStr];
+                    }
                 }
-                SRLog(@"[SpringRemote] Shell command finished with exit code: %d", result);
+                [envArray addObject:[NSString stringWithFormat:@"PATH=%@", fullPath]];
+
+                // Convert to char**
+                char **newEnviron = malloc(sizeof(char*) * (envArray.count + 1));
+                for (NSUInteger i = 0; i < envArray.count; i++) {
+                    newEnviron[i] = strdup([envArray[i] UTF8String]);
+                }
+                newEnviron[envArray.count] = NULL;
+
+                // Execute with sh -c
+                pid_t pid;
+                char *args[] = {"/bin/sh", "-c", (char*)[shellCmd UTF8String], NULL};
+                int spawn_result = posix_spawn(&pid, "/bin/sh", NULL, NULL, args, newEnviron);
+
+                int result = -1;
+                if (spawn_result == 0) {
+                    int status;
+                    waitpid(pid, &status, 0);
+                    if (WIFEXITED(status)) {
+                        result = WEXITSTATUS(status);
+                    }
+                }
+
+                // Cleanup
+                for (NSUInteger i = 0; i < envArray.count; i++) {
+                    free(newEnviron[i]);
+                }
+                free(newEnviron);
+
+                SRLog(@"Shell command finished with exit code: %d", result);
             });
-            return [NSString stringWithFormat:@"Executing via system(): %@\n", shellCmd];
+            return [NSString stringWithFormat:@"Executing: %@\n", shellCmd];
         }
     } else if ([cleanCmd hasPrefix:@"lua_eval "] || [cleanCmd hasPrefix:@"Lua "]) {
         NSString *code = [cleanCmd substringFromIndex:([cleanCmd hasPrefix:@"Lua "] ? 4 : 9)];
@@ -2529,7 +2887,7 @@ static NSString *handle_command(NSString *cmd) {
                     
                     // If we only found 1 device (iPhone), try again for up to 3 seconds (6 * 0.5s)
                     if (routes.count <= 1 && attempts < 6) {
-                        SRLog(@"[SpringRemote] AirPlay list: Only found %lu devices, retrying discovery (%d/6)...", (unsigned long)routes.count, attempts);
+                        SRLog(@"AirPlay list: Only found %lu devices, retrying discovery (%d/6)...", (unsigned long)routes.count, attempts);
                         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                             if (fetchDevices) fetchDevices();
                         });
@@ -2604,7 +2962,7 @@ static NSString *handle_command(NSString *cmd) {
                     } else {
                         attempts++;
                         if (attempts < 10) { // Try for 5 seconds (10 * 0.5s)
-                            SRLog(@"[SpringRemote] AirPlay target '%@' not found yet, retrying (%d/10)...", target, attempts);
+                            SRLog(@"AirPlay target '%@' not found yet, retrying (%d/10)...", target, attempts);
                             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                                 if (attemptConnection) attemptConnection(); // Retry
                             });
@@ -2631,26 +2989,54 @@ static NSString *handle_command(NSString *cmd) {
         return result ?: @"Error: Timeout connecting to AirPlay device\n";
 
     } else if ([cleanCmd isEqualToString:@"respring"]) {
-        SRLog(@"[SpringRemote] Triggering Respring via killbackboardd");
+        SRLog(@"Triggering Respring via killbackboardd");
         
         dispatch_async(dispatch_get_main_queue(), ^{
-            // Reliable Tweak way: Kill backboardd
             pid_t pid;
             const char* args[] = { "killall", "-9", "backboardd", NULL };
             NSString *killallPath = [NSString stringWithFormat:@"%@/usr/bin/killall", root_prefix()];
             posix_spawn(&pid, [killallPath UTF8String], NULL, NULL, (char* const*)args, NULL);
             
-            // Fallback for non-rootless
             if (pid <= 0) {
                  const char* args2[] = { "killall", "-9", "backboardd", NULL };
                  posix_spawn(&pid, "/usr/bin/killall", NULL, NULL, (char* const*)args2, NULL);
             }
         });
         return @"Device Respringing...\n";
+    } else if ([cleanCmd isEqualToString:@"ldrestart"]) {
+        SRLog(@"Triggering ldrestart");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            pid_t pid;
+            NSString *binPath = [NSString stringWithFormat:@"%@/usr/bin/ldrestart", root_prefix()];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:binPath]) binPath = @"/usr/bin/ldrestart";
+            const char* args[] = { [binPath UTF8String], NULL };
+            posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char* const*)args, NULL);
+        });
+        return @"Triggering ldrestart...\n";
+    } else if ([cleanCmd isEqualToString:@"uicache"]) {
+        SRLog(@"Triggering uicache");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            pid_t pid;
+            NSString *binPath = [NSString stringWithFormat:@"%@/usr/bin/uicache", root_prefix()];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:binPath]) binPath = @"/usr/bin/uicache";
+            const char* args[] = { [binPath UTF8String], "-a", NULL };
+            posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char* const*)args, NULL);
+        });
+        return @"Triggering uicache...\n";
+    } else if ([cleanCmd isEqualToString:@"userspace-reboot"]) {
+        SRLog(@"Triggering userspace-reboot");
+        dispatch_async(dispatch_get_main_queue(), ^{
+            pid_t pid;
+            NSString *binPath = [NSString stringWithFormat:@"%@/bin/launchctl", root_prefix()];
+            if (![[NSFileManager defaultManager] fileExistsAtPath:binPath]) binPath = @"/bin/launchctl";
+            const char* args[] = { [binPath UTF8String], "reboot", "userspace", NULL };
+            posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char* const*)args, NULL);
+        });
+        return @"Triggering userspace-reboot...\n";
     } else if ([cleanCmd hasPrefix:@"shortcut:"]) {
         NSString *shortcutName = [[cleanCmd substringFromIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         
-        SRLog(@"[SpringRemote] Attempting to run shortcut: %@", shortcutName);
+        SRLog(@"Attempting to run shortcut: %@", shortcutName);
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             @try {
@@ -2667,16 +3053,16 @@ static NSString *handle_command(NSString *cmd) {
                          [task performSelector:@selector(setLaunchPath:) withObject:binPath];
                          [task performSelector:@selector(setArguments:) withObject:@[@"-r", shortcutName]];
                          [task performSelector:@selector(launch)];
-                         SRLog(@"[SpringRemote] Launched springcuts for '%@'", shortcutName);
+                         SRLog(@"Launched springcuts for '%@'", shortcutName);
                      } else {
-                         SRLog(@"[SpringRemote] Error: springcuts binary not found");
+                         SRLog(@"Error: springcuts binary not found");
                          send_notification(@"RemoteCompanion", @"Please install SpringCuts to use shortcuts.", YES);
                      }
                  } else {
-                     SRLog(@"[SpringRemote] Error: NSTask class not found");
+                     SRLog(@"Error: NSTask class not found");
                  }
             } @catch (NSException *e) {
-                SRLog(@"[SpringRemote] Crash launching shortcut: %@", e);
+                SRLog(@"Crash launching shortcut: %@", e);
             }
         });
         
@@ -2845,6 +3231,7 @@ static BOOL g_bioWasLocked = NO;
 
 
 // Helper to trigger haptic feedback
+// Helper to trigger haptic feedback
 static void trigger_haptic() {
     AudioServicesPlaySystemSound(1520);
 }
@@ -2861,7 +3248,7 @@ static int g_lastRingerState = -1;
 
     if (g_lastRingerState == -1) {
         // First initialization (respring/reboot) - just track state, don't fire
-        SRLog(@"[SpringRemote] SBRingerControl Initial State: %d", muted);
+        SRLog(@"SBRingerControl Initial State: %d", muted);
         g_lastRingerState = (int)muted;
         return;
     }
@@ -2873,7 +3260,7 @@ static int g_lastRingerState = -1;
 
     // State changed
     g_lastRingerState = (int)muted;
-    SRLog(@"[SpringRemote] SBRingerControl setRingerMuted: %d", muted);
+    SRLog(@"SBRingerControl setRingerMuted: %d", muted);
     
     // Fire generic toggle status
     RCExecuteTrigger(@"trigger_ringer_toggle");
@@ -2898,7 +3285,7 @@ static int g_lastRingerState = -1;
     if (g_powerIsDown) {
         load_trigger_config();
         if ([g_triggerConfig[@"masterEnabled"] boolValue] && [g_triggerConfig[@"triggers"][@"power_volume_up"][@"enabled"] boolValue]) {
-            SRLog(@"[SpringRemote] Suppressing Volume Up because Power is DOWN (Combo)");
+            SRLog(@"Suppressing Volume Up because Power is DOWN (Combo)");
             return;
         }
     }
@@ -2977,7 +3364,7 @@ static int g_lastRingerState = -1;
     if (g_powerIsDown) {
         load_trigger_config();
         if ([g_triggerConfig[@"masterEnabled"] boolValue] && [g_triggerConfig[@"triggers"][@"power_volume_down"][@"enabled"] boolValue]) {
-            SRLog(@"[SpringRemote] Suppressing Volume Down because Power is DOWN (Combo)");
+            SRLog(@"Suppressing Volume Down because Power is DOWN (Combo)");
             return;
         }
     }
@@ -3096,7 +3483,7 @@ static void RC_CheckAndFire();
 
 static void RC_ProcessHomeClick() {
     g_homeClickCount++;
-    SRLog(@"[SpringRemote-HID] 🔵 CLICK DETECTED (Up)! Count: %d", g_homeClickCount);
+    SRLog(@"[HID] 🔵 CLICK DETECTED (Up)! Count: %d", g_homeClickCount);
     
     // Dispatch timer scheduling to Main Thread to be safe with Timers/RunLoops
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -3118,7 +3505,7 @@ static void RC_CheckAndFire() {
 
     // 3. IMMEDIATE FIRE CHECK (Quadruple)
     if (quadEnabled && g_homeClickCount >= 4) {
-        SRLog(@"[SpringRemote] 🚀 QUAD CLICK (4+) REACHED! Firing immediately.");
+        SRLog(@"🚀 QUAD CLICK (4+) REACHED! Firing immediately.");
         trigger_haptic();
         RCExecuteTrigger(@"trigger_home_quadruple_click");
         g_homeClickCount = 0; // Reset Sequence
@@ -3132,7 +3519,7 @@ static void RC_CheckAndFire() {
     // 5. Schedule Timer
     g_homeClickTimer = [NSTimer scheduledTimerWithTimeInterval:timeout repeats:NO block:^(NSTimer *timer) {
         g_homeClickTimer = nil;
-        SRLog(@"[SpringRemote] 🔵 SEQUENCE ENDED. Final count: %d", g_homeClickCount);
+        SRLog(@"🔵 SEQUENCE ENDED. Final count: %d", g_homeClickCount);
         
         NSString *triggerKey = nil;
         
@@ -3143,7 +3530,7 @@ static void RC_CheckAndFire() {
         if (triggerKey && masterEnabled) {
             BOOL enabled = [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
             if (enabled) {
-                SRLog(@"[SpringRemote] ✅ FIRING TRIGGER: %@", triggerKey);
+                SRLog(@"✅ FIRING TRIGGER: %@", triggerKey);
                 trigger_haptic();
                 RCExecuteTrigger(triggerKey);
             }
@@ -3162,7 +3549,7 @@ static void RC_ProcessPowerClick() {
     }
     
     g_powerClickCount++;
-    SRLog(@"[SpringRemote-HID] ⚡️ POWER CLICK DETECTED. Count: %d", g_powerClickCount);
+    SRLog(@"[HID] ⚡️ POWER CLICK DETECTED. Count: %d", g_powerClickCount);
     
     // Dispatch timer scheduling to Main Thread to be safe with Timers/RunLoops
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -3184,7 +3571,7 @@ static void RC_CheckAndFirePower() {
     
     // 3. IMMEDIATE FIRE CHECK (Quadruple)
     if (quadEnabled && g_powerClickCount >= 4) {
-        SRLog(@"[SpringRemote] 🚀 POWER QUAD CLICK (4+) REACHED! Firing.");
+        SRLog(@"🚀 POWER QUAD CLICK (4+) REACHED! Firing.");
         trigger_haptic();
         RCExecuteTrigger(@"power_quadruple_click");
         g_powerClickCount = 0;
@@ -3197,7 +3584,7 @@ static void RC_CheckAndFirePower() {
     // 5. Schedule Timer
     g_powerClickTimer = [NSTimer scheduledTimerWithTimeInterval:timeout repeats:NO block:^(NSTimer *timer) {
         g_powerClickTimer = nil;
-        SRLog(@"[SpringRemote] POWER SEQUENCE ENDED. Final count: %d", g_powerClickCount);
+        SRLog(@"POWER SEQUENCE ENDED. Final count: %d", g_powerClickCount);
         
         NSString *triggerKey = nil;
         
@@ -3208,7 +3595,7 @@ static void RC_CheckAndFirePower() {
         if (triggerKey && masterEnabled) {
             BOOL enabled = [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
             if (enabled) {
-                SRLog(@"[SpringRemote] ✅ FIRING POWER TRIGGER: %@", triggerKey);
+                SRLog(@"✅ FIRING POWER TRIGGER: %@", triggerKey);
                 trigger_haptic();
                 RCExecuteTrigger(triggerKey);
             }
@@ -3235,7 +3622,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
 
             // DEBOUNCE CHECK:
             if (now < g_bioIgnoreUntil) {
-                // SRLog(@"[SpringRemote-Bio] Ignoring Event (Debounce)");
+                // SRLog(@"[Bio] Ignoring Event (Debounce)");
                 return;
             }
 
@@ -3261,7 +3648,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
 
                         NSTimeInterval now_lift = [[NSDate date] timeIntervalSince1970];
                         if (now_lift < g_bioIgnoreUntil) {
-                            SRLog(@"[SpringRemote-Bio] Suppressing Tap (Finger Lift within Ignore Window)");
+                            SRLog(@"[Bio] Suppressing Tap (Finger Lift within Ignore Window)");
                             g_bioFingerDownTime = 0;
                             g_bioHoldTriggered = NO;
                             return;
@@ -3275,7 +3662,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                         BOOL currentlyLocked = lsm ? [lsm isUILocked] : NO;
                         
                         if (g_bioWasLocked && !currentlyLocked) {
-                            SRLog(@"[SpringRemote-Bio] Suppressing Tap (Finger Lift after Unlock Match Detected)");
+                            SRLog(@"[Bio] Suppressing Tap (Finger Lift after Unlock Match Detected)");
                             g_bioFingerDownTime = 0;
                             g_bioHoldTriggered = NO;
                             return;
@@ -3316,7 +3703,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(holdDecisionDelay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                         // Check ignore window first
                         if ([[NSDate date] timeIntervalSince1970] < g_bioIgnoreUntil) {
-                            SRLog(@"[SpringRemote-Bio] Suppressing Hold (Inside Ignore Window)");
+                            SRLog(@"[Bio] Suppressing Hold (Inside Ignore Window)");
                             return;
                         }
 
@@ -3326,7 +3713,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                         BOOL currentlyLocked2 = lsm2 ? [lsm2 isUILocked] : NO;
                         
                         if (g_bioWasLocked && !currentlyLocked2) {
-                            SRLog(@"[SpringRemote-Bio] Suppressing Hold (Unlock succeeded during decision window)");
+                            SRLog(@"[Bio] Suppressing Hold (Unlock succeeded during decision window)");
                             return;
                         }
 
@@ -3355,7 +3742,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
         int usage = IOHIDEventGetIntegerValue(event, kIOHIDEventFieldKeyboardUsage);
         int down = IOHIDEventGetIntegerValue(event, kIOHIDEventFieldKeyboardDown);
         
-        // SRLog(@"[SpringRemote-HID] KEYBOARD (1) -> Page: 0x%X Usage: 0x%X Down: %d", usagePage, usage, down);
+        // SRLog(@"[HID] KEYBOARD (1) -> Page: 0x%X Usage: 0x%X Down: %d", usagePage, usage, down);
         
         // Home Button (Page 0x0C, Usage 0x40)
         if (usagePage == kHIDPage_Consumer && usage == kHIDUsage_Csmr_Menu) {
@@ -3403,7 +3790,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                 if (!g_powerIsDown) {
                     g_powerIsDown = YES;
                     lastPowerDownTime = now;
-                    SRLog(@"[SpringRemote-HID] ⚡️ Power DOWN");
+                    SRLog(@"[HID] ⚡️ Power DOWN");
                     
                     // SUPPRESS TOUCH ID HOLD (on Power Wake/Press):
                     // If user is pressing power, they might be waking to unlock.
@@ -3428,7 +3815,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                         BOOL enabled = masterEnabled && [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
                         
                         if (enabled && !g_powerVolComboTriggered) {
-                            SRLog(@"[SpringRemote-HID] ⚡️+🔊 POWER + VOLUME COMBINATION DETECTED (Power after Volume): %@", triggerKey);
+                            SRLog(@"[HID] ⚡️+🔊 POWER + VOLUME COMBINATION DETECTED (Power after Volume): %@", triggerKey);
                             g_powerVolComboTriggered = YES;
                             dispatch_async(dispatch_get_main_queue(), ^{
                                  if (g_volUpTimer) { [g_volUpTimer invalidate]; g_volUpTimer = nil; }
@@ -3443,11 +3830,11 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                 if (g_powerIsDown) {
                     if (now - lastPowerDownTime > 0.05) { // 50ms Debounce
                         g_powerIsDown = NO;
-                        SRLog(@"[SpringRemote-HID] ⚡️ Power UP");
+                        SRLog(@"[HID] ⚡️ Power UP");
                         
                         // If a combo was triggered, DON'T count this as a click for multi-tap
                         if (g_powerVolComboTriggered) {
-                            SRLog(@"[SpringRemote-HID] Combo was triggered, resetting power click count.");
+                            SRLog(@"[HID] Combo was triggered, resetting power click count.");
                             g_powerClickCount = 0;
                             g_powerVolComboTriggered = NO;
                         } else {
@@ -3472,7 +3859,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                 BOOL enabled = masterEnabled && [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
                 
                 if (enabled) {
-                    SRLog(@"[SpringRemote-HID] ⚡️+🔊 POWER + VOLUME COMBINATION DETECTED: %@", triggerKey);
+                    SRLog(@"[HID] ⚡️+🔊 POWER + VOLUME COMBINATION DETECTED: %@", triggerKey);
                     g_powerVolComboTriggered = YES;
                     
                     // Invalidate standard timers in Main Thread
@@ -3514,12 +3901,12 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
 
 static void setup_background_hid_listener() {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        SRLog(@"[SpringRemote] 🔌 Setting up BACKGROUND HID Listener...");
+        SRLog(@"🔌 Setting up BACKGROUND HID Listener...");
         
         // Create client
         g_hidClient = IOHIDEventSystemClientCreate(kCFAllocatorDefault);
         if (!g_hidClient) {
-            SRLog(@"[SpringRemote] ❌ Failed to create HID Client");
+            SRLog(@"❌ Failed to create HID Client");
             return;
         }
         
@@ -3532,7 +3919,7 @@ static void setup_background_hid_listener() {
         // Schedule client
         IOHIDEventSystemClientScheduleWithRunLoop(g_hidClient, [runLoop getCFRunLoop], kCFRunLoopDefaultMode);
         
-        SRLog(@"[SpringRemote] ✅ HID Listener Scheduled on Background RunLoop. Running...");
+        SRLog(@"✅ HID Listener Scheduled on Background RunLoop. Running...");
         
         // Run the runloop indefinitely
         while (YES) {
@@ -3547,7 +3934,7 @@ static void setup_background_hid_listener() {
 - (BOOL)_attemptUnlockWithPasscode:(id)passcode mesa:(BOOL)mesa finishUIUnlock:(BOOL)finishUI {
     BOOL result = %orig;
     if (mesa) {
-        SRLog(@"[SpringRemote] 🧬 Biometric (Mesa) Match Detected - setting immediate suppression flag");
+        SRLog(@"🧬 Biometric (Mesa) Match Detected - setting immediate suppression flag");
         g_bioIgnoreUntil = [[NSDate date] timeIntervalSince1970] + 2.0;
         
         // Cancel pending timers immediately
@@ -3561,7 +3948,7 @@ static void setup_background_hid_listener() {
 
 - (void)unlockUIFromSource:(int)source withOptions:(id)options {
     %orig;
-    SRLog(@"[SpringRemote] 🔓 Device Unlocked via SBLockScreenManager (Source: %d)", source);
+    SRLog(@"🔓 Device Unlocked via SBLockScreenManager (Source: %d)", source);
     
     // Reset biometric state immediately upon unlock to prevent stray triggers
     g_bioFingerDownTime = 0;
@@ -3570,7 +3957,7 @@ static void setup_background_hid_listener() {
     if (g_bioWatchdogTimer) {
         [g_bioWatchdogTimer invalidate];
         g_bioWatchdogTimer = nil;
-        SRLog(@"[SpringRemote] 🔐 Cancelled pending Biometric trigger due to Unlock");
+        SRLog(@"🔐 Cancelled pending Biometric trigger due to Unlock");
     }
     
     // Brief suppression after unlock (1.0s)
@@ -3582,13 +3969,13 @@ static void setup_background_hid_listener() {
 %hook SBLockHardwareButtonActions
 
 - (void)performInitialButtonDownActions {
-    SRLog(@"[SpringRemote] performInitialButtonDownActions on %@", [self class]);
+    SRLog(@"performInitialButtonDownActions on %@", [self class]);
     // Removed g_powerBtnActive
     load_trigger_config();
     BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
                    [g_triggerConfig[@"triggers"][@"power_long_press"][@"enabled"] boolValue];
 
-    SRLog(@"[SpringRemote] Power Button DOWN (Actions) - enabled=%d", enabled);
+    SRLog(@"Power Button DOWN (Actions) - enabled=%d", enabled);
 
     if (enabled) {
         if (g_lockButtonTimer == nil && !g_lockButtonTriggered) {
@@ -3597,11 +3984,11 @@ static void setup_background_hid_listener() {
                 g_lockButtonTimer = nil;
                 trigger_haptic();
                 RCExecuteTrigger(@"power_long_press");
-                SRLog(@"[SpringRemote] Power Long Press Fired (Stage 1)!");
+                SRLog(@"Power Long Press Fired (Stage 1)!");
                 
                 // Start Stage 2 Timer (System Power Off) - 2.0s later (2.5s total hold)
                 g_systemPowerOffTimer = [NSTimer scheduledTimerWithTimeInterval:2.0 repeats:NO block:^(NSTimer *t) {
-                     SRLog(@"[SpringRemote] Power Long Press (Stage 2) - Forcing System Power Off Screen");
+                     SRLog(@"Power Long Press (Stage 2) - Forcing System Power Off Screen");
                      g_forceSystemLongPress = YES;
                      g_systemPowerOffTimer = nil;
                      
@@ -3618,7 +4005,7 @@ static void setup_background_hid_listener() {
     // SUPPRESSION: If a multi-click sequence is in progress, swallow the DOWN event.
     // This stops the phone from waking/locking on subsequent clicks.
     if (g_powerClickCount >= 1) {
-        SRLog(@"[SpringRemote] Suppressing system DOWN for click sequence (count=%d)", g_powerClickCount);
+        SRLog(@"Suppressing system DOWN for click sequence (count=%d)", g_powerClickCount);
         return;
     }
 
@@ -3626,9 +4013,9 @@ static void setup_background_hid_listener() {
 }
 
 - (void)performButtonUpPreActions {
-    SRLog(@"[SpringRemote] performButtonUpPreActions on %@", [self class]);
+    SRLog(@"performButtonUpPreActions on %@", [self class]);
     // Removed g_powerBtnActive access
-    SRLog(@"[SpringRemote] Power Button UP (Actions)");
+    SRLog(@"Power Button UP (Actions)");
 
     if (g_lockButtonTimer) {
         [g_lockButtonTimer invalidate];
@@ -3642,20 +4029,20 @@ static void setup_background_hid_listener() {
     
     if (g_lockButtonTriggered) {
         g_lockButtonTriggered = NO;
-        SRLog(@"[SpringRemote] Power Button Release: Long press already fired, resetting.");
+        SRLog(@"Power Button Release: Long press already fired, resetting.");
         return; 
     }
 
     // SUPPRESSION: Swallow UP events for 2nd click onwards.
     // Click 1 passes %orig so system can lock/wake normally if sequence stops.
     if (g_powerClickCount >= 2) {
-        SRLog(@"[SpringRemote] Suppressing system UP for click #%d", g_powerClickCount);
+        SRLog(@"Suppressing system UP for click #%d", g_powerClickCount);
         return;
     }
 
     // SUPPRESSION: If a Power + Volume combo was triggered, swallow the Power UP as well.
     if (g_powerVolComboTriggered) {
-        SRLog(@"[SpringRemote] Suppressing system UP because a Power + Volume combo was triggered.");
+        SRLog(@"Suppressing system UP because a Power + Volume combo was triggered.");
         // g_powerVolComboTriggered will be reset in handle_hid_event UP
         return;
     }
@@ -3664,24 +4051,24 @@ static void setup_background_hid_listener() {
 }
 
 - (void)performLongPressActions {
-    SRLog(@"[SpringRemote] performLongPressActions called - g_lockButtonTriggered=%d, force=%d", g_lockButtonTriggered, g_forceSystemLongPress);
+    SRLog(@"performLongPressActions called - g_lockButtonTriggered=%d, force=%d", g_lockButtonTriggered, g_forceSystemLongPress);
     
     if (g_forceSystemLongPress) {
-        SRLog(@"[SpringRemote] Allowing System Power Off (Stage 2)");
+        SRLog(@"Allowing System Power Off (Stage 2)");
         g_forceSystemLongPress = NO; // Reset immediately
         %orig;
         return;
     }
 
     if (g_lockButtonTriggered) {
-        SRLog(@"[SpringRemote] Power Long Press Actions (Default) Suppressed (Stage 1 active)");
+        SRLog(@"Power Long Press Actions (Default) Suppressed (Stage 1 active)");
         return; 
     }
     %orig;
 }
 
 - (void)performDoublePressActions {
-    SRLog(@"[SpringRemote] performDoublePressActions called (System)");
+    SRLog(@"performDoublePressActions called (System)");
     // We handle double press manually in performButtonUpPreActions to support Triple/Quad clicks.
     // So we do NOT fire "power_double_tap" here to avoid duplicates.
     // However, if we suppress %orig completely, we might break Wallet double-click.
@@ -3703,7 +4090,7 @@ static void setup_background_hid_listener() {
     /*
         trigger_haptic();
         RCExecuteTrigger(@"power_double_tap");
-        SRLog(@"[SpringRemote] Power Double Tap Fired (Actions)");
+        SRLog(@"Power Double Tap Fired (Actions)");
         return; 
     }
     */
@@ -3716,7 +4103,7 @@ static void setup_background_hid_listener() {
 
 %hook SBLockHardwareButton
 - (void)doublePress:(id)arg1 {
-    SRLog(@"[SpringRemote] SBLockHardwareButton doublePress: called");
+    SRLog(@"SBLockHardwareButton doublePress: called");
     load_trigger_config();
     BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
                    [g_triggerConfig[@"triggers"][@"power_double_tap"][@"enabled"] boolValue];
@@ -3755,6 +4142,16 @@ static CGFloat g_statusBarSwipeStartX = 0;
 static CGFloat g_statusBarSwipeStartY = 0;
 static BOOL g_statusBarTouchActive = NO;
 
+// Bottom Bar Swipe tracking
+static CGFloat g_bottomBarSwipeStartX = 0;
+static CGFloat g_bottomBarSwipeStartY = 0;
+static BOOL g_bottomBarTouchActive = NO;
+static BOOL g_bottomBarHapticFired = NO;
+
+// Status Bar Extended State
+static BOOL g_statusBarSwipeHapticFired = NO;
+static BOOL g_statusBarSwipeTriggered = NO;
+
 %hook UIApplication
 
 - (void)sendEvent:(UIEvent *)event {
@@ -3774,6 +4171,8 @@ static BOOL g_statusBarTouchActive = NO;
                 g_statusBarSwipeStartX = loc.x;
                 g_statusBarSwipeStartY = loc.y;
                 g_statusBarTouchActive = YES;
+                g_statusBarSwipeHapticFired = NO;
+                g_statusBarSwipeTriggered = NO;
                 
                 // Hold zones: left (first 50pts), right (last 50pts), center (middle)
                 NSString *triggerKey = nil;
@@ -3808,10 +4207,19 @@ static BOOL g_statusBarTouchActive = NO;
                             g_statusBarHoldTriggered = YES;
                             trigger_haptic();
                             RCExecuteTrigger(g_pendingStatusBarTrigger);
-                            SRLog(@"[SpringRemote] %@ FIRED!", g_pendingStatusBarTrigger);
+                            SRLog(@"%@ FIRED!", g_pendingStatusBarTrigger);
                         }
                     }
                 }];
+            }
+            
+            // Bottom bar region = bottom 50pts
+            CGFloat screenHeight = [[UIScreen mainScreen] bounds].size.height;
+            if (loc.y > screenHeight - 50) {
+                g_bottomBarSwipeStartX = loc.x;
+                g_bottomBarSwipeStartY = loc.y;
+                g_bottomBarTouchActive = YES;
+                g_bottomBarHapticFired = NO;
             }
         }
         else if (touch && touch.phase == UITouchPhaseMoved) {
@@ -3819,27 +4227,74 @@ static BOOL g_statusBarTouchActive = NO;
             
             // Status bar: Cancel hold timer if significant movement detected (it's a swipe, not a hold)
             if (g_statusBarTouchActive && !g_statusBarHoldTriggered) {
-                CGFloat deltaX = fabs(loc.x - g_statusBarSwipeStartX);
+                CGFloat signedDeltaX = loc.x - g_statusBarSwipeStartX;
+                CGFloat deltaX = fabs(signedDeltaX);
+                CGFloat deltaY = fabs(loc.y - g_statusBarSwipeStartY);
                 
-                // If moved more than 30pts, cancel the hold and give haptic feedback - this is a swipe
-                if (deltaX > 30 && g_statusBarHoldTimer) {
-                    trigger_haptic();  // Haptic NOW during swipe motion
+                // Cancel hold timer early if significant movement (10pts)
+                if ((deltaX > 10 || deltaY > 10) && g_statusBarHoldTimer) {
                     [g_statusBarHoldTimer invalidate];
                     g_statusBarHoldTimer = nil;
                     g_pendingStatusBarTrigger = nil;
+                }
+
+                // Swiping haptic logic (15pts threshold)
+                if (deltaX > 15 && !g_statusBarSwipeHapticFired) {
+                    NSString *swipeTrigger = (signedDeltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
+                    
+                    load_trigger_config();
+                    BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
+                                   [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue];
+                    
+                    if (enabled) {
+                        trigger_haptic();
+                        SRLog(@"Status Bar Haptic FIRE (deltaX=%.2f)", deltaX);
+                    }
+                    g_statusBarSwipeHapticFired = YES;
+                }
+
+                // Robust Fire (Moved phase, 50pts threshold)
+                if (deltaX > 50 && deltaY < 150 && !g_statusBarSwipeTriggered) {
+                    NSString *swipeTrigger = (signedDeltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
+                    load_trigger_config();
+                    if ([g_triggerConfig[@"masterEnabled"] boolValue] && [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue]) {
+                        RCExecuteTrigger(swipeTrigger);
+                        SRLog(@"Status Bar %@ FIRED (Instant)!", swipeTrigger);
+                        g_statusBarSwipeTriggered = YES;
+                    }
+                }
+            }
+
+            // Bottom bar: Check for horizontal swipe movement for haptic feedback
+            if (g_bottomBarTouchActive && !g_bottomBarHapticFired) {
+                CGFloat signedDeltaX = loc.x - g_bottomBarSwipeStartX;
+                CGFloat absDeltaX = fabs(signedDeltaX);
+                
+                if (absDeltaX > 15) { // Lowered from 30 to 15 for snappier feedback
+                    NSString *swipeTrigger = (signedDeltaX > 0) ? @"trigger_bottombar_swipe_right" : @"trigger_bottombar_swipe_left";
+                    
+                    load_trigger_config();
+                    BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
+                                   [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue];
+
+                    if (enabled) {
+                        trigger_haptic();
+                        SRLog(@"Bottom Bar Haptic FIRE (deltaX=%.2f)", absDeltaX);
+                    }
+                    g_bottomBarHapticFired = YES;
                 }
             }
         }
         else if (touch && touch.phase == UITouchPhaseEnded) {
             CGPoint loc = [touch locationInView:nil];
             
-            // Status bar swipe check
-            if (g_statusBarTouchActive && !g_statusBarHoldTriggered) {
+            // Status bar swipe check (fallback if not already triggered in Moved)
+            if (g_statusBarTouchActive && !g_statusBarHoldTriggered && !g_statusBarSwipeTriggered) {
                 CGFloat deltaX = loc.x - g_statusBarSwipeStartX;
                 CGFloat deltaY = fabs(loc.y - g_statusBarSwipeStartY);
                 
-                // Swipe threshold: 80pts horizontal, less than 50pts vertical
-                if (fabs(deltaX) > 80 && deltaY < 50) {
+                // Fallback threshold: 40pts horizontal, less than 150pts vertical
+                if (fabs(deltaX) > 40 && deltaY < 150) {
                     NSString *swipeTrigger = (deltaX > 0) ? @"trigger_statusbar_swipe_right" : @"trigger_statusbar_swipe_left";
                     
                     load_trigger_config();
@@ -3847,11 +4302,33 @@ static BOOL g_statusBarTouchActive = NO;
                                    [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue];
                     
                     if (enabled) {
-                        // Haptic already fired mid-swipe, just execute actions
                         RCExecuteTrigger(swipeTrigger);
-                        SRLog(@"[SpringRemote] %@ FIRED!", swipeTrigger);
+                        SRLog(@"%@ FIRED (Fallback)!", swipeTrigger);
+                        g_statusBarSwipeTriggered = YES;
                     }
                 }
+            }
+            
+            // Bottom bar swipe check
+            if (g_bottomBarTouchActive) { // Allow firing even if haptic already fired
+                 CGFloat deltaX = loc.x - g_bottomBarSwipeStartX;
+                 CGFloat deltaY = fabs(loc.y - g_bottomBarSwipeStartY);
+
+                 // Swipe threshold: 60pts horizontal (relaxed), less than 100pts vertical (relaxed for arcs)
+                 // Note: Native home swipe is strictly horizontal/vertical mix, but usually starts at very bottom. 
+                 // We rely on our > 30pt haptic feedback to signal "we got it"
+                 if (fabs(deltaX) > 60 && deltaY < 120) {
+                     NSString *swipeTrigger = (deltaX > 0) ? @"trigger_bottombar_swipe_right" : @"trigger_bottombar_swipe_left";
+                     
+                     load_trigger_config();
+                     BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
+                                    [g_triggerConfig[@"triggers"][swipeTrigger][@"enabled"] boolValue];
+                     
+                     if (enabled) {
+                         RCExecuteTrigger(swipeTrigger);
+                         SRLog(@"%@ FIRED!", swipeTrigger);
+                     }
+                 }
             }
             
             // Clean up status bar
@@ -3862,6 +4339,10 @@ static BOOL g_statusBarTouchActive = NO;
             g_statusBarHoldTriggered = NO;
             g_pendingStatusBarTrigger = nil;
             g_statusBarTouchActive = NO;
+            
+            // Clean up bottom bar
+            g_bottomBarTouchActive = NO;
+            g_bottomBarHapticFired = NO;
         }
         else if (touch && touch.phase == UITouchPhaseCancelled) {
             if (g_statusBarHoldTimer) {
@@ -3871,6 +4352,10 @@ static BOOL g_statusBarTouchActive = NO;
             g_statusBarHoldTriggered = NO;
             g_pendingStatusBarTrigger = nil;
             g_statusBarTouchActive = NO;
+            
+            // Clean up bottom bar
+            g_bottomBarTouchActive = NO;
+            g_bottomBarHapticFired = NO;
         }
     }
     
@@ -3919,7 +4404,7 @@ static BOOL g_statusBarTouchActive = NO;
 
     [super touchesBegan:touches withEvent:event];
     self.hasTriggered = NO;
-    SRLog(@"[SpringRemote] Edge Gesture touchesBegan: X=%.2f Y=%.2f", loc.x, loc.y);
+    SRLog(@"Edge Gesture touchesBegan: X=%.2f Y=%.2f", loc.x, loc.y);
 }
 
 - (void)touchesMoved:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
@@ -3928,9 +4413,9 @@ static BOOL g_statusBarTouchActive = NO;
 }
 
 - (void)touchesEnded:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
-    SRLog(@"[SpringRemote] Edge Gesture touchesEnded - State before super: %ld", (long)self.state);
+    SRLog(@"Edge Gesture touchesEnded - State before super: %ld", (long)self.state);
     [super touchesEnded:touches withEvent:event];
-    SRLog(@"[SpringRemote] Edge Gesture touchesEnded - State after super: %ld", (long)self.state);
+    SRLog(@"Edge Gesture touchesEnded - State after super: %ld", (long)self.state);
 }
 
 @end
@@ -3961,10 +4446,8 @@ static BOOL g_statusBarTouchActive = NO;
         
         // Threshold: 30pt for instant trigger
         if (verticalSwipeDistance > 30 && horizontalDrift < 100) {
-            SRLog(@"[SpringRemote] Instant Edge Trigger! V=%.2f H=%.2f", verticalSwipeDistance, horizontalDrift);
+            SRLog(@"Instant Edge Trigger! V=%.2f H=%.2f", verticalSwipeDistance, horizontalDrift);
             
-            // Haptic feedback
-            AudioServicesPlaySystemSound(1520);
             gesture.hasTriggered = YES;
 
             NSString *triggerKey = nil;
@@ -3980,10 +4463,12 @@ static BOOL g_statusBarTouchActive = NO;
                                [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
                 
                 if (enabled) {
+                    // Haptic feedback ONLY if enabled
+                    trigger_haptic();
                     RCExecuteTrigger(triggerKey);
-                    SRLog(@"[SpringRemote] %@ FIRED INSTANTLY!", triggerKey);
+                    SRLog(@"%@ FIRED INSTANTLY!", triggerKey);
                 } else {
-                    SRLog(@"[SpringRemote] %@ detected (disabled)", triggerKey);
+                    SRLog(@"%@ detected (disabled)", triggerKey);
                 }
             }
         }
@@ -3993,7 +4478,7 @@ static BOOL g_statusBarTouchActive = NO;
     if (gesture.state == UIGestureRecognizerStateEnded || 
         gesture.state == UIGestureRecognizerStateCancelled || 
         gesture.state == UIGestureRecognizerStateFailed) {
-        SRLog(@"[SpringRemote] Edge Gesture Finished (State %ld): hasTriggered=%d", (long)gesture.state, gesture.hasTriggered);
+        SRLog(@"Edge Gesture Finished (State %ld): hasTriggered=%d", (long)gesture.state, gesture.hasTriggered);
         gesture.hasTriggered = NO;
     }
 }
@@ -4029,7 +4514,7 @@ static void register_edge_gestures() {
     if (!g_gestureManager) {
         g_gestureManager = [%c(SBSystemGestureManager) mainDisplayManager];
         if (!g_gestureManager) {
-            SRLog(@"[SpringRemote] ERROR: Could not find mainDisplayManager");
+            SRLog(@"ERROR: Could not find mainDisplayManager");
             return;
         }
     }
@@ -4041,7 +4526,7 @@ static void register_edge_gestures() {
         leftEdgeRecognizer.cancelsTouchesInView = NO; // Don't block other touches by default
         leftEdgeRecognizer.delaysTouchesBegan = NO;   // Don't add lag
         [g_gestureManager addGestureRecognizer:leftEdgeRecognizer withType:120];
-        SRLog(@"[SpringRemote] Registered LEFT edge gesture recognizer");
+        SRLog(@"Registered LEFT edge gesture recognizer");
     }
     
     // Right Edge
@@ -4051,7 +4536,7 @@ static void register_edge_gestures() {
         rightEdgeRecognizer.cancelsTouchesInView = NO; // Don't block other touches by default
         rightEdgeRecognizer.delaysTouchesBegan = NO;   // Don't add lag
         [g_gestureManager addGestureRecognizer:rightEdgeRecognizer withType:121];
-        SRLog(@"[SpringRemote] Registered RIGHT edge gesture recognizer");
+        SRLog(@"Registered RIGHT edge gesture recognizer");
     }
 }
 
@@ -4062,7 +4547,7 @@ static void unregister_edge_gestures() {
             [leftEdgeRecognizer.view removeGestureRecognizer:leftEdgeRecognizer];
         }
         leftEdgeRecognizer = nil;
-        SRLog(@"[SpringRemote] Unregistered LEFT edge gesture recognizer");
+        SRLog(@"Unregistered LEFT edge gesture recognizer");
     }
     
     if (rightEdgeRecognizer) {
@@ -4070,7 +4555,7 @@ static void unregister_edge_gestures() {
             [rightEdgeRecognizer.view removeGestureRecognizer:rightEdgeRecognizer];
         }
         rightEdgeRecognizer = nil;
-        SRLog(@"[SpringRemote] Unregistered RIGHT edge gesture recognizer");
+        SRLog(@"Unregistered RIGHT edge gesture recognizer");
     }
 }
 
@@ -4081,18 +4566,18 @@ static void update_edge_gestures() {
         BOOL currentlyRegistered = (leftEdgeRecognizer != nil || rightEdgeRecognizer != nil);
         
         if (shouldRegister && !currentlyRegistered) {
-            SRLog(@"[SpringRemote] Edge gestures enabled - registering...");
+            SRLog(@"Edge gestures enabled - registering...");
             register_edge_gestures();
         } else if (!shouldRegister && currentlyRegistered) {
-            SRLog(@"[SpringRemote] Edge gestures disabled - unregistering...");
+            SRLog(@"Edge gestures disabled - unregistering...");
             unregister_edge_gestures();
         } else if (shouldRegister && currentlyRegistered) {
-            // SRLog(@"[SpringRemote] Edge gestures already registered and should be");
+            // SRLog(@"Edge gestures already registered and should be");
         } else {
-            // SRLog(@"[SpringRemote] Edge gestures not needed and not registered");
+            // SRLog(@"Edge gestures not needed and not registered");
         }
     } @catch (NSException *e) {
-        SRLog(@"[SpringRemote] ERROR in update_edge_gestures: %@", e);
+        SRLog(@"ERROR in update_edge_gestures: %@", e);
     }
 }
 
@@ -4108,13 +4593,13 @@ static void update_edge_gestures() {
 %ctor {
     %init(_ungrouped);
     
-    SRLog(@"[SpringRemote] Tweak Loaded - Starting Initialization...");
+    SRLog(@"Tweak Loaded - Starting Initialization...");
     
     // Start Background HID Listener immediately (safe for NFC)
     setup_background_hid_listener();
     
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        SRLog(@"[SpringRemote] Delayed Initialization & Gesture Setup...");
+        SRLog(@"Delayed Initialization & Gesture Setup...");
         
         load_trigger_config();
         register_config_observer();
@@ -4124,7 +4609,7 @@ static void update_edge_gestures() {
         // Conditionally register edge gestures based on config
         update_edge_gestures();
         
-        SRLog(@"[SpringRemote] Initialization Complete.");
+        SRLog(@"Initialization Complete.");
     });
 }
 

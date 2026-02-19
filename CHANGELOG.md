@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.0] - 2026-02-14
+
+### Added
+- **Root Execution Toggle**: Terminal commands now feature a native "Execute as Root" toggle directly in the editor. No more separate menu items; just toggle it on for system-level actions.
+- **Trigger Favorites**: You can now mark any trigger as a "Favorite" for lightning-fast access at the top of the picker for instant access to edit or long-press to run.
+- **Enhanced Status Queries**: Added a suite of new status commands to query device state without toggling. Use `rc dnd status`, `rc lpm status`, `rc wifi status`, `rc bt status`, and the restored `rc player status` command to get instant feedback.
+- **CLI Root Support**: The `rc` command-line tool now supports `-r` and `--root` flags to quickly fire off root commands from your Mac (e.g., `rc -r ldrestart`).
+- **New System Actions**: Added `ldrestart`, `userspace-reboot`, and `uicache` as first-class selectable actions in the app for quick system maintenance.
+- **Bottom Bar Gestures**: Added new "Bottom Bar Swipe Left" and "Bottom Bar Swipe Right" triggers, allowing you to run actions by swiping horizontally along the home bar area.
+- **System Vibration Control**: New `rc vibration` command to **Turn On/Off** or Toggle the system-wide "Vibrate on Silent" and "Vibrate on Ring" settings directly from the CLI or Action Picker. Added status commands for financial usage.
+- **Lua Dynamic Bridge**: Lua scripts now support `dlopen` and `objc_call`, allowing for full dynamic invocation of Objective-C methods and loading of private frameworks directly from your scripts.
+- **Debug Logging**: Added `rc log` to stream live logs from the device, making it easier to debug custom scripts and system actions.
+
+### Improved
+- **Always-Editable Sequences**: Removed the "Edit" button in favor of permanent reorder handles and intuitive swipe-to-delete functionality. Manage your actions faster without extra taps.
+- **Modern Terminal UI**: Redesigned the terminal input screen with a "pro" console aesthetic. Features a charcoal-grey, high-contrast text area with rounded corners and monospaced typography.
+- **Consolidated Actions**: Merged "Terminal Command" and "Terminal Command (Root)" into a single, intuitive entry.
+- **Smart Editing**: When editing an existing terminal command, the editor now correctly remembers and displays the root toggle state.
+- **Haptic Intelligence**: Haptic feedback now only fires when a trigger is actually enabled and assigned an action, eliminating phantom vibrations for unconfigured gestures (Status Bar, Bottom Bar, and Edge gestures).
+- **UI Polish**: Removed placeholder text from volume and brightness inputs for a cleaner look, and reordered the Action Picker to place "Volume Up" logically above "Volume Down".
+
+### Changed
+- **Unified Action Picker**: Streamlined the action selection menu by removing redundant "Root" variants in favor of the new editor-integrated toggles.
+- **Gesture Organization**: The Triggers menu now correctly separates "Bottom Bar Gestures" and "Edge Gestures" into their own dedicated sections.
+
 ## [2.1.2] - 2026-02-06
 
 ### Fixed

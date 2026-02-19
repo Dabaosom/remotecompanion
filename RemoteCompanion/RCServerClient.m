@@ -48,7 +48,7 @@
         
         if (!connected) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Could not connect to SpringRemote tweak (checked ports 12340-12344)"}]);
+                completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Could not connect to RemoteCompanion tweak (checked ports 12340-12344)"}]);
             });
             return;
         }

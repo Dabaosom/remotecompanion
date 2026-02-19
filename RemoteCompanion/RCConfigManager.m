@@ -99,6 +99,12 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             _config[@"nfcEnabled"] = @YES;
             [self saveConfig];
         }
+
+        // Auto-add hapticsEnabled if missing
+        if (_config[@"hapticsEnabled"] == nil) {
+            _config[@"hapticsEnabled"] = @YES;
+            [self saveConfig];
+        }
     } else {
         // Default config with all triggers
         NSLog(@"[RCConfigManager] Using default config");
@@ -132,7 +138,9 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                 @"power_volume_down": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_mute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_unmute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
+                @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"trigger_bottombar_swipe_left": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"trigger_bottombar_swipe_right": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
             } mutableCopy]
         } mutableCopy];
     }
@@ -175,6 +183,21 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     }
     [self saveConfig];
 }
+
+- (BOOL)hapticsEnabled {
+    // Default to YES if missing
+    if (!_config[@"hapticsEnabled"]) {
+        return YES;
+    }
+    return [_config[@"hapticsEnabled"] boolValue];
+}
+
+- (void)setHapticsEnabled:(BOOL)hapticsEnabled {
+    _config[@"hapticsEnabled"] = @(hapticsEnabled);
+    [self saveConfig];
+}
+
+
 
 - (void)updateTrigger:(NSString *)triggerKey withData:(NSDictionary *)data {
     NSMutableDictionary *triggers = _config[@"triggers"];
@@ -242,7 +265,9 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"trigger_edge_right_swipe_down": @"Right Edge Swipe Down",
         @"trigger_ringer_mute": @"Ringer Muted (Silent Mode On)",
         @"trigger_ringer_unmute": @"Ringer Unmuted (Silent Mode Off)",
-        @"trigger_ringer_toggle": @"Ringer Toggled (Any Change)"
+        @"trigger_ringer_toggle": @"Ringer Toggled (Any Change)",
+        @"trigger_bottombar_swipe_left": @"Bottom Bar Swipe Left",
+        @"trigger_bottombar_swipe_right": @"Bottom Bar Swipe Right"
     };
     
     if ([triggerKey hasPrefix:@"nfc_"]) {
@@ -274,6 +299,35 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 
 - (void)setTriggerEnabled:(BOOL)enabled forTrigger:(NSString *)triggerKey {
     [self triggerDict:triggerKey][@"enabled"] = @(enabled);
+    [self saveConfig];
+}
+
+- (BOOL)isTriggerFavorite:(NSString *)triggerKey {
+    NSArray *favorites = _config[@"favoriteTriggers"];
+    return [favorites containsObject:triggerKey];
+}
+
+- (void)setTriggerFavorite:(BOOL)favorite forTrigger:(NSString *)triggerKey {
+    NSMutableArray *favorites = [(_config[@"favoriteTriggers"] ?: @[]) mutableCopy];
+
+    if (favorite) {
+        if (![favorites containsObject:triggerKey]) {
+            [favorites addObject:triggerKey];
+        }
+    } else {
+        [favorites removeObject:triggerKey];
+    }
+
+    _config[@"favoriteTriggers"] = favorites;
+    [self saveConfig];
+}
+
+- (NSArray<NSString *> *)orderedFavorites {
+    return _config[@"favoriteTriggers"] ?: @[];
+}
+
+- (void)setOrderedFavorites:(NSArray<NSString *> *)favorites {
+    _config[@"favoriteTriggers"] = [favorites mutableCopy];
     [self saveConfig];
 }
 
@@ -440,14 +494,22 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"low power mode toggle": @"Low Power Mode Toggle",
         @"mute toggle": @"Mute Toggle",
         @"siri": @"Activate Siri",
-        @"home": @"Home Button"
+        @"home": @"Home Button",
+        @"ldrestart": @"Soft Reboot (ldrestart)",
+        @"userspace-reboot": @"Userspace Reboot",
+        @"uicache": @"Refresh Icon Cache",
+        @"player status": @"Player Status"
     };
     
     NSString *result = names[cmd];
     
     if (!result) {
-        if ([cmd hasPrefix:@"exec "]) {
-            result = @"Terminal Command";
+        if ([cmd hasPrefix:@"root "]) {
+            result = [NSString stringWithFormat:@"[root] %@", [cmd substringFromIndex:5]];
+        } else if ([cmd hasPrefix:@"exec-root "]) {
+            result = [NSString stringWithFormat:@"[root] %@", [cmd substringFromIndex:10]];
+        } else if ([cmd hasPrefix:@"exec "]) {
+            result = [cmd substringFromIndex:5];
         } else if ([cmd hasPrefix:@"delay "]) {
             result = [NSString stringWithFormat:@"Delay %@s", [cmd substringFromIndex:6]];
         } else if ([cmd hasPrefix:@"bt connect "] || [cmd hasPrefix:@"bluetooth connect "]) {
@@ -510,6 +572,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 }
 
 - (NSString *)iconForCommand:(NSString *)cmd {
+    if ([cmd hasPrefix:@"root "] || [cmd hasPrefix:@"exec-root "]) return @"terminal.fill";
     if ([cmd hasPrefix:@"exec "]) return @"terminal.fill";
     if ([cmd hasPrefix:@"delay "]) return @"timer";
     if ([cmd hasPrefix:@"bt connect "] || [cmd hasPrefix:@"bluetooth connect "]) return @"link";
@@ -571,7 +634,19 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"anc transparency": @"waveform.circle.fill",
         @"airplay disconnect": @"airplayaudio.badge.exclamationmark",
         @"mute toggle": @"speaker.slash.fill",
-        @"siri": @"mic.circle.fill"
+        @"siri": @"mic.circle.fill",
+        @"ldrestart": @"arrow.clockwise",
+        @"userspace-reboot": @"arrow.clockwise.circle",
+        @"uicache": @"square.grid.2x2",
+        @"player status": @"play.circle.fill",
+        @"vibration silent-on": @"bell.slash",
+        @"vibration silent-off": @"bell.slash",
+        @"vibration silent-toggle": @"bell.slash",
+        @"vibration silent-status": @"bell.slash.circle",
+        @"vibration ring-on": @"bell",
+        @"vibration ring-off": @"bell",
+        @"vibration ring-toggle": @"bell",
+        @"vibration ring-status": @"bell.circle"
     };
     
     return icons[cmd] ?: @"circle.fill";

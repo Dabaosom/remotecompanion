@@ -10,7 +10,7 @@
 + (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleIdentifier format:(int)format scale:(CGFloat)scale;
 @end
 
-@interface RCActionsViewController ()
+@interface RCActionsViewController () <UITableViewDragDelegate, UITableViewDropDelegate>
 @property (nonatomic, strong) NSString *triggerKey;
 @property (nonatomic, strong) NSMutableArray<NSString *> *actions;
 @end
@@ -72,12 +72,19 @@
     // Load actions
     _actions = [[[RCConfigManager sharedManager] actionsForTrigger:_triggerKey] mutableCopy];
     
-    // Default to NOT editing to show clean UI
+    // Non-editing mode to allow swipe actions
     self.tableView.editing = NO;
-    self.navigationItem.rightBarButtonItems = @[addButton, self.editButtonItem];
+    self.tableView.allowsSelectionDuringEditing = YES;
+    self.tableView.dragInteractionEnabled = YES;
+    self.tableView.dragDelegate = self;
+    self.tableView.dropDelegate = self;
     
+    // Deletion is handled via swipe actions (trailingSwipeActionsConfigurationForRowAtIndexPath)
+    
+    self.navigationItem.rightBarButtonItems = @[addButton];
+
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"ActionCell"];
-    self.tableView.rowHeight = 70; // Increased height for subtitles
+    self.tableView.rowHeight = 70; // Fixed height as in V2.1.2
 }
 
 - (void)renameTrigger {
@@ -132,11 +139,16 @@
         } else if ([action isEqualToString:@"__CUSTOM__"]) {
             // Show custom text input for command
             RCTextInputViewController *inputVC = [[RCTextInputViewController alloc] init];
-            inputVC.promptTitle = @"Custom Command";
-            inputVC.promptMessage = @"Enter terminal command (e.g. curl ...)";
+            inputVC.promptTitle = @"Terminal Command";
+            inputVC.promptMessage = @"Enter terminal command";
+            inputVC.showRootToggle = YES;
+            inputVC.initialText = @"";
+            
+            __weak typeof(inputVC) weakInputVC = inputVC;
             inputVC.onComplete = ^(NSString *text) {
                 if (text.length > 0) {
-                    [self.actions addObject:[NSString stringWithFormat:@"exec %@", text]];
+                    NSString *prefix = weakInputVC.isRootToggled ? @"root" : @"exec";
+                    [self.actions addObject:[NSString stringWithFormat:@"%@ %@", prefix, text]];
                     [self saveActions];
                     [self.tableView reloadData];
                 }
@@ -147,7 +159,33 @@
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [self presentViewController:nav animated:YES completion:nil];
             });
+
+        } else if ([action isEqualToString:@"__CUSTOM_ROOT__"]) {
+            // Re-use terminal command but fixed as root
+            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Root Command" 
+                message:@"Enter terminal command (runs as root)" 
+                preferredStyle:UIAlertControllerStyleAlert];
+                
+            [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+                textField.placeholder = @"ldrestart";
+                textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+                textField.autocorrectionType = UITextAutocorrectionTypeNo;
+            }];
             
+            [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Add" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull alertAction) {
+                NSString *input = alert.textFields.firstObject.text;
+                if (input.length > 0) {
+                    [self.actions addObject:[NSString stringWithFormat:@"root %@", input]];
+                    [self saveActions];
+                    [self.tableView reloadData];
+                }
+            }]];
+            
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self presentViewController:alert animated:YES completion:nil];
+            });
+
         } else if ([action isEqualToString:@"__BT_CONNECT__"] || [action isEqualToString:@"__BT_DISCONNECT__"] || [action isEqualToString:@"__AIRPLAY_CONNECT__"]) {
             
             NSString *title = @"Device Name";
@@ -266,17 +304,23 @@
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     NSString *currentAction = self.actions[indexPath.row];
     
-    if ([currentAction hasPrefix:@"exec "]) {
-        // Edit Custom Command
+    if ([currentAction hasPrefix:@"exec "] || [currentAction hasPrefix:@"root "]) {
+        // Edit Terminal Command
+        BOOL isRoot = [currentAction hasPrefix:@"root "];
         NSString *currentCommand = [currentAction substringFromIndex:5];
         
         RCTextInputViewController *inputVC = [[RCTextInputViewController alloc] init];
         inputVC.promptTitle = @"Edit Command";
         inputVC.promptMessage = @"Update your terminal command";
         inputVC.initialText = currentCommand;
+        inputVC.showRootToggle = YES;
+        inputVC.isRootToggled = isRoot;
+        
+        __weak typeof(inputVC) weakInputVC = inputVC;
         inputVC.onComplete = ^(NSString *text) {
             if (text.length > 0) {
-                self.actions[indexPath.row] = [NSString stringWithFormat:@"exec %@", text];
+                NSString *prefix = weakInputVC.isRootToggled ? @"root" : @"exec";
+                self.actions[indexPath.row] = [NSString stringWithFormat:@"%@ %@", prefix, text];
                 [self saveActions];
                 [self.tableView reloadData];
             }
@@ -315,18 +359,13 @@
         
         [self presentViewController:alert animated:YES completion:nil];
     } else if ([currentAction hasPrefix:@"Lua "] || [currentAction hasPrefix:@"lua_eval "] || [currentAction hasPrefix:@"lua "]) {
-        // Edit Lua Script (Direct or File)
-        BOOL isDirect = [currentAction hasPrefix:@"Lua "] || [currentAction hasPrefix:@"lua_eval "];
-        int prefixLength = 0;
-        if ([currentAction hasPrefix:@"Lua "]) prefixLength = 4;
-        else if ([currentAction hasPrefix:@"lua_eval "]) prefixLength = 9;
-        else prefixLength = 4;
-
+        // Edit Lua Script
+        int prefixLength = [currentAction hasPrefix:@"lua_eval "] ? 9 : 4;
         NSString *currentCode = [currentAction substringFromIndex:prefixLength];
         
         RCTextInputViewController *inputVC = [[RCTextInputViewController alloc] init];
         inputVC.promptTitle = @"Edit Lua Script";
-        inputVC.promptMessage = isDirect ? @"Update your Lua code" : @"Update script path (convert to direct code if desired)";
+        inputVC.promptMessage = @"Update your Lua code";
         inputVC.initialText = currentCode;
         inputVC.onComplete = ^(NSString *text) {
             if (text.length > 0) {
@@ -339,19 +378,20 @@
         
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:inputVC];
         [self presentViewController:nav animated:YES completion:nil];
+
     } else if ([currentAction hasPrefix:@"delay "]) {
         // Edit Delay
         NSString *currentDelay = [currentAction substringFromIndex:6];
-        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Edit Delay" 
-            message:@"Update delay in seconds" 
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Edit Delay"
+            message:@"Update delay in seconds"
             preferredStyle:UIAlertControllerStyleAlert];
-            
+
         [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
             textField.text = currentDelay;
             textField.placeholder = @"1.0";
             textField.keyboardType = UIKeyboardTypeDecimalPad;
         }];
-        
+
         [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
         [alert addAction:[UIAlertAction actionWithTitle:@"Update" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
             NSString *input = alert.textFields.firstObject.text;
@@ -361,7 +401,7 @@
                 [self.tableView reloadData];
             }
         }]];
-        
+
         [self presentViewController:alert animated:YES completion:nil];
     } else if ([currentAction hasPrefix:@"shortcut:"]) {
         // Edit Shortcut
@@ -391,6 +431,29 @@
         [self editBluetoothConnectAtIndex:indexPath.row isDisconnect:NO];
     } else if ([currentAction hasPrefix:@"bt disconnect "] || [currentAction hasPrefix:@"bluetooth disconnect "] || [currentAction hasPrefix:@"bt-disconnect "]) {
         [self editBluetoothConnectAtIndex:indexPath.row isDisconnect:YES];
+    } else {
+        // Generic edit for other commands - show alert with current command
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Edit Action"
+            message:@"Modify the command"
+            preferredStyle:UIAlertControllerStyleAlert];
+
+        [alert addTextFieldWithConfigurationHandler:^(UITextField *textField) {
+            textField.text = currentAction;
+            textField.autocorrectionType = UITextAutocorrectionTypeNo;
+            textField.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        }];
+
+        [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Save" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *input = alert.textFields.firstObject.text;
+            if (input.length > 0) {
+                self.actions[indexPath.row] = input;
+                [self saveActions];
+                [self.tableView reloadData];
+            }
+        }]];
+
+        [self presentViewController:alert animated:YES completion:nil];
     }
 }
 
@@ -528,14 +591,17 @@
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"ActionCell"];
     }
-    
+
     NSString *action = _actions[indexPath.row];
     NSString *cleanName = [self displayNameForCommand:action];
     NSString *subtitle = nil;
-    
+
     // Logic to separate "Type" from "Value"
     if ([action hasPrefix:@"exec "]) {
         cell.textLabel.text = @"Terminal Command";
+        subtitle = [action substringFromIndex:5];
+    } else if ([action hasPrefix:@"root "]) {
+        cell.textLabel.text = @"Root Command";
         subtitle = [action substringFromIndex:5];
     } else if ([action hasPrefix:@"Lua "] || [action hasPrefix:@"lua "]) {
         cell.textLabel.text = @"Lua Script";
@@ -544,38 +610,40 @@
         cell.textLabel.text = [NSString stringWithFormat:@"Wait %@s", [action substringFromIndex:6]];
         subtitle = [NSString stringWithFormat:@"%@ seconds", [action substringFromIndex:6]];
     } else if ([action hasPrefix:@"shortcut:"]) {
-        cell.textLabel.text = cleanName; // "Run Shortcut Name"
+        cell.textLabel.text = cleanName;
         subtitle = @"Siri Shortcut";
     } else if ([action hasPrefix:@"uiopen "]) {
-        cell.textLabel.text = cleanName; // "Open App Name"
+        cell.textLabel.text = cleanName;
         subtitle = @"Application";
     } else if ([action hasPrefix:@"airplay connect "]) {
-        cell.textLabel.text = cleanName; // Will be "Connect Speaker Name"
+        cell.textLabel.text = cleanName;
         subtitle = @"AirPlay Device";
     } else if ([action hasPrefix:@"bt connect "] || [action hasPrefix:@"bluetooth connect "]) {
-        cell.textLabel.text = cleanName; // "Connect Device Name"
+        cell.textLabel.text = cleanName;
         subtitle = @"Bluetooth Device";
     } else if ([action hasPrefix:@"bt disconnect "] || [action hasPrefix:@"bluetooth disconnect "]) {
-        cell.textLabel.text = cleanName; // "Disconnect Device Name"
+        cell.textLabel.text = cleanName;
         subtitle = nil;
     } else if ([action hasPrefix:@"airplay disconnect"]) {
-        cell.textLabel.text = cleanName; // "Disconnect Airplay"
+        cell.textLabel.text = cleanName;
+        subtitle = nil;
+    } else if ([action isEqualToString:@"ldrestart"] || [action isEqualToString:@"userspace-reboot"] || [action isEqualToString:@"uicache"] || [action isEqualToString:@"player status"]) {
+        cell.textLabel.text = cleanName;
         subtitle = nil;
     } else {
-        // Standard commands
         cell.textLabel.text = cleanName;
         subtitle = nil;
     }
 
     cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
     cell.textLabel.textColor = [UIColor labelColor];
-    
+
     if (subtitle) {
         cell.detailTextLabel.text = subtitle;
         cell.detailTextLabel.textColor = [UIColor secondaryLabelColor];
-        
+
         // Use monospace for code-like things
-        if ([action hasPrefix:@"exec "] || [action hasPrefix:@"Lua "] || [action hasPrefix:@"lua "]) {
+        if ([action hasPrefix:@"exec "] || [action hasPrefix:@"root "] || [action hasPrefix:@"Lua "] || [action hasPrefix:@"lua "]) {
             cell.detailTextLabel.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
             cell.detailTextLabel.numberOfLines = 1;
             cell.detailTextLabel.lineBreakMode = NSLineBreakByTruncatingMiddle;
@@ -585,24 +653,81 @@
     } else {
         cell.detailTextLabel.text = nil;
     }
-    
+
     NSString *iconName = [self iconForCommand:action];
     if ([iconName hasPrefix:@"USER_APP:"]) {
         NSString *bundleId = [iconName substringFromIndex:9];
-        // Use private API to get icon
         cell.imageView.image = [UIImage _applicationIconImageForBundleIdentifier:bundleId format:0 scale:[UIScreen mainScreen].scale];
-        cell.imageView.tintColor = nil; // Keep original colors
+        cell.imageView.tintColor = nil;
     } else {
         cell.imageView.image = [UIImage systemImageNamed:iconName];
         cell.imageView.tintColor = [UIColor systemGrayColor];
     }
-    
-    cell.showsReorderControl = YES;
-    
+
+    // Custom reorder handle (since editing = NO)
+    UIImageView *handleView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
+    handleView.tintColor = [UIColor systemGray3Color];
+    cell.accessoryView = handleView;
     return cell;
 }
 
-// Reordering
+#pragma mark - UITableViewDragDelegate
+
+- (NSArray<UIDragItem *> *)tableView:(UITableView *)tableView itemsForBeginningDragSession:(id<UIDragSession>)session atIndexPath:(NSIndexPath *)indexPath {
+    NSString *action = self.actions[indexPath.row];
+    NSData *data = [action dataUsingEncoding:NSUTF8StringEncoding];
+    NSItemProvider *itemProvider = [[NSItemProvider alloc] initWithItem:data typeIdentifier:@"com.pizzaman.rc.action"];
+    UIDragItem *dragItem = [[UIDragItem alloc] initWithItemProvider:itemProvider];
+    dragItem.localObject = action;
+    return @[dragItem];
+}
+
+#pragma mark - UITableViewDropDelegate
+
+- (UITableViewDropProposal *)tableView:(UITableView *)tableView dropSessionDidUpdate:(id<UIDropSession>)session withDestinationIndexPath:(NSIndexPath *)destinationIndexPath {
+    if (tableView.hasActiveDrag) {
+        return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationMove intent:UITableViewDropIntentInsertAtDestinationIndexPath];
+    }
+    return [[UITableViewDropProposal alloc] initWithDropOperation:UIDropOperationForbidden];
+}
+
+- (void)tableView:(UITableView *)tableView performDropWithCoordinator:(id<UITableViewDropCoordinator>)coordinator {
+    NSIndexPath *destinationIndexPath = coordinator.destinationIndexPath;
+    if (!destinationIndexPath) {
+        destinationIndexPath = [NSIndexPath indexPathForRow:[self.actions count] - 1 inSection:0];
+    }
+
+    for (id<UITableViewDropItem> item in coordinator.items) {
+        if (item.sourceIndexPath) {
+            NSIndexPath *sourceIndexPath = item.sourceIndexPath;
+            NSString *action = self.actions[sourceIndexPath.row];
+            [_actions removeObjectAtIndex:sourceIndexPath.row];
+            [_actions insertObject:action atIndex:destinationIndexPath.row];
+            
+            [tableView moveRowAtIndexPath:sourceIndexPath toIndexPath:destinationIndexPath];
+            [coordinator dropItem:item.dragItem toRowAtIndexPath:destinationIndexPath];
+            [self saveActions];
+        }
+    }
+}
+
+// Swipe Actions
+- (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UIContextualAction *deleteAction = [UIContextualAction
+        contextualActionWithStyle:UIContextualActionStyleDestructive
+        title:@"Delete"
+        handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
+            [_actions removeObjectAtIndex:indexPath.row];
+            [self saveActions];
+            [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+            completionHandler(YES);
+        }];
+
+    deleteAction.image = [UIImage systemImageNamed:@"trash.fill"];
+    return [UISwipeActionsConfiguration configurationWithActions:@[deleteAction]];
+}
+
+// Reordering (legacy but kept for logic reference, though drag/drop is primary now)
 - (BOOL)tableView:(UITableView *)tableView canMoveRowAtIndexPath:(NSIndexPath *)indexPath {
     return YES;
 }
@@ -614,17 +739,14 @@
     [self saveActions];
 }
 
-// Deletion
+// Deletion (legacy - leading/trailing swipe actions are preferred now)
 - (UITableViewCellEditingStyle)tableView:(UITableView *)tableView editingStyleForRowAtIndexPath:(NSIndexPath *)indexPath {
-    return UITableViewCellEditingStyleDelete;
+    return UITableViewCellEditingStyleNone; // Prevent standard delete indicator
 }
 
-- (void)tableView:(UITableView *)tableView commitEditingStyle:(UITableViewCellEditingStyle)editingStyle forRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (editingStyle == UITableViewCellEditingStyleDelete) {
-        [_actions removeObjectAtIndex:indexPath.row];
-        [self saveActions];
-        [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
-    }
+- (BOOL)tableView:(UITableView *)tableView shouldIndentWhileEditingRowAtIndexPath:(NSIndexPath *)indexPath {
+    return NO;
 }
+
 
 @end

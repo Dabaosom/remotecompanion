@@ -118,7 +118,7 @@ static void perform_native_curl(NSString *fullCmd) {
     }
     
     if (!urlStr) {
-        CurlLog(@"[SpringRemote] Native Curl Error: No URL found");
+        CurlLog(@"Native Curl Error: No URL found");
         return;
     }
     
@@ -140,7 +140,7 @@ static void perform_native_curl(NSString *fullCmd) {
         [req setHTTPBody:[body dataUsingEncoding:NSUTF8StringEncoding]];
     }
     
-    CurlLog(@"[SpringRemote] Native Curl: %@ %@ (insecure=%d, auth=%@)", method, urlStr, insecure, basicAuth ? @"YES" : @"NO");
+    CurlLog(@"Native Curl: %@ %@ (insecure=%d, auth=%@)", method, urlStr, insecure, basicAuth ? @"YES" : @"NO");
     
     // Use custom session with delegate if -k flag was used
     NSURLSession *session;
@@ -160,13 +160,13 @@ static void perform_native_curl(NSString *fullCmd) {
     
     NSURLSessionDataTask *task = [session dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) {
-            CurlLog(@"[SpringRemote] Native Curl Error: %@", error);
+            CurlLog(@"Native Curl Error: %@", error);
         } else {
             NSHTTPURLResponse *httpResp = (NSHTTPURLResponse *)response;
-            CurlLog(@"[SpringRemote] Native Curl Success: %ld", (long)httpResp.statusCode);
+            CurlLog(@"Native Curl Success: %ld", (long)httpResp.statusCode);
             if (data) {
                 NSString *respStr = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-                CurlLog(@"[SpringRemote] Response: %@", respStr);
+                CurlLog(@"Response: %@", respStr);
             }
         }
     }];

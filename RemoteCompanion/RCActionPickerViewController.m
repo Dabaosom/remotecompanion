@@ -58,14 +58,13 @@
         @[
             @{ @"name": @"Play", @"command": @"play", @"icon": @"play.fill" },
             @{ @"name": @"Pause", @"command": @"pause", @"icon": @"pause.fill" },
-            @{ @"name": @"Volume Down", @"command": @"volume down", @"icon": @"speaker.wave.1.fill" },
-            @{ @"name": @"Set Volume...", @"command": @"__SET_VOLUME__", @"icon": @"speaker.wave.3.fill" },
-            @{ @"name": @"Set Brightness...", @"command": @"__SET_BRIGHTNESS__", @"icon": @"sun.max.fill" },
+            @{ @"name": @"Play/Pause Toggle", @"command": @"playpause", @"icon": @"playpause.fill" },
             @{ @"name": @"Next Track", @"command": @"next", @"icon": @"forward.fill" },
             @{ @"name": @"Previous Track", @"command": @"prev", @"icon": @"backward.fill" },
-            @{ @"name": @"Play/Pause Toggle", @"command": @"playpause", @"icon": @"playpause.fill" },
             @{ @"name": @"Volume Up", @"command": @"volume up", @"icon": @"speaker.wave.3.fill" },
-            @{ @"name": @"Volume Down", @"command": @"volume down", @"icon": @"speaker.wave.1.fill" }
+            @{ @"name": @"Volume Down", @"command": @"volume down", @"icon": @"speaker.wave.1.fill" },
+            @{ @"name": @"Set Volume...", @"command": @"__SET_VOLUME__", @"icon": @"speaker.wave.3.fill" },
+            @{ @"name": @"Set Brightness...", @"command": @"__SET_BRIGHTNESS__", @"icon": @"sun.max.fill" }
         ],
         // Device Controls
         @[
@@ -105,13 +104,22 @@
             @{ @"name": @"Activate Siri", @"command": @"siri", @"icon": @"mic.circle.fill" },
             @{ @"name": @"Home Button", @"command": @"home", @"icon": @"house.fill" },
             @{ @"name": @"Respring Device", @"command": @"respring", @"icon": @"memories" },
+            @{ @"name": @"Soft Reboot (ldrestart)", @"command": @"ldrestart", @"icon": @"arrow.clockwise" },
+            @{ @"name": @"Userspace Reboot", @"command": @"userspace-reboot", @"icon": @"arrow.clockwise.circle" },
+            @{ @"name": @"Refresh Icon Cache (uicache)", @"command": @"uicache", @"icon": @"square.grid.2x2" },
             @{ @"name": @"Lock Status", @"command": @"lock status", @"icon": @"lock.circle" },
+            @{ @"name": @"Lock Status", @"command": @"lock status", @"icon": @"lock.circle" },
+            
+            // System Vibration
+            @{ @"name": @"Silent Vibrate Toggle", @"command": @"vibration silent-toggle", @"icon": @"bell.slash" },
+            @{ @"name": @"Ring Vibrate Toggle", @"command": @"vibration ring-toggle", @"icon": @"bell" },
+
             @{ @"name": @"Low Power Mode On", @"command": @"low power on", @"icon": @"battery.25" },
             @{ @"name": @"Low Power Mode Off", @"command": @"low power off", @"icon": @"battery.100" },
             @{ @"name": @"Low Power Mode Toggle", @"command": @"low power toggle", @"icon": @"battery.25" },
-            @{ @"name": @"Custom Lua Script...", @"command": @"__LUA_SCRIPT__", @"icon": @"scroll.fill" },
+            @{ @"name": @"Custom Lua Script", @"command": @"__LUA_SCRIPT__", @"icon": @"scroll.fill" },
             @{ @"name": @"Delay", @"command": @"__DELAY__", @"icon": @"timer" },
-            @{ @"name": @"Custom Command...", @"command": @"__CUSTOM__", @"icon": @"terminal.fill" }
+            @{ @"name": @"Terminal Command", @"command": @"__CUSTOM__", @"icon": @"terminal.fill" }
         ],
         // Audio (ANC)
         @[
@@ -203,7 +211,7 @@
         [cmd isEqualToString:@"__SHORTCUT_PICKER__"] || 
         [cmd isEqualToString:@"__OPEN_APP__"] || 
         [cmd isEqualToString:@"__LUA_SCRIPT__"] || 
-        [cmd isEqualToString:@"__DELAY__"] || 
+        [cmd isEqualToString:@"__DELAY__"] ||
         [cmd isEqualToString:@"__CUSTOM__"]) {
         
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
@@ -272,7 +280,6 @@
     
     [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {
         textField.keyboardType = UIKeyboardTypeNumberPad;
-        textField.placeholder = @"50";
         textField.textAlignment = NSTextAlignmentCenter;
     }];
     

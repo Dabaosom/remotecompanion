@@ -1,18 +1,19 @@
 ---
 name: Question / Support
-about: Ask a question or get support
-title: ""
+about: Ask a question or get support for RemoteCompanion
+title: " "
+labels:
 assignees: ''
 
 ---
 
-**What would you like to know?**
-Ask your question here.
+**Environment Info:**
+ - iOS Version:
+ - Jailbreak:
+ - RemoteCompanion Version:
 
-**Background context**
-- Device: [e.g. iPhone X]
-- iOS Version:
-- Jailbreak:
+**Question**
+What would you like to know?
 
-**Attempts to solve**
-What have you tried so far?
+**Additional context**
+Add any other context about the problem here.
