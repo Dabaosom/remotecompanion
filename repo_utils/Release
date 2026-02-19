@@ -4,5 +4,6 @@ Icon: https://saihgupr.github.io/RemoteCompanion/CydiaIcon.png
 Suite: stable
 Version: 1.0
 Codename: ios
+Components: main
 Architectures: iphoneos-arm iphoneos-arm64
 Description: A modern Activator replacement for rootless jailbreaks. Bind triggers to system actions, Siri automation, and custom TCP commands.
