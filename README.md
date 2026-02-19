@@ -49,7 +49,7 @@ RemoteCompanion brings fast, scriptable system control to modern rootless jailbr
 - `rc dnd [on|off|toggle]` - Toggle Do Not Disturb.
 - `rc low power mode [on|off|toggle]` - Toggle battery saver.
 - `rc airplane [on|off|toggle]` - Control Airplane Mode.
-- `rc haptic` / `rc screenshot` - Haptic feedback / Screenshot (or Snapper 3 if installed).
+- `rc haptic` / `rc screenshot` - Haptic feedback / Screenshot (or activate Snapper 3).
 - `rc vibration [silent-toggle|ring-toggle]` - System "Vibrate on Silent/Ring" settings.
 
 
