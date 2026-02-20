@@ -165,7 +165,7 @@ log("Battery Level: " .. (level * 100) .. "%")
 ### 2. Installation Options
 
 #### Option 1: Repository (Recommended)
-Add `https://saihgupr.github.io/remotecompanion` to Zebra, or use `zbra://sources/add/https://saihgupr.github.io/remotecompanion`
+Add `https://saihgupr.github.io/remotecompanion` to Sileo or Zebra, or use [Add to Sileo](sileo://source/https://saihgupr.github.io/remotecompanion/) / [Add to Zebra](zbra://sources/add/https://saihgupr.github.io/remotecompanion/)
 
 #### Option 2: Manual Install
 Download the `.deb` from [Releases](https://github.com/saihgupr/remotecompanion/releases).
