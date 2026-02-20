@@ -1559,7 +1559,7 @@ static NSString *handle_command(NSString *cmd) {
             SRLog(@"posix_spawn failed with error: %d (%s)", result, strerror(result));
         }
     } else if ([cleanCmd hasPrefix:@"shortcut "] || [cleanCmd hasPrefix:@"springcut "]) {
-        // Direct spawn of springcuts - parse the args from the full command
+        // Parse the shortcut name (and arguments if any) from the full command
         NSString *argsString;
         if ([cleanCmd hasPrefix:@"springcut "]) {
             argsString = [[cleanCmd substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -1567,60 +1567,106 @@ static NSString *handle_command(NSString *cmd) {
             argsString = [[cleanCmd substringFromIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         }
         
-        // The args string is in springcuts format: -r "Name" [-p "Input"]
-        // Just pass it through to springcuts
-        NSMutableArray *args = [NSMutableArray array];
-        
-        // Simple parsing: split by spaces but respect quotes
-        NSScanner *scanner = [NSScanner scannerWithString:argsString];
-        scanner.charactersToBeSkipped = nil;
-        
-        while (![scanner isAtEnd]) {
-            [scanner scanCharactersFromSet:[NSCharacterSet whitespaceCharacterSet] intoString:nil];
-            if ([scanner isAtEnd]) break;
-            
-            NSString *arg = nil;
-            if ([argsString characterAtIndex:scanner.scanLocation] == '"') {
-                scanner.scanLocation++;
-                [scanner scanUpToString:@"\"" intoString:&arg];
-                if (![scanner isAtEnd]) scanner.scanLocation++;
-            } else {
-                [scanner scanUpToCharactersFromSet:[NSCharacterSet whitespaceCharacterSet] intoString:&arg];
+        // Very basic parse to extract name (assumes first quoted term is name, ignores inputs for the native implementation for now, or just passes the full string if no quotes)
+        NSString *shortcutName = argsString;
+        if ([argsString hasPrefix:@"\""]) {
+            NSRange endQuote = [argsString rangeOfString:@"\"" options:0 range:NSMakeRange(1, argsString.length - 1)];
+            if (endQuote.location != NSNotFound) {
+                shortcutName = [argsString substringWithRange:NSMakeRange(1, endQuote.location - 1)];
             }
-            if (arg) [args addObject:arg];
         }
         
-        SRLog(@"Shortcut spawn with args: %@", args);
+        SRLog(@"Attempting native shortcut spawn for: %@", shortcutName);
         
-        const char *springcutsPath = [[NSString stringWithFormat:@"%@/usr/bin/springcuts", root_prefix()] UTF8String];
-        if (access(springcutsPath, X_OK) != 0) {
-            springcutsPath = "/usr/bin/springcuts";
-        }
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @try {
+                 // Try native WorkflowKit execution first
+                 void *wfHandle = dlopen("/System/Library/PrivateFrameworks/WorkflowKit.framework/WorkflowKit", RTLD_NOW);
+                 if (wfHandle) {
+                     Class WFWorkflowDescriptorClass = objc_getClass("WFWorkflowDescriptor");
+                     Class WFWorkflowRunnerClientClass = objc_getClass("WFWorkflowRunnerClient");
+                     
+                     if (WFWorkflowDescriptorClass && WFWorkflowRunnerClientClass) {
+                         SRLog(@"WorkflowKit loaded, preparing to run shortcut: %@", shortcutName);
+                         id descriptor = [[WFWorkflowDescriptorClass alloc] initWithName:shortcutName];
+                         
+                         WFWorkflowRunnerClient *client = (WFWorkflowRunnerClient *)[[WFWorkflowRunnerClientClass alloc] initWithWorkflowDescriptor:descriptor 
+                                                                                               input:nil 
+                                                                                          parseInput:NO 
+                                                                                              output:nil 
+                                                                                          completion:^(id output, NSError *error) {
+                             if (error) {
+                                 SRLog(@"Shortcut '%@' failed: %@", shortcutName, error);
+                             } else {
+                                 SRLog(@"Shortcut '%@' completed successfully", shortcutName);
+                             }
+                         }];
+                         
+                         if (client) {
+                             [client start];
+                             SRLog(@"Started WFWorkflowRunnerClient for '%@'", shortcutName);
+                             return; // Success, exit block!
+                         }
+                     }
+                 }
+                 
+                 // Fallback to springcuts CLI if WorkflowKit approach fails
+                 SRLog(@"WorkflowKit execution unavailable, falling back to springcuts...");
+                 NSMutableArray *args = [NSMutableArray array];
+                 
+                 // Simple parsing: split by spaces but respect quotes
+                 NSScanner *scanner = [NSScanner scannerWithString:argsString];
+                 scanner.charactersToBeSkipped = nil;
+                 
+                 while (![scanner isAtEnd]) {
+                     [scanner scanCharactersFromSet:[NSCharacterSet whitespaceCharacterSet] intoString:nil];
+                     if ([scanner isAtEnd]) break;
+                     
+                     NSString *arg = nil;
+                     if ([argsString characterAtIndex:scanner.scanLocation] == '"') {
+                         scanner.scanLocation++;
+                         [scanner scanUpToString:@"\"" intoString:&arg];
+                         if (![scanner isAtEnd]) scanner.scanLocation++;
+                     } else {
+                         [scanner scanUpToCharactersFromSet:[NSCharacterSet whitespaceCharacterSet] intoString:&arg];
+                     }
+                     if (arg) [args addObject:arg];
+                 }
+                 
+                 const char *springcutsPath = [[NSString stringWithFormat:@"%@/usr/bin/springcuts", root_prefix()] UTF8String];
+                 if (access(springcutsPath, X_OK) != 0) {
+                     springcutsPath = "/usr/bin/springcuts";
+                 }
+                 
+                 if (access(springcutsPath, X_OK) != 0) {
+                     SRLog(@"ERROR: springcuts not found");
+                     send_notification(@"RemoteCompanion", @"Please install SpringCuts to use shortcuts.", YES);
+                     return;
+                 }
+                 
+                 char **argv = (char **)malloc((args.count + 2) * sizeof(char *));
+                 argv[0] = (char *)springcutsPath;
+                 for (NSUInteger i = 0; i < args.count; i++) {
+                     argv[i + 1] = (char *)[args[i] UTF8String];
+                 }
+                 argv[args.count + 1] = NULL;
+                 
+                 pid_t pid;
+                 extern char **environ;
+                 int result = posix_spawn(&pid, springcutsPath, NULL, NULL, argv, environ);
+                 free(argv);
+                 
+                 if (result == 0) {
+                     SRLog(@"Spawned springcuts pid=%d", pid);
+                 } else {
+                     SRLog(@"posix_spawn failed: %d (%s)", result, strerror(result));
+                 }
+            } @catch (NSException *e) {
+                SRLog(@"Crash launching shortcut fallback: %@", e);
+            }
+        });
         
-        if (access(springcutsPath, X_OK) != 0) {
-            SRLog(@"ERROR: springcuts not found");
-            send_notification(@"RemoteCompanion", @"Please install SpringCuts to use shortcuts.", YES);
-            return @"Error: SpringCuts not installed\n";
-        }
-        
-        char **argv = (char **)malloc((args.count + 2) * sizeof(char *));
-        argv[0] = (char *)springcutsPath;
-        for (NSUInteger i = 0; i < args.count; i++) {
-            argv[i + 1] = (char *)[args[i] UTF8String];
-        }
-        argv[args.count + 1] = NULL;
-        
-        pid_t pid;
-        extern char **environ;
-        int result = posix_spawn(&pid, springcutsPath, NULL, NULL, argv, environ);
-        free(argv);
-        
-        if (result == 0) {
-            SRLog(@"Spawned springcuts pid=%d", pid);
-        } else {
-            SRLog(@"posix_spawn failed: %d (%s)", result, strerror(result));
-        }
-    } else if ([cleanCmd hasPrefix:@"anc "]) {
+        return [NSString stringWithFormat:@"Triggered shortcut: %@\n", shortcutName];
         // ANC control - triggers Sonitus hooks
         NSString *mode = [[cleanCmd substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         NSString *listeningMode = nil;
@@ -3036,10 +3082,42 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd hasPrefix:@"shortcut:"]) {
         NSString *shortcutName = [[cleanCmd substringFromIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         
-        SRLog(@"Attempting to run shortcut: %@", shortcutName);
+        SRLog(@"Attempting to run shortcut natively: %@", shortcutName);
         
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             @try {
+                 // Try native WorkflowKit execution first
+                 void *wfHandle = dlopen("/System/Library/PrivateFrameworks/WorkflowKit.framework/WorkflowKit", RTLD_NOW);
+                 if (wfHandle) {
+                     Class WFWorkflowDescriptorClass = objc_getClass("WFWorkflowDescriptor");
+                     Class WFWorkflowRunnerClientClass = objc_getClass("WFWorkflowRunnerClient");
+                     
+                     if (WFWorkflowDescriptorClass && WFWorkflowRunnerClientClass) {
+                         SRLog(@"WorkflowKit loaded, preparing to run shortcut: %@", shortcutName);
+                         id descriptor = [[WFWorkflowDescriptorClass alloc] initWithName:shortcutName];
+                         
+                         WFWorkflowRunnerClient *client = (WFWorkflowRunnerClient *)[[WFWorkflowRunnerClientClass alloc] initWithWorkflowDescriptor:descriptor 
+                                                                                               input:nil 
+                                                                                          parseInput:NO 
+                                                                                              output:nil 
+                                                                                          completion:^(id output, NSError *error) {
+                             if (error) {
+                                 SRLog(@"Shortcut '%@' failed: %@", shortcutName, error);
+                             } else {
+                                 SRLog(@"Shortcut '%@' completed successfully", shortcutName);
+                             }
+                         }];
+                         
+                         if (client) {
+                             [client start];
+                             SRLog(@"Started WFWorkflowRunnerClient for '%@'", shortcutName);
+                             return; // Success, exit block!
+                         }
+                     }
+                 }
+                 
+                 // Fallback to springcuts CLI if WorkflowKit approach fails
+                 SRLog(@"WorkflowKit execution unavailable, falling back to springcuts...");
                  Class NSTaskClass = NSClassFromString(@"NSTask");
                  if (NSTaskClass) {
                      id task = [[NSTaskClass alloc] init];

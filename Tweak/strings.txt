@@ -1,0 +1,91 @@
+v8@?0
+v16@?0@"NSNotification"8
+success
+Workflow has run successfully!
+cancelled
+Workflow execution has been cancelled by the user.
+Workflow has failed running with error:
+errorDescription
+Usage: %s [arguments...]
+  -r [SHORTCUT_NAME]: run shortcut named [SHORTCUT_NAME]
+  -l: list all shortcut names
+  -s: stop currently running shortcuts
+  -p [INPUT_PARAMETER]: when running a shortcut, use this option to pass text input to the shortcut. Don't forget to add quotes if you want to use text with spaces.
+  -w: when running a shortcut, use this option to wait until the end of shortcut execution before returning. Using this option also logs error message when something goes wrong in shortcut execution.
+  -i: when running a shortcut, use this option to make the run invisible. There won't be any indicator on the device that the Shortcut is running.
+  -h: This help message
+Examples:
+  springcuts -r "Turn off the lights"  -> Execute said shortcut.
+  springcuts -r "Turn off the lights" -w  -> Execute said shortcut and wait until it has finished running. Any error will be logged.
+  springcuts -r "Send notification with parameter" -p "This is a test notification!"  -> Execute said shortcut by passing it a text parameter.
+  springcuts -l  -> List all shortcuts available on this device.
+  springcuts -s  -> Stop execution of currently running shortcuts.
+SpringCuts will run shortcut: %s
+workflowName
+notifyEnds
+silently
+parameter
+com.anthopak.springcuts.runWorkflowIfPossibleWithName
+result
+com.anthopak.SpringCutsRunnerToClient-%lld
+notifyCenterName
+v16@?0@"NSDictionary"8
+hr:n:lswip:
+com.anthopak.springcuts.listWorkflowNames
+com.anthopak.springcuts.stopCurrentWorkflows
+Stopping currently running shortcuts
+Shortcut names:
+responseIdentifier
+Info to send back %@
+SpringCutsCLIObserver
+IPCRequestSender
+IPCRequestHandler
+IPCResponseReceiver
+RunLoopManager
+UTF8String
+resumeExecution
+UUIDString
+.cxx_destruct
+numberWithBool:
+UUID
+workflowDidEndRunningWithError:
+_handlers
+addObserver:selector:name:object:
+addObserverForName:object:queue:usingBlock:
+boolValue
+copy
+defaultCenter
+dictionaryWithObjects:forKeys:count:
+init
+mutableCopy
+name
+objectForKey:
+objectForKeyedSubscript:
+pauseExecution
+postNotificationName:object:userInfo:
+receiveResponse:
+registerHandler:
+removeObjectForKey:
+removeObserver:name:object:
+sendRequestWithNotificationName:userInfo:responseHandler:
+sendSynchronousRequestWithNotificationName:userInfo:
+setObject:forKey:
+setObject:forKeyedSubscript:
+setupObserverWithName:
+sharedManager
+sharedObserver
+sharedReceiver
+startListeningForRequestsWithIdentifier:processingBlock:
+stringWithFormat:
+stringWithUTF8String:
+strongToStrongObjectsMapTable
+unregisterHandlerWithIdentifier:
+userInfo
+@16@0:8
+v24@0:8@16
+v40@0:8@16@24@?32
+@32@0:8@16@24
+v32@0:8@16@?24
+@24@0:8@?16
+v16@0:8
+@"NSMapTable"

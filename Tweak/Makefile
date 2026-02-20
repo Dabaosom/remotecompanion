@@ -5,7 +5,11 @@ THEOS_DEVICE_IP = iphone.local
 INSTALL_TARGET_USER = mobile
 TARGET := iphone:clang:latest:14.0
 INSTALL_TARGET_PROCESSES = SpringBoard
+ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
 ARCHS = arm64 arm64e
+else
+ARCHS = arm64
+endif
 THEOS_PACKAGE_SCHEME ?= rootless
 
 include $(THEOS)/makefiles/common.mk

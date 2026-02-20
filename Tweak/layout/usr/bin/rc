@@ -1,0 +1,201 @@
+#!/bin/bash
+
+IP="iphone.local"
+PORT="1234"
+NTFY_TOPIC="remotecommand-notify"
+
+# Parse global options (must come before command)
+ROOT_CMD=0
+while [[ "$1" =~ ^- ]]; do
+    case "$1" in
+        -r|--root)
+            ROOT_CMD=1
+            shift
+            ;;
+        *)
+            # Stop if we hit a non-flag or unknown flag (like --title for notify)
+            # If the command is "notify", the loop should break so "notify" is processed as $1
+            if [[ "$1" == "notify" ]]; then
+                break
+            fi
+            # For other commands, assume flags are part of the command if not recognized, or handle specific flags here.
+            # But currently only -r is global.
+            break
+            ;;
+    esac
+done
+
+# Handle notify command separately (uses ntfy.sh for true push notifications)
+if [[ "$1" == "notify" ]]; then
+    shift  # Remove "notify" from args
+    
+    # Defaults
+    TITLE="RemoteCommand"
+    BODY=""
+    ICON=""  # Optional icon URL
+    PRIORITY="high"   # high (4) = time-sensitive, instant Watch delivery
+    
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -t|--title)
+                TITLE="$2"
+                shift 2
+                ;;
+            -m|--message)
+                BODY="$2"
+                shift 2
+                ;;
+            -i|--icon)
+                ICON="$2"
+                shift 2
+                ;;
+            -p|--priority)
+                PRIORITY="$2"  # min, low, default, high, urgent
+                shift 2
+                ;;
+            *)
+                # Fallback: treat as positional (title, then body)
+                if [[ -z "$BODY" && -n "$TITLE" && "$TITLE" != "RemoteCommand" ]]; then
+                    BODY="$1"
+                else
+                    TITLE="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    curl -s -H "Title: $TITLE" -H "Icon: $ICON" -H "Priority: $PRIORITY" -d "$BODY" "ntfy.sh/$NTFY_TOPIC" > /dev/null
+    echo "Notification sent: $TITLE"
+    exit 0
+fi
+
+if [ -z "$1" ]; then
+    echo "Usage: rc [-r] <command> [arg]"
+    echo ""
+    echo "Implemented Commands:"
+    echo "  -r, --root        - Run command as root"
+    echo "  play, pause       - Media Control"
+    echo "  vol-up, vol-down  - Volume Control"
+    echo "  set-vol <0-100>   - Set Volume"
+    echo "  shortcut \"Name\"   - Run a Shortcut (e.g. rc shortcut \"Turn Lights On\")"
+    echo "  ping              - Play Alert Sound"
+    echo "  respring          - Restart SpringBoard"
+    echo "  bt on/off         - Turn Bluetooth On/Off"
+    echo "  bt-connect <name> - Connect to paired Bluetooth device"
+    echo "  bt-disconnect <name> - Disconnect Bluetooth device"
+    echo "  wifi on/off       - Turn WiFi On/Off"
+    echo "  airplane on/off   - Turn Airplane Mode On/Off"
+    echo "  brightness <0-100> - Set screen brightness"
+    echo "  haptic            - Trigger haptic tap"
+    echo "  flash on/off      - Turn flashlight on/off"
+    echo "  rotate lock/unlock - Toggle orientation lock"
+    echo "  is-locked         - Check if device is locked"
+    echo "  notify \"Title\" \"Body\" - Send push notification (via ntfy)"
+    echo "  notify \"Title\" \"Body\" - Send push notification (via ntfy)"
+    echo "  dnd on/off/debug   - Toggle Do Not Disturb or inspect state"
+    echo "  log               - Stream device logs"
+    echo ""
+    exit 1
+fi
+
+# Construct the command string while preserving quotes for arguments with spaces
+CMD=""
+if [ "$#" -eq 1 ]; then
+    # If only one argument is provided, assume it is the full pre-constructed command string
+    # This happens often with Home Assistant shell_command: cmd: '...'
+    CMD="$1"
+else
+    # Construct the command string from multiple arguments
+    # Quote arguments that contain spaces
+    for arg in "$@"; do
+        if [[ "$arg" == *" "* ]]; then
+            CMD="$CMD \"$arg\""
+        else
+            CMD="$CMD $arg"
+        fi
+    done
+    CMD=$(echo "$CMD" | sed 's/^ //')
+fi
+
+# Prepend root if requested
+if [ "$ROOT_CMD" -eq 1 ]; then
+    CMD="root $CMD"
+fi
+
+# Map user-friendly commands to protocol commands
+
+if [[ "$CMD" == "vol-up" || "$CMD" == "volup" || "$CMD" == "volume up" || "$CMD" == "vol up" ]]; then
+    CMD="button volup"
+elif [[ "$CMD" == "vol-down" || "$CMD" == "voldown" || "$CMD" == "volume down" || "$CMD" == "vol down" ]]; then
+    CMD="button voldown"
+elif [[ "$CMD" == "power" ]]; then
+    CMD="button power"
+elif [[ "$CMD" == "home" ]]; then
+    CMD="button home"
+elif [[ "$CMD" == "mute" ]]; then
+    CMD="button mute"
+elif [[ "$CMD" == "siri" ]]; then
+    CMD="button siri"
+elif [[ "$CMD" == "respring" ]]; then
+    echo "Respringing device..."
+    # Determine IP - verify if RC_IPHONE_IP is set or default to iphone.local
+    TARGET_IP="${RC_IPHONE_IP:-iphone.local}"
+    
+    if [ -n "$COMMON_PASSWORD" ]; then
+        sshpass -p "$COMMON_PASSWORD" ssh -o StrictHostKeyChecking=no mobile@$TARGET_IP "sbreload"
+    else
+        # Fallback to keys or manual password entry
+        ssh -o StrictHostKeyChecking=no mobile@$TARGET_IP "sbreload"
+    fi
+
+    exit 0
+elif [[ "$CMD" == "shortcut "* ]]; then
+    # Convert "shortcut Name" to "shortcut:Name"
+    CMD="shortcut:${CMD#shortcut }"
+elif [[ "$CMD" == "logs" || "$CMD" == "log" ]]; then
+    # Stream logs from the device
+    echo "Streaming logs from /tmp/remotecommand.log (showing last 50 lines)..."
+    IP="${RC_IPHONE_IP:-iphone.local}"
+    
+    # Use tail -f -n 50 to follow the log file and show history
+    # Also check if file exists
+    ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "if [ -f /tmp/remotecommand.log ]; then tail -n 50 /tmp/remotecommand.log; tail -f /tmp/remotecommand.log; else echo 'Log file not found at /tmp/remotecommand.log (Has the tweak loaded?)'; fi"
+    exit 0
+fi
+
+# Send command to the RemoteCompanion tweak on the iPhone
+IP="${RC_IPHONE_IP:-iphone.local}"
+
+# 1. FAST PATH: Direct TCP Connection
+# Try ports 12340-12344 directly. This is instant if it works.
+PORTS=(12340 12341 12342 12343 12344)
+for PORT in "${PORTS[@]}"; do
+    if timeout 0.5 bash -c "echo > /dev/tcp/$IP/$PORT" 2>/dev/null; then
+        # Found open port, send command
+        # Prefer bash's native /dev/tcp with a two-way socket to capture response
+        # exec 3<>/dev/tcp/$IP/$PORT opens a bidirectional connection on FD 3
+        if bash -c "exec 3<>/dev/tcp/$IP/$PORT && echo -n '$CMD' >&3 && cat <&3 && exec 3>&-" 2>/dev/null; then
+            exit 0
+        fi
+        # Fallback to nc without -4 for wider compatibility
+        echo -n "$CMD" | nc -w 2 "$IP" "$PORT"
+        if [ $? -eq 0 ]; then
+            exit 0
+        fi
+    fi
+done
+
+# 2. ROBUST PATH: SSH Tunnel
+# If direct connection failed (firewall/zombies), try SSH.
+# Slower, but bypasses most network issues.
+for PORT in 12340 12341 12342 12343 12344; do
+     ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "echo -n '$CMD' | /var/jb/usr/bin/nc -w 2 127.0.0.1 $PORT" 2>/dev/null
+     if [ $? -eq 0 ]; then
+         exit 0
+     fi
+done
+
+echo "Error: Cannot connect to iPhone at $IP. Checked ports 12340-12344 via Direct TCP and SSH." >&2
+exit 1
