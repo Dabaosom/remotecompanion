@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.1] - 2026-02-22
+
+### Added
+- **Shortcuts Integration Methods**: Expanded documentation for iOS Shortcuts. Added instructions for running commands via native **SSH to Localhost** (recommended for reliability) and **Powercuts** (shell).
+
+### Fixed
+- **Universal Root Permissions**: Fixed `rc-root` permission handling to support both **Rootful** and **Rootless** jailbreak environments in the post-install script.
+
 ## [2.2.0] - 2026-02-14
 
 ### Added
