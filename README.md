@@ -194,16 +194,32 @@ ssh mobile@iphone.local "rc volume 50"
 ssh mobile@iphone.local "rc respring"
 ```
 
-#### Option 3: Shortcuts (via Powercuts)
-Actions can even be fired from shortcuts using Powercuts.
+#### Option 3: Shortcuts (External Triggers)
+Control your device using iOS Shortcuts. There are two primary ways:
 
+**A. Using Native SSH (Localhost)**
+The most reliable method without extra tweaks. Requires **OpenSSH**.
+1. Add the **Run script over SSH** action.
+2. Configure host settings:
+   - **Host**: `localhost`
+   - **Port**: `22`
+   - **User**: `mobile` (or `root`)
+   - **Password**: Your SSH password (default is `alpine`)
+3. Enter your command:
+   ```bash
+   rc flashlight toggle
+   rc dnd on
+   ```
+
+**B. Using Powercuts (Shell)**
+If you have **Powercuts** installed, you can run `rc` commands directly via shell.
 1. Add the **Run shell command** action.
 2. Enter your command:
    ```bash
    rc open Music
    rc volume 50
    ```
-
+   
 <details>
 <summary><h3>Home Assistant Setup</h3></summary>
 
