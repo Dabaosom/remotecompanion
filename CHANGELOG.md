@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.2] - 2026-02-24
+
+### Fixed
+- **POSIX Compliance**: Corrected the `postinst` script to use POSIX-compliant syntax (replacing Bash arrays with string iteration). This ensures the script runs correctly on Procursus-based rootless jailbreaks (e.g., Dopamine, Palera1n) where `dpkg` uses `dash`.
+
 ## [2.2.1] - 2026-02-22
 
 ### Added

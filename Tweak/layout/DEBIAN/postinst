@@ -1,15 +1,12 @@
-#!/bin/bash
+#!/bin/sh
 
 # Set rc-root as setuid root
 # This allows the mobile user to execute commands as root
 
 # Check multiple possible locations for rc-root
-PATHS=(
-    "/var/jb/usr/bin/rc-root"  # Rootless
-    "/usr/bin/rc-root"         # Rootful
-)
+RC_PATHS="/var/jb/usr/bin/rc-root /usr/bin/rc-root"
 
-for RC_ROOT in "${PATHS[@]}"; do
+for RC_ROOT in $RC_PATHS; do
     if [ -f "$RC_ROOT" ]; then
         echo "Setting permissions for $RC_ROOT..."
         chown root:wheel "$RC_ROOT"
