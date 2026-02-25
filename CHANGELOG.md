@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.2.4] - 2026-02-25
+
+### Fixed
+- **arm64e Crash (iOS 14)**: Resolved a critical launch crash on A12+ devices running iOS 14.4.1. This was achieved by unifying architecture support across all build schemes and ensuring correct PAC signing for rootful environments.
+- **Architecture Synchronization**: Real-time detection of jailbreak environment (rootless vs. rootful) in `deploy.sh` to ensure the correct binary and signing are used.
+- **Native arm64e Slices**: Both rootless and rootful packages now natively include `arm64e` slices for maximum compatibility and performance.
+
 ## [2.2.3] - 2026-02-25
 
 ### Added

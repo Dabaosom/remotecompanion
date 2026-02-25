@@ -8,7 +8,7 @@ INSTALL_TARGET_PROCESSES = SpringBoard
 ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
 ARCHS = arm64 arm64e
 else
-ARCHS = arm64
+ARCHS = arm64 arm64e
 endif
 THEOS_PACKAGE_SCHEME ?= rootless
 
