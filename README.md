@@ -262,6 +262,13 @@ If you experience the "Updating Cards" screen or other conflicts with Apple Pay 
 
 This ensures the tweak does not attempt to access the NFC controller on wake, resolving conflicts with system services.
 
+### iOS 14 arm64e (A12+) Compatibility
+Due to Pointer Authentication Code (PAC) changes in modern toolchains, iOS 14 on **arm64e (A12 and newer)** devices is currently unsupported and may cause a Safe Mode loop.
+- **Supported**: iOS 14 on A11 and below (iPhone 8/X and older, iPad Air 2, etc.)
+- **Supported**: iOS 15+ on all devices.
+- **Workaround**: If you are on iOS 14 with a newer device, you may need to compile the tweak using **Xcode 15.4** or earlier to ensure correct PAC signatures.
+
+
 ## Support & Feedback
 
 If you encounter any issues or have feature requests, please [open an issue](https://github.com/saihgupr/remotecompanion/issues) on GitHub.
