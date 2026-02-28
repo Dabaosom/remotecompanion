@@ -88,17 +88,16 @@ fi
 # Send command
 PORTS=(12342 12340 12341 12343 12344)
 for PORT in "${PORTS[@]}"; do
-    if bash -c "exec 3<>/dev/tcp/$IP/$PORT && echo -n '$CMD' >&3 && cat <&3 && exec 3>&-" 2>/dev/null; then
-        exit 0
-    fi
-    echo -n "$CMD" | nc -w 2 "$IP" "$PORT" 2>/dev/null
-    if [ $? -eq 0 ]; then
+    # Try direct connection with nc
+    RESPONSE=$(echo -n "$CMD" | nc -w 3 "$IP" "$PORT" 2>/dev/null)
+    if [ ! -z "$RESPONSE" ]; then
+        echo "$RESPONSE"
         exit 0
     fi
 done
 
 # Revert to SSH if direct fails
-for PORT in 12342 12340 12341 12343 12344; do
+for PORT in "${PORTS[@]}"; do
      ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "echo -n '$CMD' | /var/jb/usr/bin/nc -w 2 127.0.0.1 $PORT" 2>/dev/null
      if [ $? -eq 0 ]; then
          exit 0
