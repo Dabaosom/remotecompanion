@@ -171,6 +171,26 @@ end
 
 </details>
 
+<details>
+<summary><h3>Blacklist (App Exclusion)</h3></summary>
+
+RemoteCompanion includes a blacklist system to prevent hardware triggers and gestures from firing while specific apps are in the foreground. This is useful for avoiding conflicts with apps that use the same buttons or gestures (e.g. games, camera apps).
+
+### CLI Commands
+Use the `rc blacklist` command to manage the list:
+
+*   `rc blacklist list`: View currently blacklisted bundle IDs.
+*   `rc blacklist add <bundleID>`: Add an app to the blacklist (e.g. `rc blacklist add com.apple.camera`).
+*   `rc blacklist remove <bundleID>`: Remove an app from the blacklist.
+*   `rc blacklist reset`: Reset the blacklist to the factory defaults.
+
+### Default Blacklist
+By default, the following are excluded:
+*   `com.apple.compass`
+*   `com.chase` (Deny-list protection for banking apps)
+
+</details>
+
 ## Getting Started
 
 ### 1. Requirements

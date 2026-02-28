@@ -830,7 +830,7 @@ static NSArray *g_blacklist = nil;
 static NSTimeInterval g_lastBlacklistLoad = 0;
 
 static void load_blacklist() {
-    NSString *path = @"/var/mobile/Documents/rc_blacklist.plist";
+    NSString *path = @"/var/mobile/Library/Preferences/com.saihgupr.remotecompanion.blacklist.plist";
     g_blacklist = [NSArray arrayWithContentsOfFile:path];
     if (!g_blacklist) {
         // Default hardcoded fallback
@@ -840,7 +840,7 @@ static void load_blacklist() {
 }
 
 static BOOL save_blacklist(NSArray *list) {
-    NSString *path = @"/var/mobile/Documents/rc_blacklist.plist";
+    NSString *path = @"/var/mobile/Library/Preferences/com.saihgupr.remotecompanion.blacklist.plist";
     g_blacklist = [list copy];
     g_lastBlacklistLoad = [[NSDate date] timeIntervalSince1970];
     return [g_blacklist writeToFile:path atomically:YES];
