@@ -1468,7 +1468,7 @@ static NSString *handle_command(NSString *cmd) {
                 }
                 return [NSString stringWithFormat:@"%@ was not in blacklist\n", remID];
             } else if ([sub isEqualToString:@"reset"]) {
-                [[NSFileManager defaultManager] removeItemAtPath:@"/var/mobile/Documents/rc_blacklist.plist" error:nil];
+                [[NSFileManager defaultManager] removeItemAtPath:@"/var/mobile/Library/Preferences/com.saihgupr.remotecompanion.blacklist.plist" error:nil];
                 load_blacklist();
                 return @"Blacklist reset to factory defaults\n";
             }
