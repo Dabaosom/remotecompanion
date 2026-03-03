@@ -1,0 +1,324 @@
+🚀 Starting Full System Deployment (Unified Package)...
+🧹 Cleaning previous builds...
+🔄 Syncing App Version to 2.2.5...
+🏗️ Building RemoteCompanion App...
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for application RemoteCompanion…[m
+[0;35m==> [1;39mCopying resource files into the application wrapper…[m
+[0;32m==> [1;39mCompiling RCAppDelegate.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCConfigManager.m (arm64)…[m
+[0;32m==> [1;39mCompiling main.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCTriggersViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCActionsViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCActionPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCNFCTriggerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCSettingsViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCShortcutPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCTextInputViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCAppPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCServerClient.m (arm64)…[m
+[0;33m==> [1;39mLinking application RemoteCompanion (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for RemoteCompanion…[m
+[0;34m==> [1;39mStripping RemoteCompanion (arm64)…[m
+[0;34m==> [1;39mSigning RemoteCompanion…[m
+[1;31m> [1;3;39mMaking stage for application RemoteCompanion…[m
+📂 Bundling App into Tweak Package...
+🏗️ Building Unified Tweak Package (Rootless arm64)...
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for tweak RemoteCommand…[m
+[0;31m==> [1;39mPreprocessing Tweak.x…[m
+[0;31m==> [1;39mPreprocessing Tweak.x…[m
+[0;31m==> [1;39mPreprocessing RCNFCManager.x…[m
+[0;32m==> [1;39mCompiling lua/lapi.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lauxlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lauxlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lapi.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lbaselib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lbaselib.c (arm64e)…[m
+[0;31m==> [1;39mPreprocessing RCNFCManager.x…[m
+[0;32m==> [1;39mCompiling lua/lcode.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lcode.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lcorolib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lcorolib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lctype.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lctype.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldblib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ldblib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldebug.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ldebug.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldo.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldump.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldo.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lfunc.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldump.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lgc.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/linit.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lfunc.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/liolib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/llex.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lmathlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lmem.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lgc.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/loadlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/linit.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/liolib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lobject.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/llex.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lmathlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lopcodes.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lmem.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/loslib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/loadlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lobject.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lopcodes.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lparser.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/loslib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstate.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lparser.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstate.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstring.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstring.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lstrlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ltable.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstrlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ltablib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ltm.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ltable.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ltablib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lundump.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ltm.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lutf8lib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lundump.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lvm.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lzio.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lutf8lib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lvm.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lzio.c (arm64e)…[m
+[0;32m==> [1;39mCompiling Tweak.x (arm64)…[m
+[0;32m==> [1;39mCompiling RCNFCManager.x (arm64)…[m
+[0;32m==> [1;39mCompiling Tweak.x (arm64e)…[m
+[0;32m==> [1;39mCompiling RCNFCManager.x (arm64e)…[m
+[0;33m==> [1;39mLinking tweak RemoteCommand (arm64)…[m
+[0;33m==> [1;39mLinking tweak RemoteCommand (arm64e)…[m
+ld: warning: -multiply_defined is obsolete
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for RemoteCommand…[m
+[0;34m==> [1;39mGenerating debug symbols for RemoteCommand…[m
+[0;34m==> [1;39mStripping RemoteCommand (arm64e)…[m
+[0;34m==> [1;39mStripping RemoteCommand (arm64)…[m
+[0;34m==> [1;39mMerging tweak RemoteCommand…[m
+[0;34m==> [1;39mSigning RemoteCommand…[m
+[1;31m> [1;3;39mMaking all in rc-root…[m
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for tool rc-root…[m
+[0;32m==> [1;39mCompiling rc-root.c (arm64)…[m
+[0;33m==> [1;39mLinking tool rc-root (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for rc-root…[m
+[0;34m==> [1;39mStripping rc-root (arm64)…[m
+[0;34m==> [1;39mSigning rc-root…[m
+[1;31m> [1;3;39mMaking all in rc-client…[m
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for tool rc-client…[m
+[0;32m==> [1;39mCompiling rc-client.c (arm64)…[m
+[0;32m==> [1;39mCompiling rc-client.c (arm64e)…[m
+[0;33m==> [1;39mLinking tool rc-client (arm64e)…[m
+[0;33m==> [1;39mLinking tool rc-client (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for rc-client…[m
+[0;34m==> [1;39mGenerating debug symbols for rc-client…[m
+[0;34m==> [1;39mStripping rc-client (arm64)…[m
+[0;34m==> [1;39mStripping rc-client (arm64e)…[m
+[0;34m==> [1;39mMerging tool rc-client…[m
+[0;34m==> [1;39mSigning rc-client…[m
+[1;31m> [1;3;39mMaking all in ../RemoteCompanion…[m
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for application RemoteCompanion…[m
+[0;35m==> [1;39mCopying resource files into the application wrapper…[m
+[0;32m==> [1;39mCompiling main.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCTriggersViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCConfigManager.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCActionsViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCActionPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCAppDelegate.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCSettingsViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCNFCTriggerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCTextInputViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCShortcutPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCAppPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCServerClient.m (arm64)…[m
+[0;33m==> [1;39mLinking application RemoteCompanion (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for RemoteCompanion…[m
+[0;34m==> [1;39mStripping RemoteCompanion (arm64)…[m
+[0;34m==> [1;39mSigning RemoteCompanion…[m
+[1;31m> [1;3;39mMaking stage for tweak RemoteCommand…[m
+[1;31m> [1;3;39mMaking stage in rc-root…[m
+[1;31m> [1;3;39mMaking stage for tool rc-root…[m
+[1;31m> [1;3;39mMaking stage in rc-client…[m
+[1;31m> [1;3;39mMaking stage for tool rc-client…[m
+[1;31m> [1;3;39mMaking stage in ../RemoteCompanion…[m
+[1;31m> [1;3;39mMaking stage for application RemoteCompanion…[m
+dm.pl: building package `com.saihgupr.remotecompanion:iphoneos-arm64' in `./packages/com.saihgupr.remotecompanion_2.2.5_iphoneos-arm64.deb'
+🏗️ Building Unified Tweak Package (Rootful arm)...
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for tweak RemoteCommand…[m
+[0;31m==> [1;39mPreprocessing RCNFCManager.x…[m
+[0;31m==> [1;39mPreprocessing Tweak.x…[m
+[0;31m==> [1;39mPreprocessing Tweak.x…[m
+[0;32m==> [1;39mCompiling lua/lauxlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lauxlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lapi.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lbaselib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lbaselib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lapi.c (arm64e)…[m
+[0;31m==> [1;39mPreprocessing RCNFCManager.x…[m
+[0;32m==> [1;39mCompiling lua/lcode.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lcode.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lcorolib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lcorolib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lctype.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lctype.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ldblib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ldebug.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ldblib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldo.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ldebug.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldo.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldump.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ldump.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lfunc.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lfunc.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lgc.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lgc.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/linit.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/liolib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/linit.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/liolib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/llex.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/llex.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lmathlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lmathlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lmem.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lmem.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/loadlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/loadlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lobject.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lopcodes.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lobject.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lopcodes.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/loslib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/loslib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lparser.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstate.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lparser.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lstate.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lstring.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lstring.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lstrlib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ltable.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lstrlib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ltablib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ltable.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/ltm.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lundump.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ltablib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lutf8lib.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lvm.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/ltm.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lzio.c (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lundump.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lutf8lib.c (arm64)…[m
+[0;32m==> [1;39mCompiling lua/lvm.c (arm64)…[m
+[0;32m==> [1;39mCompiling Tweak.x (arm64e)…[m
+[0;32m==> [1;39mCompiling RCNFCManager.x (arm64e)…[m
+[0;32m==> [1;39mCompiling lua/lzio.c (arm64)…[m
+[0;32m==> [1;39mCompiling Tweak.x (arm64)…[m
+[0;32m==> [1;39mCompiling RCNFCManager.x (arm64)…[m
+[0;33m==> [1;39mLinking tweak RemoteCommand (arm64e)…[m
+ld: warning: -multiply_defined is obsolete
+[0;33m==> [1;39mLinking tweak RemoteCommand (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for RemoteCommand…[m
+[0;34m==> [1;39mStripping RemoteCommand (arm64e)…[m
+[0;34m==> [1;39mGenerating debug symbols for RemoteCommand…[m
+[0;34m==> [1;39mStripping RemoteCommand (arm64)…[m
+[0;34m==> [1;39mMerging tweak RemoteCommand…[m
+[0;34m==> [1;39mSigning RemoteCommand…[m
+[1;31m> [1;3;39mMaking all in rc-root…[m
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for tool rc-root…[m
+[0;32m==> [1;39mCompiling rc-root.c (arm64)…[m
+[0;33m==> [1;39mLinking tool rc-root (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for rc-root…[m
+[0;34m==> [1;39mStripping rc-root (arm64)…[m
+[0;34m==> [1;39mSigning rc-root…[m
+[1;31m> [1;3;39mMaking all in rc-client…[m
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for tool rc-client…[m
+[0;32m==> [1;39mCompiling rc-client.c (arm64)…[m
+[0;32m==> [1;39mCompiling rc-client.c (arm64e)…[m
+[0;33m==> [1;39mLinking tool rc-client (arm64)…[m
+[0;33m==> [1;39mLinking tool rc-client (arm64e)…[m
+ld: warning: -multiply_defined is obsolete
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for rc-client…[m
+[0;34m==> [1;39mGenerating debug symbols for rc-client…[m
+[0;34m==> [1;39mStripping rc-client (arm64)…[m
+[0;34m==> [1;39mStripping rc-client (arm64e)…[m
+[0;34m==> [1;39mMerging tool rc-client…[m
+[0;34m==> [1;39mSigning rc-client…[m
+[1;31m> [1;3;39mMaking all in ../RemoteCompanion…[m
+[0;36m==> [1;36mNotice:[m Build may be slow as Theos isn’t using all available CPU cores on this computer. Consider upgrading GNU Make: https://theos.dev/docs/parallel-building
+[1;31m> [1;3;39mMaking all for application RemoteCompanion…[m
+[0;35m==> [1;39mCopying resource files into the application wrapper…[m
+[0;32m==> [1;39mCompiling RCAppDelegate.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCConfigManager.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCTriggersViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCActionsViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCActionPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCSettingsViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling main.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCNFCTriggerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCShortcutPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCTextInputViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCAppPickerViewController.m (arm64)…[m
+[0;32m==> [1;39mCompiling RCServerClient.m (arm64)…[m
+[0;33m==> [1;39mLinking application RemoteCompanion (arm64)…[m
+ld: warning: -multiply_defined is obsolete
+[0;34m==> [1;39mGenerating debug symbols for RemoteCompanion…[m
+[0;34m==> [1;39mStripping RemoteCompanion (arm64)…[m
+[0;34m==> [1;39mSigning RemoteCompanion…[m
+[1;31m> [1;3;39mMaking stage for tweak RemoteCommand…[m
+[1;31m> [1;3;39mMaking stage in rc-root…[m
+[1;31m> [1;3;39mMaking stage for tool rc-root…[m
+[1;31m> [1;3;39mMaking stage in rc-client…[m
+[1;31m> [1;3;39mMaking stage for tool rc-client…[m
+[1;31m> [1;3;39mMaking stage in ../RemoteCompanion…[m
+[1;31m> [1;3;39mMaking stage for application RemoteCompanion…[m
+dm.pl: building package `com.saihgupr.remotecompanion:iphoneos-arm' in `./packages/com.saihgupr.remotecompanion_2.2.5_iphoneos-arm.deb'
+🔄 Cleanup processes...
+🔍 Detecting jailbreak type...
+📱 Detected: rootless
+📲 Uploading com.saihgupr.remotecompanion_2.2.5_iphoneos-arm64.deb...
+⚙️ Installing com.saihgupr.remotecompanion_2.2.5_iphoneos-arm64.deb on device...
+[sudo] password for mobile: (Reading database ... 12694 files and directories currently installed.)
+Preparing to unpack .../com.saihgupr.remotecompanion_2.2.5_iphoneos-arm64.deb ...
+Unpacking com.saihgupr.remotecompanion (2.2.5) over (2.2.5) ...
+Setting up com.saihgupr.remotecompanion (2.2.5) ...
+Setting permissions for /var/jb/usr/bin/rc-root...
+Processing triggers for uikittools (2.1.7) ...
+Processing triggers for org.coolstar.sileo (2.5.1) ...
+🧹 Cleaning up on device...
+🔄 Registering App Icon...
+♻️ Respringing...
+⏭️ Skipping Repo Update (not a --release build)
+📱 Opening RemoteCompanion (waiting for respring)...
+Error: Cannot connect to iPhone at 127.0.0.1 via RemoteCompanion.
+✅ Full Deployment Complete!
+📲 Installed: com.saihgupr.remotecompanion_2.2.5_iphoneos-arm64.deb
+📂 Staged: com.saihgupr.remotecompanion_2.2.5_iphoneos-arm.deb
+📂 Repo updated in docs/ folder

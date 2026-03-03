@@ -86,23 +86,27 @@ elif [[ "$CMD" == "log" ]]; then
 fi
 
 # Send command
-PORTS=(12342 12340 12341 12343 12344)
-for PORT in "${PORTS[@]}"; do
-    # Try direct connection with nc
-    RESPONSE=$(echo -n "$CMD" | nc -w 3 "$IP" "$PORT" 2>/dev/null)
-    if [ ! -z "$RESPONSE" ]; then
-        echo "$RESPONSE"
+if [[ "$IP" == "127.0.0.1" ]]; then
+    # Local execution (running on device)
+    # Use our custom rc-client unix socket helper
+    RESPONSE=$(echo -n "$CMD" | /var/jb/usr/bin/rc-client 2>/dev/null || echo -n "$CMD" | /usr/bin/rc-client 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        if [ ! -z "$RESPONSE" ]; then
+            echo "$RESPONSE"
+        fi
         exit 0
     fi
-done
+else
+    # Remote execution via SSH
+    # Note: the SSH command evaluates the piped rc-client on the device
+    RESPONSE=$(ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "echo -n '$CMD' | /var/jb/usr/bin/rc-client 2>/dev/null || echo -n '$CMD' | /usr/bin/rc-client 2>/dev/null" 2>/dev/null)
+    if [ $? -eq 0 ]; then
+        if [ ! -z "$RESPONSE" ]; then
+            echo "$RESPONSE"
+        fi
+        exit 0
+    fi
+fi
 
-# Revert to SSH if direct fails
-for PORT in "${PORTS[@]}"; do
-     ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "echo -n '$CMD' | /var/jb/usr/bin/nc -w 2 127.0.0.1 $PORT" 2>/dev/null
-     if [ $? -eq 0 ]; then
-         exit 0
-     fi
-done
-
-echo "Error: Cannot connect to iPhone at $IP." >&2
+echo "Error: Cannot connect to iPhone at $IP via RemoteCompanion." >&2
 exit 1

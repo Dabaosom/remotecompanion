@@ -3,6 +3,7 @@
 #import <netinet/in.h>
 #import <sys/socket.h>
 #import <sys/un.h>
+#include <sys/stat.h>
 #import <unistd.h>
 #include <arpa/inet.h>
 #import <spawn.h>
@@ -1409,6 +1410,7 @@ static NSString *handle_command(NSString *cmd) {
                 MRMediaRemoteSendCommand(kMRPause, nil);
             }
         });
+        return @"Pause sent\n";
     } else if ([cleanCmd isEqualToString:@"play"]) {
         // Only play if currently paused (prevents toggle behavior)
         MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_get_main_queue(), ^(Boolean isPlaying) {
@@ -1416,6 +1418,7 @@ static NSString *handle_command(NSString *cmd) {
                 MRMediaRemoteSendCommand(kMRPlay, nil);
             }
         });
+        return @"Play sent\n";
     } else if ([cleanCmd isEqualToString:@"playpause"] || [cleanCmd isEqualToString:@"toggle"]) {
         MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_get_main_queue(), ^(Boolean isPlaying) {
             if (isPlaying) {
@@ -1424,6 +1427,7 @@ static NSString *handle_command(NSString *cmd) {
                 MRMediaRemoteSendCommand(kMRPlay, nil);
             }
         });
+        return @"Play/Pause toggled\n";
     } else if ([cleanCmd isEqualToString:@"debug-media"]) {
         // Introspect Media State
         MRMediaRemoteGetNowPlayingApplicationPID(dispatch_get_main_queue(), ^(int pid) {
@@ -1501,8 +1505,10 @@ static NSString *handle_command(NSString *cmd) {
         return [NSString stringWithFormat:@"%@\n", status];
     } else if ([cleanCmd isEqualToString:@"next"]) {
         MRMediaRemoteSendCommand(kMRNextTrack, nil);
+        return @"Next track\n";
     } else if ([cleanCmd isEqualToString:@"prev"]) {
         MRMediaRemoteSendCommand(kMRPreviousTrack, nil);
+        return @"Previous track\n";
     } else if ([cleanCmd isEqualToString:@"flashlight"] || [cleanCmd isEqualToString:@"torch"]) {
         SRLog(@"Toggling flashlight");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
@@ -1515,6 +1521,7 @@ static NSString *handle_command(NSString *cmd) {
             }
             [device unlockForConfiguration];
         }
+        return @"Flashlight toggled\n";
     } else if ([cleanCmd isEqualToString:@"flashlight on"]) {
         SRLog(@"Flashlight ON");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
@@ -1523,6 +1530,7 @@ static NSString *handle_command(NSString *cmd) {
             [device setTorchMode:AVCaptureTorchModeOn];
             [device unlockForConfiguration];
         }
+        return @"Flashlight ON\n";
     } else if ([cleanCmd isEqualToString:@"flashlight off"]) {
         SRLog(@"Flashlight OFF");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
@@ -1531,6 +1539,7 @@ static NSString *handle_command(NSString *cmd) {
             [device setTorchMode:AVCaptureTorchModeOff];
             [device unlockForConfiguration];
         }
+        return @"Flashlight OFF\n";
     } else if ([cleanCmd isEqualToString:@"flashlight toggle"]) {
         return handle_command(@"flashlight");
     } else if ([cleanCmd hasPrefix:@"notify "]) {
@@ -2799,6 +2808,11 @@ static NSString *handle_command(NSString *cmd) {
             trigger_haptic();
         });
         NSLog(@"[RemoteCommand] Haptic triggered");
+        return @"Haptic triggered\n";
+    } else if ([cleanCmd isEqualToString:@"ping"]) {
+        AudioServicesPlaySystemSound(1005);
+        NSLog(@"[RemoteCommand] Ping (Alert Sound) played");
+        return @"Ping played\n";
     } else if ([cleanCmd isEqualToString:@"flash-on"] || [cleanCmd isEqualToString:@"flash on"]) {
         // Flashlight on using AVCaptureDevice
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
@@ -2808,6 +2822,7 @@ static NSString *handle_command(NSString *cmd) {
             [device unlockForConfiguration];
             NSLog(@"[RemoteCommand] Flashlight on");
         }
+        return @"Flashlight ON\n";
     } else if ([cleanCmd isEqualToString:@"flash-off"] || [cleanCmd isEqualToString:@"flash off"]) {
         // Flashlight off
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
@@ -3325,137 +3340,65 @@ static void start_server() {
         // Server starts always, but will refuse commands if disabled in config
         
         int server_fd, new_socket;
-        struct sockaddr_in address;
-        int opt = 1;
+        struct sockaddr_un address;
         int addrlen = sizeof(address);
-        // Buffer removed (unused)
         
-        // Ports to try in order (12340+ to avoid debugserver conflict on 1234)
-        int ports[] = {12340, 12341, 12342, 12343, 12344};
-        int num_ports = sizeof(ports) / sizeof(ports[0]);
-        int bound_port = 0;
+        NSString *socketPath = @"/var/mobile/Documents/rc.sock";
 
-        if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) { // Fix: check < 0
+        if ((server_fd = socket(AF_UNIX, SOCK_STREAM, 0)) < 0) {
             SRLog(@"[RemoteCommand] ERROR: Failed to create socket (errno: %d)", errno);
             return;
         }
 
-        // Set both SO_REUSEADDR and SO_REUSEPORT for faster rebind after respring
-        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-            SRLog(@"[RemoteCommand] WARNING: Failed to set SO_REUSEADDR");
-        }
+        // Unlink any existing socket file
+        unlink([socketPath UTF8String]);
         
-        memset(&address, 0, sizeof(address));
-        address.sin_len = sizeof(address);
-        address.sin_family = AF_INET;
-        address.sin_addr.s_addr = INADDR_ANY;
+        memset(&address, 0, sizeof(struct sockaddr_un));
+        address.sun_family = AF_UNIX;
+        strncpy(address.sun_path, [socketPath UTF8String], sizeof(address.sun_path) - 1);
         
-        // Try each port until one works
-        for (int i = 0; i < num_ports; i++) {
-            address.sin_port = htons(ports[i]);
-            
-            if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) == 0) {
-                bound_port = ports[i];
-                SRLog(@"[RemoteCommand] Successfully bound to port %d", bound_port);
-                break;
-            } else {
-                SRLog(@"[RemoteCommand] Failed to bind to port %d (errno: %d - %s), trying next...", 
-                      ports[i], errno, strerror(errno));
-            }
-        }
-        
-        if (bound_port == 0) {
-            SRLog(@"[RemoteCommand] ERROR: Failed to bind to any port!");
+        if (bind(server_fd, (struct sockaddr *)&address, sizeof(struct sockaddr_un)) < 0) {
+            SRLog(@"[RemoteCommand] ERROR: Failed to bind to socket (errno: %d - %s)", errno, strerror(errno));
             close(server_fd);
             return;
         }
         
-        if (listen(server_fd, 3) < 0) {
+        // Allow mobile/root to read/write to the socket
+        chmod([socketPath UTF8String], 0777);
+        
+        if (listen(server_fd, 5) < 0) {
             SRLog(@"[RemoteCommand] ERROR: Failed to listen (errno: %d)", errno);
             close(server_fd);
             return;
         }
 
-        SRLog(@"[RemoteCommand] Server listening on port %d... Waiting for connections.", bound_port);
+        SRLog(@"[RemoteCommand] Server listening on UNIX socket %@... Waiting for connections.", socketPath);
 
         while (1) {
-            // Reset addrlen for each accept call
             addrlen = sizeof(address);
             
             if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-                 // Only log serious errors, ignore EAGAIN/EINTR
                  if (errno != EAGAIN && errno != EINTR) {
                      SRLog(@"[RemoteCommand] Accept failed: %d (%s)", errno, strerror(errno));
                  }
                  continue;
             }
             
-            // Dispatch connection handling to concurrent queue to prevent blocking the listener
             dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                // Set receive timeout to 5 seconds to prevent hanging
                 struct timeval tv;
                 tv.tv_sec = 5;
                 tv.tv_usec = 0;
                 setsockopt(new_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
-                // Get client IP (Thread Safe)
-                char client_ip[INET_ADDRSTRLEN] = {0};
-                if (inet_ntop(AF_INET, &(address.sin_addr), client_ip, INET_ADDRSTRLEN) == NULL) {
-                     strcpy(client_ip, "UNKNOWN");
-                }
-                
-                BOOL isLocalhost = (strcmp(client_ip, "127.0.0.1") == 0);
-                
-                // Check config if not localhost
-                if (!isLocalhost) {
-                    load_trigger_config();
-                    BOOL tcpEnabled = NO;
-                    if (g_triggerConfig) {
-                         id tcpVal = g_triggerConfig[@"tcpEnabled"];
-                         tcpEnabled = (tcpVal == nil) ? NO : [tcpVal boolValue];
-                    }
-                    
-                    if (!tcpEnabled) {
-                        SRLog(@"[RemoteCommand] Rejected non-localhost connection from %s", client_ip);
-                        close(new_socket);
-                        return; 
-                    }
-                }
-                
                 char local_buffer[1024] = {0};
-                // SRLog(@"[RemoteCommand] Reading from %s...", client_ip);
                 ssize_t valread = read(new_socket, local_buffer, 1024);
                 if (valread > 0) {
                     NSString *cmd = [[NSString alloc] initWithBytes:local_buffer length:valread encoding:NSUTF8StringEncoding];
-                    // SRLog(@"[RemoteCommand] Received: %@", cmd);
-                    
-                    BOOL tcpEnabled = NO;
-                    if (isLocalhost) {
-                        NSString *response = handle_command(cmd);
-                        if (response) {
-                            write(new_socket, [response UTF8String], [response lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
-                        }
-                    } else {
-                        load_trigger_config();
-                        if (g_triggerConfig) {
-                             id tcpVal = g_triggerConfig[@"tcpEnabled"];
-                             tcpEnabled = (tcpVal == nil) ? NO : [tcpVal boolValue];
-                        }
-                        
-                        if (tcpEnabled) {
-                            NSString *response = handle_command(cmd);
-                            if (response) {
-                                write(new_socket, [response UTF8String], [response lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
-                            }
-                        } else {
-                            SRLog(@"[RemoteCommand] Rejected non-localhost connection from %s", client_ip);
-                            close(new_socket);
-                            return;
-                        }
+                    // UNIX Sockets are inherently local, no need to check IP or tcpEnabled config
+                    NSString *response = handle_command(cmd);
+                    if (response) {
+                        write(new_socket, [response UTF8String], [response lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
                     }
-                    // SRLog(@"[RemoteCommand] Processed command");
-                } else if (valread < 0) {
-                     // SRLog(@"[RemoteCommand] Read error: %d", errno);
                 }
                 close(new_socket);
             });
