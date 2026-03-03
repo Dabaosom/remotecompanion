@@ -1266,6 +1266,7 @@ BOOL RCIsNFCEnabled() {
 }
 
 // ============ SYSTEM EVENT HANDLERS (WiFi/BT Triggers) ============
+#import <notify.h>
 
 static NSString *g_lastKnownSSID = nil;
 
@@ -1298,20 +1299,27 @@ static void handle_bluetooth_transition(NSNotification *notification, BOOL conne
     NSString *name = [device name];
     SRLog(@"[RCBT] Device %@ (%@) %@", name, address, connected ? @"Connected" : @"Disconnected");
     
-    NSString *triggerKey = [NSString stringWithFormat:@"%@_%@", connected ? @"bt_connect" : @"bt_disconnect", address];
+    // App now saves trigger keys by name not address!
+    NSString *triggerKey = [NSString stringWithFormat:@"%@_%@", connected ? @"bt_connect" : @"bt_disconnect", name];
     RCExecuteTrigger(triggerKey);
+}
+
+static void handle_wifi_notification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        handle_wifi_transition();
+    });
 }
 
 static void register_system_event_observers() {
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     
-    // WiFi: Track network changes (SBWiFiManagerPosts this)
-    [nc addObserverForName:@"SBWiFiManagerCurrentNetworkDidChangeNotification" 
-                    object:nil 
-                     queue:[NSOperationQueue mainQueue] 
-                usingBlock:^(NSNotification *note) {
-        handle_wifi_transition();
-    }];
+    // WiFi: Track network changes (Darwin Notification)
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_wifi_notification, 
+                                    CFSTR("com.apple.system.config.network_change"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
     
     // Bluetooth: Track connection/disconnection
     [nc addObserverForName:@"BluetoothDeviceConnectSuccessNotification" 

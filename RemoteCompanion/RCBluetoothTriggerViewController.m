@@ -1,6 +1,7 @@
 #import "RCBluetoothTriggerViewController.h"
 #import "RCConfigManager.h"
 #import "RCActionsViewController.h"
+#import "RCServerClient.h"
 #import <objc/runtime.h>
 #import <dlfcn.h>
 
@@ -15,9 +16,9 @@
 @end
 
 @interface RCBluetoothTriggerViewController ()
-@property (nonatomic, strong) NSArray *devices;
+@property (nonatomic, strong) NSArray *deviceNames;
 @property (nonatomic, assign) BOOL isDisconnectTrigger;
-@property (nonatomic, strong) BluetoothManager *btManager;
+@property (nonatomic, assign) BOOL isLoading;
 @end
 
 @implementation RCBluetoothTriggerViewController
@@ -30,28 +31,45 @@
     [super viewDidLoad];
     self.title = @"Bluetooth Trigger";
     self.view.backgroundColor = [UIColor systemBackgroundColor];
-    
-    // Load BluetoothManager
-    void *btHandle = dlopen("/System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager", RTLD_NOW);
-    if (btHandle) {
-        Class btClass = objc_getClass("BluetoothManager");
-        if (btClass) {
-            self.btManager = [btClass sharedInstance];
-            self.devices = [self.btManager pairedDevices];
-            NSLog(@"[RCBluetoothTrigger] Found %lu paired devices", (unsigned long)self.devices.count);
-        }
-    }
-    
-    if (!self.devices || self.devices.count == 0) {
-        UILabel *emptyLabel = [[UILabel alloc] initWithFrame:self.view.bounds];
-        emptyLabel.text = @"No Paired Devices Found";
-        emptyLabel.textAlignment = NSTextAlignmentCenter;
-        emptyLabel.textColor = [UIColor secondaryLabelColor];
-        self.tableView.backgroundView = emptyLabel;
-    }
-    
     self.isDisconnectTrigger = NO;
+    self.isLoading = YES;
+    
+    [self loadBluetoothDevices];
 }
+
+- (void)loadBluetoothDevices {
+    [[RCServerClient sharedClient] executeCommand:@"bluetooth list" completion:^(NSString * _Nullable output, NSError * _Nullable error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.isLoading = NO;
+            if (output && ![output isEqualToString:@"No paired Bluetooth devices found\n"] && ![output containsString:@"Error:"]) {
+                NSArray *lines = [output componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+                NSMutableArray *validNames = [NSMutableArray array];
+                for (NSString *line in lines) {
+                    NSString *cleanLine = [line stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    // Skip empty lines or known unwanted output
+                    if (cleanLine.length > 0 && ![cleanLine hasPrefix:@"*"]) {
+                        [validNames addObject:cleanLine];
+                    }
+                }
+                self.deviceNames = [validNames copy];
+            } else {
+                self.deviceNames = @[];
+            }
+            [self.tableView reloadData];
+            
+            if (!self.deviceNames || self.deviceNames.count == 0) {
+                UILabel *emptyLabel = [[UILabel alloc] initWithFrame:self.view.bounds];
+                emptyLabel.text = @"No Paired Devices Found";
+                emptyLabel.textAlignment = NSTextAlignmentCenter;
+                emptyLabel.textColor = [UIColor secondaryLabelColor];
+                self.tableView.backgroundView = emptyLabel;
+            } else {
+                self.tableView.backgroundView = nil;
+            }
+        });
+    }];
+}
+
 
 #pragma mark - Table View Data Source
 
@@ -61,7 +79,8 @@
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) return 2; // Connect / Disconnect
-    return self.devices.count;
+    if (self.isLoading) return 1; // Loading indicator
+    return self.deviceNames.count;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
@@ -85,10 +104,21 @@
         }
         cell.detailTextLabel.text = nil;
     } else {
-        BluetoothDevice *device = self.devices[indexPath.row];
-        cell.textLabel.text = [device name];
-        cell.detailTextLabel.text = [device address];
+        if (self.isLoading) {
+            cell.textLabel.text = @"Loading...";
+            cell.detailTextLabel.text = nil;
+            cell.accessoryType = UITableViewCellAccessoryNone;
+            UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+            [spinner startAnimating];
+            cell.accessoryView = spinner;
+            return cell;
+        }
+        
+        NSString *deviceName = self.deviceNames[indexPath.row];
+        cell.textLabel.text = deviceName;
+        cell.detailTextLabel.text = nil;
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        cell.accessoryView = nil;
     }
     
     return cell;
@@ -101,19 +131,17 @@
         self.isDisconnectTrigger = (indexPath.row == 1);
         [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:0] withRowAnimation:UITableViewRowAnimationNone];
     } else {
-        BluetoothDevice *device = self.devices[indexPath.row];
-        [self saveTriggerForDevice:device];
+        if (self.isLoading) return;
+        NSString *deviceName = self.deviceNames[indexPath.row];
+        [self saveTriggerForDeviceName:deviceName];
     }
 }
 
-- (void)saveTriggerForDevice:(BluetoothDevice *)device {
-    NSString *address = [device address];
-    NSString *name = [device name];
-    
-    if (!address) return;
+- (void)saveTriggerForDeviceName:(NSString *)name {
+    if (!name || name.length == 0) return;
     
     NSString *prefix = self.isDisconnectTrigger ? @"bt_disconnect_" : @"bt_connect_";
-    NSString *triggerKey = [prefix stringByAppendingString:address];
+    NSString *triggerKey = [prefix stringByAppendingString:name];
     
     RCConfigManager *config = [RCConfigManager sharedManager];
     
