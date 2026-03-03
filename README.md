@@ -5,7 +5,8 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 > [!IMPORTANT]
 > **What's New in v2.3**
 > - **Settings Simplification**: Removed redundant "TCP Server" and "Root Command" switches. These features are now enabled by default for a smoother out-of-the-box experience.
-> - **App Blacklist**: Prevent hardware triggers and gestures from firing in specific apps (e.g., banking or camera apps) using the `rc blacklist` CLI.
+> - **App Blacklist System**: Added a new blacklist system to exclude specific apps (e.g., banking apps) from hardware triggers and gestures. Managed via `rc blacklist` CLI commands.
+> - **Orientation Detection**: Added a new `rc orientation` status query and integrated it into the conditional actions system. This allows for landscape/portrait-aware action sequences.
 
 <p align="center">
   <img src="images/1.png" width="200" alt="RemoteCompanion Interface" />
@@ -90,12 +91,18 @@ Get instant feedback from your device state.
 - `rc mute status` - Returns current media mute state and level.
 - `rc logs` - Stream live debug logs from the device (tail `/tmp/remotecommand.log`).
 - `rc vibration [silent-status|ring-status]` - Check current system vibration state (CLI only).
+- `rc orientation status` - Returns `PORTRAIT` or `LANDSCAPE`.
 - `rc rotate status` - Returns orientation lock state.
 - `rc dnd status` - Returns Do Not Disturb state.
 - `rc lpm status` - Returns Low Power Mode state.
 - `rc airplane status` - Returns Airplane Mode state.
 - `rc wifi status` / `rc bt status` - Returns connectivity states.
 - `rc flashlight status` - Returns torch state.
+
+### Conditional Actions
+Combine status queries with actions for smart automation:
+- **Orientation-Awareness**: `If Orientation is Landscape` -> `Flashlight Toggle`.
+- **Bluetooth/Wi-Fi State**: `If Wi-Fi is OFF` -> `Wi-Fi ON`.
 
 ### System & Diagnostics
 - `rc respring` - Restart SpringBoard.
