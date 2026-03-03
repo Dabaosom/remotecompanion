@@ -12,7 +12,7 @@
 
 @interface RCActionsViewController () <UITableViewDragDelegate, UITableViewDropDelegate>
 @property (nonatomic, strong) NSString *triggerKey;
-@property (nonatomic, strong) NSMutableArray<NSString *> *actions;
+@property (nonatomic, strong) NSMutableArray *actions;
 @end
 
 @implementation RCActionsViewController
@@ -261,6 +261,10 @@
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                 [self presentViewController:nav animated:YES completion:nil];
             });
+        } else if ([action isEqualToString:@"__IF_CONDITION__"]) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self presentIfConditionPickerForIndex:NSNotFound];
+            });
         } else if ([action isEqualToString:@"__LUA_SCRIPT__"]) {
             RCTextInputViewController *inputVC = [[RCTextInputViewController alloc] init];
             inputVC.promptTitle = @"Lua Script";
@@ -294,6 +298,273 @@
     [[RCConfigManager sharedManager] setActions:_actions forTrigger:_triggerKey];
 }
 
+- (NSString *)actionTypeForItem:(id)item {
+    if (![item isKindOfClass:[NSDictionary class]]) {
+        return nil;
+    }
+    return [[((NSDictionary *)item)[@"type"] description] lowercaseString];
+}
+
+- (BOOL)isIfActionItem:(id)item {
+    return [[self actionTypeForItem:item] isEqualToString:@"if"];
+}
+
+- (BOOL)isEndIfActionItem:(id)item {
+    NSString *type = [self actionTypeForItem:item];
+    return [type isEqualToString:@"end_if"] || [type isEqualToString:@"end"];
+}
+
+- (NSInteger)matchingEndIndexForIfAtIndex:(NSInteger)startIndex {
+    if (startIndex < 0 || startIndex >= (NSInteger)self.actions.count) {
+        return NSNotFound;
+    }
+    if (![self isIfActionItem:self.actions[startIndex]]) {
+        return NSNotFound;
+    }
+    
+    NSInteger depth = 0;
+    for (NSInteger idx = startIndex; idx < (NSInteger)self.actions.count; idx++) {
+        id item = self.actions[idx];
+        if ([self isIfActionItem:item]) {
+            depth++;
+        } else if ([self isEndIfActionItem:item]) {
+            depth--;
+            if (depth == 0) {
+                return idx;
+            }
+        }
+    }
+    return NSNotFound;
+}
+
+- (NSInteger)matchingIfIndexForEndAtIndex:(NSInteger)endIndex {
+    if (endIndex < 0 || endIndex >= (NSInteger)self.actions.count) {
+        return NSNotFound;
+    }
+    if (![self isEndIfActionItem:self.actions[endIndex]]) {
+        return NSNotFound;
+    }
+    
+    NSInteger depth = 0;
+    for (NSInteger idx = endIndex; idx >= 0; idx--) {
+        id item = self.actions[idx];
+        if ([self isEndIfActionItem:item]) {
+            depth++;
+        } else if ([self isIfActionItem:item]) {
+            depth--;
+            if (depth == 0) {
+                return idx;
+            }
+        }
+    }
+    return NSNotFound;
+}
+
+- (NSRange)ifBlockRangeForIndex:(NSInteger)index {
+    if (index < 0 || index >= (NSInteger)self.actions.count) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    
+    id item = self.actions[index];
+    if ([self isIfActionItem:item]) {
+        NSInteger endIndex = [self matchingEndIndexForIfAtIndex:index];
+        if (endIndex != NSNotFound) {
+            return NSMakeRange(index, endIndex - index + 1);
+        }
+    } else if ([self isEndIfActionItem:item]) {
+        NSInteger startIndex = [self matchingIfIndexForEndAtIndex:index];
+        if (startIndex != NSNotFound) {
+            return NSMakeRange(startIndex, index - startIndex + 1);
+        }
+    }
+    
+    return NSMakeRange(index, 1);
+}
+
+- (NSInteger)indentationLevelForRow:(NSInteger)row {
+    NSInteger depth = 0;
+    for (NSInteger idx = 0; idx < row; idx++) {
+        id item = self.actions[idx];
+        if ([self isIfActionItem:item]) {
+            depth++;
+        } else if ([self isEndIfActionItem:item]) {
+            depth = MAX(depth - 1, 0);
+        }
+    }
+    
+    id current = self.actions[row];
+    if ([self isEndIfActionItem:current]) {
+        return MAX(depth - 1, 0);
+    }
+    return depth;
+}
+
+- (NSArray<NSDictionary *> *)ifConditionDefinitions {
+    return @[
+        @{
+            @"key": @"lock",
+            @"title": @"Lock Status",
+            @"values": @[
+                @{ @"value": @"LOCKED", @"title": @"Locked" },
+                @{ @"value": @"UNLOCKED", @"title": @"Unlocked" }
+            ]
+        },
+        @{
+            @"key": @"player",
+            @"title": @"Player Status",
+            @"values": @[
+                @{ @"value": @"PLAYING", @"title": @"Playing" },
+                @{ @"value": @"PAUSED", @"title": @"Paused" },
+                @{ @"value": @"STOPPED", @"title": @"Stopped" }
+            ]
+        },
+        @{
+            @"key": @"wifi",
+            @"title": @"Wi-Fi",
+            @"values": @[
+                @{ @"value": @"ON", @"title": @"On" },
+                @{ @"value": @"OFF", @"title": @"Off" }
+            ]
+        },
+        @{
+            @"key": @"bluetooth",
+            @"title": @"Bluetooth",
+            @"values": @[
+                @{ @"value": @"ON", @"title": @"On" },
+                @{ @"value": @"OFF", @"title": @"Off" }
+            ]
+        },
+        @{
+            @"key": @"airplane",
+            @"title": @"Airplane Mode",
+            @"values": @[
+                @{ @"value": @"ON", @"title": @"On" },
+                @{ @"value": @"OFF", @"title": @"Off" }
+            ]
+        },
+        @{
+            @"key": @"silent_vibration",
+            @"title": @"Silent Vibration",
+            @"values": @[
+                @{ @"value": @"ON", @"title": @"On" },
+                @{ @"value": @"OFF", @"title": @"Off" }
+            ]
+        },
+        @{
+            @"key": @"ring_vibration",
+            @"title": @"Ring Vibration",
+            @"values": @[
+                @{ @"value": @"ON", @"title": @"On" },
+                @{ @"value": @"OFF", @"title": @"Off" }
+            ]
+        }
+    ];
+}
+
+- (void)configurePopoverSourceForAlert:(UIAlertController *)alert {
+    if (alert.popoverPresentationController) {
+        alert.popoverPresentationController.sourceView = self.view;
+        alert.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+    }
+}
+
+- (NSDictionary *)buildIfActionWithCondition:(NSDictionary *)condition expectedValue:(NSDictionary *)expectedValue {
+    return @{
+        @"type": @"if",
+        @"conditionKey": condition[@"key"] ?: @"",
+        @"conditionTitle": condition[@"title"] ?: @"Condition",
+        @"expectedValue": expectedValue[@"value"] ?: @"",
+        @"expectedTitle": expectedValue[@"title"] ?: @"Value"
+    };
+}
+
+- (void)presentIfValuePickerForCondition:(NSDictionary *)condition existingIndex:(NSInteger)index {
+    NSArray *values = condition[@"values"] ?: @[];
+    NSString *title = [NSString stringWithFormat:@"%@ is...", condition[@"title"] ?: @"Condition"];
+    UIAlertController *picker = [UIAlertController alertControllerWithTitle:title
+                                                                     message:nil
+                                                              preferredStyle:UIAlertControllerStyleActionSheet];
+    
+    __weak typeof(self) weakSelf = self;
+    for (NSDictionary *value in values) {
+        [picker addAction:[UIAlertAction actionWithTitle:value[@"title"]
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction * _Nonnull action) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            
+            NSDictionary *ifAction = [strongSelf buildIfActionWithCondition:condition expectedValue:value];
+            if (index != NSNotFound && index >= 0 && index < (NSInteger)strongSelf.actions.count) {
+                strongSelf.actions[index] = ifAction;
+            } else {
+                [strongSelf.actions addObject:ifAction];
+                [strongSelf.actions addObject:@{ @"type": @"end_if" }];
+            }
+            [strongSelf saveActions];
+            [strongSelf.tableView reloadData];
+        }]];
+    }
+    
+    [picker addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self configurePopoverSourceForAlert:picker];
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)presentIfConditionPickerForIndex:(NSInteger)index {
+    UIAlertController *picker = [UIAlertController alertControllerWithTitle:@"If Condition"
+                                                                     message:@"Choose a status to evaluate"
+                                                              preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    
+    for (NSDictionary *condition in [self ifConditionDefinitions]) {
+        [picker addAction:[UIAlertAction actionWithTitle:condition[@"title"]
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction * _Nonnull action) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (!strongSelf) return;
+            [strongSelf presentIfValuePickerForCondition:condition existingIndex:index];
+        }]];
+    }
+    
+    [picker addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    [self configurePopoverSourceForAlert:picker];
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)moveActionFromIndex:(NSInteger)sourceIndex toIndex:(NSInteger)destinationIndex {
+    if (sourceIndex < 0 || sourceIndex >= (NSInteger)self.actions.count) {
+        return;
+    }
+    
+    NSRange rangeToMove = [self ifBlockRangeForIndex:sourceIndex];
+    if (rangeToMove.location == NSNotFound || rangeToMove.length == 0) {
+        return;
+    }
+    
+    if (destinationIndex > (NSInteger)self.actions.count) {
+        destinationIndex = self.actions.count;
+    }
+    
+    if (destinationIndex >= (NSInteger)rangeToMove.location &&
+        destinationIndex <= (NSInteger)(rangeToMove.location + rangeToMove.length)) {
+        return;
+    }
+    
+    NSArray *itemsToMove = [self.actions subarrayWithRange:rangeToMove];
+    [self.actions removeObjectsInRange:rangeToMove];
+    
+    if (destinationIndex > (NSInteger)rangeToMove.location) {
+        destinationIndex -= rangeToMove.length;
+    }
+    
+    destinationIndex = MAX(0, MIN(destinationIndex, (NSInteger)self.actions.count));
+    NSIndexSet *indexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(destinationIndex, itemsToMove.count)];
+    [self.actions insertObjects:itemsToMove atIndexes:indexes];
+    
+    [self saveActions];
+    [self.tableView reloadData];
+}
+
 #pragma mark - Table View Data Source
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -305,7 +576,9 @@
     id actionData = self.actions[indexPath.row];
     
     if ([actionData isKindOfClass:[NSDictionary class]]) {
-        // Dictionaries (like if blocks) are not editable from this view directly
+        if ([self isIfActionItem:actionData]) {
+            [self presentIfConditionPickerForIndex:indexPath.row];
+        }
         return;
     }
     
@@ -602,15 +875,19 @@
     id actionItem = _actions[indexPath.row];
     NSString *cleanName = [self displayNameForCommand:actionItem];
     NSString *subtitle = nil;
+    NSInteger indentationLevel = [self indentationLevelForRow:indexPath.row];
+
+    cell.indentationWidth = 18.0f;
+    cell.indentationLevel = indentationLevel;
 
     if ([actionItem isKindOfClass:[NSDictionary class]]) {
         cell.textLabel.text = cleanName;
         cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
-        cell.textLabel.textColor = [UIColor labelColor];
+        cell.textLabel.textColor = [self isEndIfActionItem:actionItem] ? [UIColor secondaryLabelColor] : [UIColor labelColor];
         cell.detailTextLabel.text = nil;
         
         cell.imageView.image = [UIImage systemImageNamed:[self iconForCommand:actionItem]];
-        cell.imageView.tintColor = [UIColor systemGrayColor];
+        cell.imageView.tintColor = [self isEndIfActionItem:actionItem] ? [UIColor tertiaryLabelColor] : [UIColor systemGrayColor];
         
         UIImageView *handleView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
         handleView.tintColor = [UIColor systemGray3Color];
@@ -698,9 +975,8 @@
 #pragma mark - UITableViewDragDelegate
 
 - (NSArray<UIDragItem *> *)tableView:(UITableView *)tableView itemsForBeginningDragSession:(id<UIDragSession>)session atIndexPath:(NSIndexPath *)indexPath {
-    NSString *action = self.actions[indexPath.row];
-    NSData *data = [action dataUsingEncoding:NSUTF8StringEncoding];
-    NSItemProvider *itemProvider = [[NSItemProvider alloc] initWithItem:data typeIdentifier:@"com.pizzaman.rc.action"];
+    id action = self.actions[indexPath.row];
+    NSItemProvider *itemProvider = [[NSItemProvider alloc] initWithObject:@"rc-action"];
     UIDragItem *dragItem = [[UIDragItem alloc] initWithItemProvider:itemProvider];
     dragItem.localObject = action;
     return @[dragItem];
@@ -717,33 +993,37 @@
 
 - (void)tableView:(UITableView *)tableView performDropWithCoordinator:(id<UITableViewDropCoordinator>)coordinator {
     NSIndexPath *destinationIndexPath = coordinator.destinationIndexPath;
-    if (!destinationIndexPath) {
-        destinationIndexPath = [NSIndexPath indexPathForRow:[self.actions count] - 1 inSection:0];
-    }
-
+    NSInteger destinationIndex = destinationIndexPath ? destinationIndexPath.row : self.actions.count;
+    
     for (id<UITableViewDropItem> item in coordinator.items) {
-        if (item.sourceIndexPath) {
-            NSIndexPath *sourceIndexPath = item.sourceIndexPath;
-            NSString *action = self.actions[sourceIndexPath.row];
-            [_actions removeObjectAtIndex:sourceIndexPath.row];
-            [_actions insertObject:action atIndex:destinationIndexPath.row];
-            
-            [tableView moveRowAtIndexPath:sourceIndexPath toIndexPath:destinationIndexPath];
-            [coordinator dropItem:item.dragItem toRowAtIndexPath:destinationIndexPath];
-            [self saveActions];
+        if (!item.sourceIndexPath) continue;
+        
+        [self moveActionFromIndex:item.sourceIndexPath.row toIndex:destinationIndex];
+        
+        if (self.actions.count > 0) {
+            NSInteger finalRow = MIN(MAX(destinationIndex, 0), (NSInteger)self.actions.count - 1);
+            [coordinator dropItem:item.dragItem toRowAtIndexPath:[NSIndexPath indexPathForRow:finalRow inSection:0]];
         }
+        break;
     }
 }
 
 // Swipe Actions
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
+    NSRange rangeToDelete = [self ifBlockRangeForIndex:indexPath.row];
+    BOOL isBlockDelete = rangeToDelete.length > 1;
+    
     UIContextualAction *deleteAction = [UIContextualAction
         contextualActionWithStyle:UIContextualActionStyleDestructive
-        title:@"Delete"
+        title:isBlockDelete ? @"Delete Block" : @"Delete"
         handler:^(UIContextualAction * _Nonnull action, __kindof UIView * _Nonnull sourceView, void (^ _Nonnull completionHandler)(BOOL)) {
-            [_actions removeObjectAtIndex:indexPath.row];
+            if (rangeToDelete.location != NSNotFound && rangeToDelete.length > 0 && NSMaxRange(rangeToDelete) <= self.actions.count) {
+                [self.actions removeObjectsInRange:rangeToDelete];
+            } else if (indexPath.row < self.actions.count) {
+                [self.actions removeObjectAtIndex:indexPath.row];
+            }
             [self saveActions];
-            [tableView deleteRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationAutomatic];
+            [tableView reloadData];
             completionHandler(YES);
         }];
 
@@ -757,10 +1037,7 @@
 }
 
 - (void)tableView:(UITableView *)tableView moveRowAtIndexPath:(NSIndexPath *)sourceIndexPath toIndexPath:(NSIndexPath *)destinationIndexPath {
-    NSString *action = _actions[sourceIndexPath.row];
-    [_actions removeObjectAtIndex:sourceIndexPath.row];
-    [_actions insertObject:action atIndex:destinationIndexPath.row];
-    [self saveActions];
+    [self moveActionFromIndex:sourceIndexPath.row toIndex:destinationIndexPath.row];
 }
 
 // Deletion (legacy - leading/trailing swipe actions are preferred now)

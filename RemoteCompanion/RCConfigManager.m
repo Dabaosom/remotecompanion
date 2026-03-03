@@ -347,11 +347,11 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     [self saveConfig];
 }
 
-- (NSArray<NSString *> *)actionsForTrigger:(NSString *)triggerKey {
+- (NSArray *)actionsForTrigger:(NSString *)triggerKey {
     return [self triggerDict:triggerKey][@"actions"] ?: @[];
 }
 
-- (void)setActions:(NSArray<NSString *> *)actions forTrigger:(NSString *)triggerKey {
+- (void)setActions:(NSArray *)actions forTrigger:(NSString *)triggerKey {
     NSMutableDictionary *trigger = [self triggerDict:triggerKey];
     trigger[@"actions"] = [actions mutableCopy];
     
@@ -463,16 +463,21 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 - (NSString *)nameForCommand:(id)cmdId truncate:(BOOL)shouldTruncate {
     if ([cmdId isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = (NSDictionary *)cmdId;
-        NSString *type = dict[@"type"];
+        NSString *type = [[dict[@"type"] description] lowercaseString];
         if ([type isEqualToString:@"if"]) {
-            NSString *val = dict[@"condition"] ?: @"";
-            return [NSString stringWithFormat:@"If %@", val];
+            NSString *conditionTitle = dict[@"conditionTitle"] ?: dict[@"conditionName"];
+            NSString *expectedTitle = dict[@"expectedTitle"] ?: dict[@"expectedLabel"];
+            if (conditionTitle.length > 0 && expectedTitle.length > 0) {
+                return [NSString stringWithFormat:@"If %@ is %@", conditionTitle, expectedTitle];
+            }
+            NSString *legacy = dict[@"condition"] ?: @"Condition";
+            return [NSString stringWithFormat:@"If %@", legacy];
         } else if ([type isEqualToString:@"else"]) {
             return @"Else";
         } else if ([type isEqualToString:@"repeat"]) {
             return [NSString stringWithFormat:@"Repeat %@", dict[@"count"] ?: @""];
-        } else if ([type isEqualToString:@"end"]) {
-            return @"End Block";
+        } else if ([type isEqualToString:@"end"] || [type isEqualToString:@"end_if"]) {
+            return @"End If";
         }
         return @"Conditional Block";
     }
@@ -611,12 +616,12 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 - (NSString *)iconForCommand:(id)cmdId {
     if ([cmdId isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = (NSDictionary *)cmdId;
-        NSString *type = dict[@"type"];
+        NSString *type = [[dict[@"type"] description] lowercaseString];
         if ([type isEqualToString:@"if"] || [type isEqualToString:@"else"]) {
             return @"arrow.triangle.branch";
         } else if ([type isEqualToString:@"repeat"]) {
             return @"repeat";
-        } else if ([type isEqualToString:@"end"]) {
+        } else if ([type isEqualToString:@"end"] || [type isEqualToString:@"end_if"]) {
             return @"arrow.turn.up.left";
         }
         return @"square.grid.2x2";

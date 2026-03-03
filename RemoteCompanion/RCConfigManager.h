@@ -18,8 +18,8 @@
 - (void)setTriggerFavorite:(BOOL)favorite forTrigger:(NSString *)triggerKey;
 - (NSArray<NSString *> *)orderedFavorites;
 - (void)setOrderedFavorites:(NSArray<NSString *> *)favorites;
-- (NSArray<NSString *> *)actionsForTrigger:(NSString *)triggerKey;
-- (void)setActions:(NSArray<NSString *> *)actions forTrigger:(NSString *)triggerKey;
+- (NSArray *)actionsForTrigger:(NSString *)triggerKey;
+- (void)setActions:(NSArray *)actions forTrigger:(NSString *)triggerKey;
 - (void)updateTrigger:(NSString *)triggerKey withData:(NSDictionary *)data;
 - (void)removeTrigger:(NSString *)triggerKey;
 - (void)renameTrigger:(NSString *)triggerKey toName:(NSString *)newName;

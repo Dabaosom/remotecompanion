@@ -118,6 +118,7 @@
             @{ @"name": @"Low Power Mode Off", @"command": @"low power off", @"icon": @"battery.100" },
             @{ @"name": @"Low Power Mode Toggle", @"command": @"low power toggle", @"icon": @"battery.25" },
             @{ @"name": @"Custom Lua Script", @"command": @"__LUA_SCRIPT__", @"icon": @"scroll.fill" },
+            @{ @"name": @"If Condition...", @"command": @"__IF_CONDITION__", @"icon": @"arrow.triangle.branch" },
             @{ @"name": @"Delay", @"command": @"__DELAY__", @"icon": @"timer" },
             @{ @"name": @"Terminal Command", @"command": @"__CUSTOM__", @"icon": @"terminal.fill" }
         ],
@@ -211,6 +212,7 @@
         [cmd isEqualToString:@"__SHORTCUT_PICKER__"] || 
         [cmd isEqualToString:@"__OPEN_APP__"] || 
         [cmd isEqualToString:@"__LUA_SCRIPT__"] || 
+        [cmd isEqualToString:@"__IF_CONDITION__"] ||
         [cmd isEqualToString:@"__DELAY__"] ||
         [cmd isEqualToString:@"__CUSTOM__"]) {
         

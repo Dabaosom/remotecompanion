@@ -967,6 +967,151 @@ static void register_config_observer() {
 // Forward declaration
 static NSString *handle_command(NSString *cmd);
 
+static BOOL rc_is_if_action_item(id item) {
+    if (![item isKindOfClass:[NSDictionary class]]) return NO;
+    NSString *type = [[((NSDictionary *)item)[@"type"] description] lowercaseString];
+    return [type isEqualToString:@"if"];
+}
+
+static BOOL rc_is_end_if_action_item(id item) {
+    if (![item isKindOfClass:[NSDictionary class]]) return NO;
+    NSString *type = [[((NSDictionary *)item)[@"type"] description] lowercaseString];
+    return [type isEqualToString:@"end_if"] || [type isEqualToString:@"end"];
+}
+
+static NSInteger rc_matching_end_if_index(NSArray *actions, NSInteger startIndex) {
+    if (startIndex < 0 || startIndex >= (NSInteger)actions.count) return NSNotFound;
+    if (!rc_is_if_action_item(actions[startIndex])) return NSNotFound;
+    
+    NSInteger depth = 0;
+    for (NSInteger idx = startIndex; idx < (NSInteger)actions.count; idx++) {
+        id item = actions[idx];
+        if (rc_is_if_action_item(item)) {
+            depth++;
+        } else if (rc_is_end_if_action_item(item)) {
+            depth--;
+            if (depth == 0) return idx;
+        }
+    }
+    return NSNotFound;
+}
+
+static NSString *rc_trimmed_uppercase_string(NSString *value) {
+    if (![value isKindOfClass:[NSString class]]) return @"";
+    return [[value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] uppercaseString];
+}
+
+static NSString *rc_status_command_for_condition_key(NSString *conditionKey) {
+    if (![conditionKey isKindOfClass:[NSString class]]) return nil;
+    NSDictionary *map = @{
+        @"lock": @"lock status",
+        @"player": @"player status",
+        @"wifi": @"wifi status",
+        @"bluetooth": @"bluetooth status",
+        @"airplane": @"airplane status",
+        @"silent_vibration": @"vibration silent-status",
+        @"ring_vibration": @"vibration ring-status"
+    };
+    return map[conditionKey];
+}
+
+static NSString *rc_canonical_status_value_for_condition_key(NSString *conditionKey, NSString *statusOutput) {
+    NSString *upper = rc_trimmed_uppercase_string(statusOutput);
+    if (upper.length == 0) return nil;
+    
+    if ([conditionKey isEqualToString:@"lock"]) {
+        if ([upper containsString:@"UNLOCKED"]) return @"UNLOCKED";
+        if ([upper containsString:@"LOCKED"]) return @"LOCKED";
+        return nil;
+    }
+    
+    if ([conditionKey isEqualToString:@"player"]) {
+        if ([upper containsString:@"PLAYING"]) return @"PLAYING";
+        if ([upper containsString:@"PAUSED"]) return @"PAUSED";
+        if ([upper containsString:@"STOPPED"]) return @"STOPPED";
+        return nil;
+    }
+    
+    if ([upper containsString:@" OFF"]) return @"OFF";
+    if ([upper hasSuffix:@"OFF"]) return @"OFF";
+    if ([upper containsString:@" ON"]) return @"ON";
+    if ([upper hasSuffix:@"ON"]) return @"ON";
+    
+    return nil;
+}
+
+static BOOL rc_evaluate_if_condition(NSDictionary *ifAction) {
+    if (![ifAction isKindOfClass:[NSDictionary class]]) return NO;
+    
+    NSString *conditionKey = ifAction[@"conditionKey"];
+    NSString *expectedValue = rc_trimmed_uppercase_string(ifAction[@"expectedValue"] ?: ifAction[@"expected"]);
+    
+    if (conditionKey.length == 0) {
+        // Backward compatibility for older formats where "condition" contained a command.
+        NSString *legacyCondition = ifAction[@"condition"];
+        if (legacyCondition.length == 0) return NO;
+        NSString *legacyOutput = handle_command(legacyCondition);
+        NSString *legacyUpper = rc_trimmed_uppercase_string(legacyOutput);
+        return [legacyUpper isEqualToString:@"YES"] ||
+               [legacyUpper isEqualToString:@"TRUE"] ||
+               [legacyUpper isEqualToString:@"1"] ||
+               [legacyUpper hasPrefix:@"ON"] ||
+               [legacyUpper hasPrefix:@"LOCKED"] ||
+               [legacyUpper hasPrefix:@"PLAYING"];
+    }
+    
+    NSString *statusCommand = rc_status_command_for_condition_key(conditionKey);
+    if (statusCommand.length == 0) return NO;
+    
+    NSString *statusOutput = handle_command(statusCommand);
+    NSString *actualValue = rc_canonical_status_value_for_condition_key(conditionKey, statusOutput);
+    if (actualValue.length == 0 || expectedValue.length == 0) return NO;
+    
+    return [actualValue isEqualToString:expectedValue];
+}
+
+static void rc_execute_action_sequence(NSArray *actions, NSString *triggerKey, BOOL simulationMode) {
+    if (![actions isKindOfClass:[NSArray class]] || actions.count == 0) return;
+    
+    for (NSInteger idx = 0; idx < (NSInteger)actions.count; idx++) {
+        id actionItem = actions[idx];
+        
+        if ([actionItem isKindOfClass:[NSString class]]) {
+            NSString *action = (NSString *)actionItem;
+            SRLog(@"[%@] -> %@", triggerKey, action);
+            handle_command(action);
+            usleep(simulationMode ? 50000 : 10000);
+            continue;
+        }
+        
+        if (![actionItem isKindOfClass:[NSDictionary class]]) {
+            SRLog(@"[%@] Skipping unsupported action item: %@", triggerKey, actionItem);
+            continue;
+        }
+        
+        NSDictionary *dictAction = (NSDictionary *)actionItem;
+        NSString *type = [[dictAction[@"type"] description] lowercaseString];
+        
+        if ([type isEqualToString:@"if"]) {
+            BOOL shouldRunBlock = rc_evaluate_if_condition(dictAction);
+            SRLog(@"[%@] If %@ == %@ -> %@", triggerKey, dictAction[@"conditionKey"], dictAction[@"expectedValue"], shouldRunBlock ? @"TRUE" : @"FALSE");
+            
+            if (!shouldRunBlock) {
+                NSInteger endIndex = rc_matching_end_if_index(actions, idx);
+                if (endIndex == NSNotFound) {
+                    SRLog(@"[%@] Missing End If marker; stopping action execution.", triggerKey);
+                    break;
+                }
+                idx = endIndex;
+            }
+        } else if ([type isEqualToString:@"end_if"] || [type isEqualToString:@"end"]) {
+            continue;
+        } else {
+            SRLog(@"[%@] Skipping unsupported dictionary action type: %@", triggerKey, type);
+        }
+    }
+}
+
 // Execute actions for simulation (bypasses master/enabled checks for testing)
 static void execute_actions_for_simulation(NSString *triggerKey) {
     // Reload config to get fresh data
@@ -992,14 +1137,7 @@ static void execute_actions_for_simulation(NSString *triggerKey) {
     }
     
     SRLog(@"SIMULATE: Executing %lu actions for '%@'", (unsigned long)actions.count, triggerKey);
-    
-    // Execute each action in sequence
-    for (NSString *action in actions) {
-        SRLog(@"SIMULATE: -> Executing: %@", action);
-        handle_command(action);
-        // Small delay between actions to let them complete
-        usleep(50000); // 50ms
-    }
+    rc_execute_action_sequence(actions, [NSString stringWithFormat:@"SIMULATE:%@", triggerKey], YES);
 }
 
 // Callback for simulation notifications
@@ -1012,8 +1150,8 @@ static void simulate_trigger_callback(CFNotificationCenterRef center, void *obse
         NSString *triggerKey = [notificationName substringFromIndex:prefix.length];
         SRLog(@"[SIMULATE] Received request for trigger: %@", triggerKey);
         
-        // Execute on main thread
-        dispatch_async(dispatch_get_main_queue(), ^{
+        // Execute off-main so status checks using dispatch_sync(main) never deadlock.
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             execute_actions_for_simulation(triggerKey);
         });
     }
@@ -1103,13 +1241,7 @@ void RCExecuteTrigger(NSString *triggerKey) {
     
     // Execute on background queue to allow for delays and blocking operations
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        // Execute each action in sequence
-        for (NSString *action in actions) {
-            SRLog(@"[%@] -> % @", triggerKey, action);
-            handle_command(action);
-            // Small default delay between actions
-            usleep(10000); 
-        }
+        rc_execute_action_sequence(actions, triggerKey, NO);
     });
 }
 
@@ -4828,5 +4960,3 @@ static void update_edge_gestures() {
         SRLog(@"Tweak Loaded in %@ - Skipping Full Initialization (Choicy Visibility Only)", bundleID);
     }
 }
-
-
