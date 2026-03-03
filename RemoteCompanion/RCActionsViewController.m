@@ -457,6 +457,14 @@
                 @{ @"value": @"ON", @"title": @"On" },
                 @{ @"value": @"OFF", @"title": @"Off" }
             ]
+        },
+        @{
+            @"key": @"orientation",
+            @"title": @"Orientation",
+            @"values": @[
+                @{ @"value": @"PORTRAIT", @"title": @"Portrait" },
+                @{ @"value": @"LANDSCAPE", @"title": @"Landscape" }
+            ]
         }
     ];
 }

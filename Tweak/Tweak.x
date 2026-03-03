@@ -360,6 +360,7 @@ extern void BKSTerminateApplicationForReasonAndReportWithDescription(NSString *b
 @end
 
 @interface SpringBoard : UIApplication
+- (UIInterfaceOrientation)activeInterfaceOrientation;
 - (SBApplication *)_accessibilityFrontMostApplication;
 - (void)_simulateHomeButtonPress;
 - (void)_menuButtonDown:(id)arg1;
@@ -1010,7 +1011,8 @@ static NSString *rc_status_command_for_condition_key(NSString *conditionKey) {
         @"bluetooth": @"bluetooth status",
         @"airplane": @"airplane status",
         @"silent_vibration": @"vibration silent-status",
-        @"ring_vibration": @"vibration ring-status"
+        @"ring_vibration": @"vibration ring-status",
+        @"orientation": @"orientation"
     };
     return map[conditionKey];
 }
@@ -1029,6 +1031,12 @@ static NSString *rc_canonical_status_value_for_condition_key(NSString *condition
         if ([upper containsString:@"PLAYING"]) return @"PLAYING";
         if ([upper containsString:@"PAUSED"]) return @"PAUSED";
         if ([upper containsString:@"STOPPED"]) return @"STOPPED";
+        return nil;
+    }
+    
+    if ([conditionKey isEqualToString:@"orientation"]) {
+        if ([upper containsString:@"PORTRAIT"]) return @"PORTRAIT";
+        if ([upper containsString:@"LANDSCAPE"]) return @"LANDSCAPE";
         return nil;
     }
     
@@ -2130,6 +2138,32 @@ static NSString *handle_command(NSString *cmd) {
             }
         });
         return [NSString stringWithFormat:@"%@\n", result];
+    } else if ([cleanCmd isEqualToString:@"orientation"] || [cleanCmd isEqualToString:@"orientation status"]) {
+        __block NSString *res = @"UNKNOWN";
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+            UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
+            if ([sb respondsToSelector:@selector(activeInterfaceOrientation)]) {
+                orientation = [sb activeInterfaceOrientation];
+            } else {
+                #pragma clang diagnostic push
+                #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+                UIWindow *window = sb.keyWindow ?: [[UIApplication sharedApplication].windows firstObject];
+                if (window && window.windowScene) {
+                    orientation = window.windowScene.interfaceOrientation;
+                } else {
+                    orientation = sb.statusBarOrientation;
+                }
+                #pragma clang diagnostic pop
+            }
+
+            if (UIInterfaceOrientationIsPortrait(orientation)) {
+                res = @"PORTRAIT";
+            } else if (UIInterfaceOrientationIsLandscape(orientation)) {
+                res = @"LANDSCAPE";
+            }
+        });
+        return [NSString stringWithFormat:@"%@\n", res];
     } else if ([cleanCmd isEqualToString:@"lock"]) {
         // Smart lock: Only lock if currently unlocked
         // ensure we run on main thread for UI/SB checks

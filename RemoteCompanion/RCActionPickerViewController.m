@@ -108,7 +108,7 @@
             @{ @"name": @"Userspace Reboot", @"command": @"userspace-reboot", @"icon": @"arrow.clockwise.circle" },
             @{ @"name": @"Refresh Icon Cache (uicache)", @"command": @"uicache", @"icon": @"square.grid.2x2" },
             @{ @"name": @"Lock Status", @"command": @"lock status", @"icon": @"lock.circle" },
-            @{ @"name": @"Lock Status", @"command": @"lock status", @"icon": @"lock.circle" },
+            @{ @"name": @"Orientation Status", @"command": @"orientation status", @"icon": @"iphone.badge.play" },
             
             // System Vibration
             @{ @"name": @"Silent Vibrate Toggle", @"command": @"vibration silent-toggle", @"icon": @"bell.slash" },
