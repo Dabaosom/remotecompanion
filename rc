@@ -1,7 +1,8 @@
 #!/bin/bash
 
+# Configuration
 IP="${RC_IPHONE_IP:-iphone.local}"
-PORT="1234"
+SOCKET_PATH="/var/mobile/Documents/rc.sock"
 
 # If on device, try to read config for IP if we are default
 if [[ "$IP" == "iphone.local" && -f "/var/mobile/Documents/rc_triggers.plist" ]]; then
@@ -31,7 +32,7 @@ if [ -z "$1" ]; then
     echo "  play, pause       - Media Control"
     echo "  vol-up, vol-down  - Volume Control"
     echo "  set-vol <0-100>   - Set Volume"
-    echo "  shortcut \"Name\"   - Run a Shortcut (e.g. rc shortcut \"Turn Lights On\")"
+    echo "  shortcut \"Name\"   - Run a Shortcut"
     echo "  ping              - Play Alert Sound"
     echo "  respring          - Restart SpringBoard"
     echo "  bt on/off         - Turn Bluetooth On/Off"
@@ -50,63 +51,63 @@ if [ -z "$1" ]; then
 fi
 
 # Construct the command string
-CMD=""
+_CMD=""
 if [ "$#" -eq 1 ]; then
-    CMD="$1"
+    _CMD="$1"
 else
+    # Correctly handle spaces and arguments
     for arg in "$@"; do
         if [[ "$arg" == *" "* ]]; then
-            CMD="$CMD \"$arg\""
+            _CMD="$_CMD \"$arg\""
         else
-            CMD="$CMD $arg"
+            _CMD="$_CMD $arg"
         fi
     done
-    CMD=$(echo "$CMD" | sed 's/^ //')
+    _CMD=$(echo "$_CMD" | sed 's/^ //')
 fi
 
 # Prepend root if requested
 if [ "$ROOT_CMD" -eq 1 ]; then
-    CMD="root $CMD"
+    _CMD="root $_CMD"
 fi
 
 # Map user-friendly commands
-if [[ "$CMD" == "vol-up" || "$CMD" == "volup" ]]; then
-    CMD="button volup"
-elif [[ "$CMD" == "vol-down" || "$CMD" == "voldown" ]]; then
-    CMD="button voldown"
-elif [[ "$CMD" == "respring" ]]; then
+if [[ "$_CMD" == "vol-up" || "$_CMD" == "volup" ]]; then
+    _CMD="button volup"
+elif [[ "$_CMD" == "vol-down" || "$_CMD" == "voldown" ]]; then
+    _CMD="button voldown"
+elif [[ "$_CMD" == "respring" ]]; then
     echo "Respringing device..."
     ssh -o StrictHostKeyChecking=no mobile@$IP "sbreload"
     exit 0
-elif [[ "$CMD" == "shortcut "* ]]; then
-    CMD="shortcut:${CMD#shortcut }"
-elif [[ "$CMD" == "log" ]]; then
+elif [[ "$_CMD" == "shortcut "* ]]; then
+    _CMD="shortcut:${_CMD#shortcut }"
+elif [[ "$_CMD" == "log" ]]; then
     ssh -o StrictHostKeyChecking=no mobile@$IP "tail -f /tmp/remotecommand.log"
     exit 0
 fi
 
-# Send command
+# Command delivery logic (SSH + UNIX Socket)
 if [[ "$IP" == "127.0.0.1" ]]; then
     # Local execution (running on device)
-    # Use our custom rc-client unix socket helper
-    RESPONSE=$(echo -n "$CMD" | /var/jb/usr/bin/rc-client 2>/dev/null || echo -n "$CMD" | /usr/bin/rc-client 2>/dev/null)
-    if [ $? -eq 0 ]; then
-        if [ ! -z "$RESPONSE" ]; then
-            echo "$RESPONSE"
-        fi
-        exit 0
-    fi
+    # Try rc-client first (optimized), fallback to nc -U
+    RESPONSE=$(echo -n "$_CMD" | rc-client 2>/dev/null || echo -n "$_CMD" | nc -U "$SOCKET_PATH" 2>/dev/null)
 else
     # Remote execution via SSH
-    # Note: the SSH command evaluates the piped rc-client on the device
-    RESPONSE=$(ssh -o ConnectTimeout=2 -o StrictHostKeyChecking=no mobile@$IP "echo -n '$CMD' | /var/jb/usr/bin/rc-client 2>/dev/null || echo -n '$CMD' | /usr/bin/rc-client 2>/dev/null" 2>/dev/null)
-    if [ $? -eq 0 ]; then
-        if [ ! -z "$RESPONSE" ]; then
-            echo "$RESPONSE"
-        fi
-        exit 0
-    fi
+    # Tunnel to the unix socket on the device
+    # We try /var/jb/usr/bin/rc-client (rootless) then rootful path, then nc -U as final fallback
+    REMOTE_CMD="echo -n '$_CMD' | /var/jb/usr/bin/rc-client 2>/dev/null || echo -n '$_CMD' | /usr/bin/rc-client 2>/dev/null || echo -n '$_CMD' | nc -U $SOCKET_PATH 2>/dev/null"
+    RESPONSE=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no mobile@$IP "$REMOTE_CMD" 2>/dev/null)
 fi
 
-echo "Error: Cannot connect to iPhone at $IP via RemoteCompanion." >&2
-exit 1
+# Output handling
+if [ $? -eq 0 ]; then
+    if [ ! -z "$RESPONSE" ]; then
+        echo "$RESPONSE"
+    fi
+    exit 0
+else
+    echo "Error: Cannot connect to iPhone at $IP via SSH/Socket." >&2
+    exit 1
+fi
+
