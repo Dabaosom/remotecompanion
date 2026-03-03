@@ -8,6 +8,7 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 > - **Lua Dynamic Bridge**: Lua scripts now support `dlopen` and `objc_call`.
 > - **New System Utilities**: Native support for `ldrestart`, `userspace-reboot`, and `uicache`, built directly into the core and available as preset UI actions.
 > - **Trigger Favorites**: Mark any trigger as a favorite for instant access at the top of the picker for instant access to edit or long-press to run.
+> - **App Blacklist**: Prevent hardware triggers and gestures from firing in specific apps (e.g., banking or camera apps) using the `rc blacklist` CLI.
 > - **Device Status Queries**: Poll device state from the CLI. Includes DND, Low Power Mode, WiFi, Bluetooth, **Player Status** (`rc player status`), and **Live Debug Logs** (`rc logs`).
 > - **System Vibration Control**: New `rc vibration` command to **Turn On/Off** or Toggle the system-wide "Vibrate on Silent" and "Vibrate on Ring" settings directly from the CLI or Action Picker.
 > - **Bottom Bar Gestures**: New swipe triggers for the bottom edge of the screen (left/right).

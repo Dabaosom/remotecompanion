@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - **SSH-Tunneled CLI**: The `rc` script now automatically tunnels commands over SSH to the local socket on the device.
 - **Improved Command Acknowledgments**: Added explicit response strings to media, flashlight, and haptic commands to ensure the CLI receives proper feedback.
 - **New Ping Command**: A dedicated `rc ping` command that plays an alert sound on the device and returns a confirmation string.
+- **App Blacklist System**: Added a new blacklist system to exclude specific apps (e.g., banking apps) from hardware triggers and gestures. Managed via `rc blacklist` CLI commands.
 
 ### Fixed
 - **CLI Robustness**: Refined the `rc` script to handle rootless and rootful paths more reliably, and optimized command delivery across all jailbreak environments.
