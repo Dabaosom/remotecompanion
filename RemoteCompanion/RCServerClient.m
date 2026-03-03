@@ -19,7 +19,7 @@
         int sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
         if (sockfd < 0) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create UNIX socket"}]);
+                if (completion) completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:1 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create UNIX socket"}]);
             });
             return;
         }
@@ -39,7 +39,7 @@
         if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
             close(sockfd);
             dispatch_async(dispatch_get_main_queue(), ^{
-                completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:2 userInfo:@{NSLocalizedDescriptionKey: @"Could not connect to RemoteCompanion tweak (UNIX socket)"}]);
+                if (completion) completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:2 userInfo:@{NSLocalizedDescriptionKey: @"Could not connect to RemoteCompanion tweak (UNIX socket)"}]);
             });
             return;
         }
@@ -49,7 +49,7 @@
         if (write(sockfd, cmd, strlen(cmd)) < 0) {
             close(sockfd);
             dispatch_async(dispatch_get_main_queue(), ^{
-                completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:3 userInfo:@{NSLocalizedDescriptionKey: @"Failed to send command"}]);
+                if (completion) completion(nil, [NSError errorWithDomain:@"RCServerClientError" code:3 userInfo:@{NSLocalizedDescriptionKey: @"Failed to send command"}]);
             });
             return;
         }
@@ -72,7 +72,7 @@
         
         NSString *output = [[NSString alloc] initWithData:receivedData encoding:NSUTF8StringEncoding];
         dispatch_async(dispatch_get_main_queue(), ^{
-            completion(output, nil);
+            if (completion) completion(output, nil);
         });
     });
 }

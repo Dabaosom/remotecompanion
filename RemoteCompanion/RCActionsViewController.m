@@ -18,11 +18,11 @@
 @implementation RCActionsViewController
 
 // Helper methods moved to RCConfigManager for consistency
-- (NSString *)displayNameForCommand:(NSString *)cmd {
+- (NSString *)displayNameForCommand:(id)cmd {
     return [[RCConfigManager sharedManager] nameForCommand:cmd truncate:YES];
 }
 
-- (NSString *)iconForCommand:(NSString *)cmd {
+- (NSString *)iconForCommand:(id)cmd {
     return [[RCConfigManager sharedManager] iconForCommand:cmd];
 }
 
@@ -302,7 +302,14 @@
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    NSString *currentAction = self.actions[indexPath.row];
+    id actionData = self.actions[indexPath.row];
+    
+    if ([actionData isKindOfClass:[NSDictionary class]]) {
+        // Dictionaries (like if blocks) are not editable from this view directly
+        return;
+    }
+    
+    NSString *currentAction = (NSString *)actionData;
     
     if ([currentAction hasPrefix:@"exec "] || [currentAction hasPrefix:@"root "]) {
         // Edit Terminal Command
@@ -592,9 +599,26 @@
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"ActionCell"];
     }
 
-    NSString *action = _actions[indexPath.row];
-    NSString *cleanName = [self displayNameForCommand:action];
+    id actionItem = _actions[indexPath.row];
+    NSString *cleanName = [self displayNameForCommand:actionItem];
     NSString *subtitle = nil;
+
+    if ([actionItem isKindOfClass:[NSDictionary class]]) {
+        cell.textLabel.text = cleanName;
+        cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
+        cell.textLabel.textColor = [UIColor labelColor];
+        cell.detailTextLabel.text = nil;
+        
+        cell.imageView.image = [UIImage systemImageNamed:[self iconForCommand:actionItem]];
+        cell.imageView.tintColor = [UIColor systemGrayColor];
+        
+        UIImageView *handleView = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]];
+        handleView.tintColor = [UIColor systemGray3Color];
+        cell.accessoryView = handleView;
+        return cell;
+    }
+
+    NSString *action = (NSString *)actionItem;
 
     // Logic to separate "Type" from "Value"
     if ([action hasPrefix:@"exec "]) {

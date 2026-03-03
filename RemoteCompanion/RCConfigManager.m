@@ -47,6 +47,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         saved = [NSDictionary dictionaryWithContentsOfFile:appConfigPath];
         if (saved) {
             NSLog(@"[RCConfigManager] Loaded from app Documents: %@", appConfigPath);
+        } else {
+            NSLog(@"[RCConfigManager] No config file found at %@ or %@", kConfigPath, appConfigPath);
         }
     }
     
@@ -67,8 +69,6 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                              @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", 
                              @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right",
                              @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click",
-                             @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", 
-                             @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down",
                              @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", 
                              @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down",
                              @"volume_both_press", @"touchid_tap",
@@ -460,7 +460,28 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 
 #pragma mark - Command Helpers
 
-- (NSString *)nameForCommand:(NSString *)cmd truncate:(BOOL)shouldTruncate {
+- (NSString *)nameForCommand:(id)cmdId truncate:(BOOL)shouldTruncate {
+    if ([cmdId isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)cmdId;
+        NSString *type = dict[@"type"];
+        if ([type isEqualToString:@"if"]) {
+            NSString *val = dict[@"condition"] ?: @"";
+            return [NSString stringWithFormat:@"If %@", val];
+        } else if ([type isEqualToString:@"else"]) {
+            return @"Else";
+        } else if ([type isEqualToString:@"repeat"]) {
+            return [NSString stringWithFormat:@"Repeat %@", dict[@"count"] ?: @""];
+        } else if ([type isEqualToString:@"end"]) {
+            return @"End Block";
+        }
+        return @"Conditional Block";
+    }
+    
+    if (![cmdId isKindOfClass:[NSString class]]) {
+        return @"Unknown Action";
+    }
+
+    NSString *cmd = (NSString *)cmdId;
     NSDictionary *names = @{
         @"play": @"Play",
         @"pause": @"Pause",
@@ -587,7 +608,24 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     return result;
 }
 
-- (NSString *)iconForCommand:(NSString *)cmd {
+- (NSString *)iconForCommand:(id)cmdId {
+    if ([cmdId isKindOfClass:[NSDictionary class]]) {
+        NSDictionary *dict = (NSDictionary *)cmdId;
+        NSString *type = dict[@"type"];
+        if ([type isEqualToString:@"if"] || [type isEqualToString:@"else"]) {
+            return @"arrow.triangle.branch";
+        } else if ([type isEqualToString:@"repeat"]) {
+            return @"repeat";
+        } else if ([type isEqualToString:@"end"]) {
+            return @"arrow.turn.up.left";
+        }
+        return @"square.grid.2x2";
+    }
+
+    if (![cmdId isKindOfClass:[NSString class]]) {
+        return @"questionmark";
+    }
+    NSString *cmd = (NSString *)cmdId;
     if ([cmd hasPrefix:@"root "] || [cmd hasPrefix:@"exec-root "]) return @"terminal.fill";
     if ([cmd hasPrefix:@"exec "]) return @"terminal.fill";
     if ([cmd hasPrefix:@"delay "]) return @"timer";

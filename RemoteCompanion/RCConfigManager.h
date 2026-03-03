@@ -28,8 +28,8 @@
 - (void)stopBackgroundNFC;
 
 // Command Helpers
-- (NSString *)nameForCommand:(NSString *)cmd truncate:(BOOL)shouldTruncate;
-- (NSString *)iconForCommand:(NSString *)cmd;
+- (NSString *)nameForCommand:(id)cmd truncate:(BOOL)shouldTruncate;
+- (NSString *)iconForCommand:(id)cmd;
 
 // Backup/Restore
 - (NSData *)exportConfigAsJSON;

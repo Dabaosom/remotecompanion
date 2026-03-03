@@ -64,7 +64,6 @@
     self.navigationItem.rightBarButtonItems = @[addItem, settingsItem];
     
     self.tableView.rowHeight = 64;
-    self.tableView.rowHeight = 64;
     if (@available(iOS 15.0, *)) {
         self.tableView.sectionHeaderTopPadding = 15; // increased padding
     }
