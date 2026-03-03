@@ -998,7 +998,20 @@
     for (id<UITableViewDropItem> item in coordinator.items) {
         if (!item.sourceIndexPath) continue;
         
-        [self moveActionFromIndex:item.sourceIndexPath.row toIndex:destinationIndex];
+        NSInteger sourceIndex = item.sourceIndexPath.row;
+        id sourceItem = (sourceIndex >= 0 && sourceIndex < (NSInteger)self.actions.count) ? self.actions[sourceIndex] : nil;
+        
+        if (destinationIndexPath &&
+            destinationIndex >= 0 &&
+            destinationIndex < (NSInteger)self.actions.count &&
+            [self isIfActionItem:self.actions[destinationIndex]] &&
+            ![self isIfActionItem:sourceItem] &&
+            ![self isEndIfActionItem:sourceItem]) {
+            // UX: dropping onto an If header should place a normal action inside that block.
+            destinationIndex += 1;
+        }
+        
+        [self moveActionFromIndex:sourceIndex toIndex:destinationIndex];
         
         if (self.actions.count > 0) {
             NSInteger finalRow = MIN(MAX(destinationIndex, 0), (NSInteger)self.actions.count - 1);
