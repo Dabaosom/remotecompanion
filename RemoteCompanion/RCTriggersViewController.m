@@ -455,7 +455,11 @@
     });
     
     NSString *notificationName = [NSString stringWithFormat:@"%s%@", kSimulateNotificationPrefix, triggerKey];
-    notify_post([notificationName UTF8String]);
+    
+    // Slight delay to ensure haptic plays before the app is potentially obscured (e.g., by Control Center or another App)
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        notify_post([notificationName UTF8String]);
+    });
 }
 
 #pragma mark - Table View Data Source

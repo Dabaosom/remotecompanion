@@ -434,7 +434,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 - (UIColor *)tweakColorForKey:(NSString *)key defaultVal:(CGFloat)defaultVal {
     CGFloat val = [self tweakValueForKey:key defaultVal:defaultVal];
     // We are working with monochrome, so we just use the val as white
-    return [UIColor colorWithRed:val green:val blue:val alpha:1.0];
+    return [UIColor colorWithWhite:val alpha:1.0];
 }
 
 
