@@ -11,10 +11,11 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 
 
 <p align="center">
-  <img src="images/1.png" width="200" alt="RemoteCompanion Interface" />
-  <img src="images/2.2.png" width="200" alt="Action Picker" />
-  <img src="images/3.png" width="200" alt="Trigger Config" />
-  <img src="images/4.png" width="200" alt="Settings View" />
+  <img src="images/1.1-2.3.0.png" width="200" alt="Main Interface" />
+  <img src="images/2.1-2.3.0.png" width="200" alt="Action Picker" />
+  <img src="images/3.1-2.3.0.png" width="200" alt="Trigger Config" />
+  <img src="images/4.1-2.3.0.png" width="200" alt="Design Engine" />
+  <img src="images/5.1-2.3.0.png" width="200" alt="Settings & Backup" />
 </p>
 
 ## Features
