@@ -309,6 +309,128 @@
     [[UIApplication sharedApplication] openURL:[NSURL URLWithString:@"https://github.com/saihgupr/RemoteCompanion"] options:@{} completionHandler:nil];
 }
 
+- (UIBezierPath *)fillPathForRect:(CGRect)rect
+                            first:(BOOL)isFirst
+                             last:(BOOL)isLast
+                           single:(BOOL)isSingle
+                     cornerRadius:(CGFloat)cornerRadius {
+    if (isSingle) {
+        return [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:cornerRadius];
+    }
+    if (isFirst) {
+        return [UIBezierPath bezierPathWithRoundedRect:rect
+                                     byRoundingCorners:(UIRectCornerTopLeft | UIRectCornerTopRight)
+                                           cornerRadii:CGSizeMake(cornerRadius, cornerRadius)];
+    }
+    if (isLast) {
+        return [UIBezierPath bezierPathWithRoundedRect:rect
+                                     byRoundingCorners:(UIRectCornerBottomLeft | UIRectCornerBottomRight)
+                                           cornerRadii:CGSizeMake(cornerRadius, cornerRadius)];
+    }
+    return [UIBezierPath bezierPathWithRect:rect];
+}
+
+- (void)applySectionCardStyleToCell:(UITableViewCell *)cell atIndexPath:(NSIndexPath *)indexPath {
+    RCConfigManager *config = [RCConfigManager sharedManager];
+    UIColor *fillColor = [config tweakColorForKey:@"blockBackground" defaultVal:0.1];
+    UIColor *selectedFillColor = [config tweakColorForKey:@"selectionHighlight" defaultVal:0.2];
+    UIColor *borderColor = [config tweakColorForKey:@"borders" defaultVal:0.3];
+    
+    NSInteger rowCount = [self.tableView numberOfRowsInSection:indexPath.section];
+    if (rowCount < 1) {
+        return;
+    }
+    
+    BOOL isSingle = (rowCount == 1);
+    BOOL isFirst = (indexPath.row == 0);
+    BOOL isLast = (indexPath.row == rowCount - 1);
+    
+    CGFloat lineWidth = 1.0 / UIScreen.mainScreen.scale;
+    CGFloat cornerRadius = 12.0;
+    CGFloat horizontalInset = 16.0;
+    CGRect cardRect = CGRectInset(cell.bounds, horizontalInset, 0.0);
+    cardRect = CGRectInset(cardRect, lineWidth * 0.5, lineWidth * 0.5);
+    if (CGRectGetWidth(cardRect) <= 0 || CGRectGetHeight(cardRect) <= 0) {
+        return;
+    }
+    
+    UIBezierPath *fillPath = [self fillPathForRect:cardRect
+                                             first:isFirst
+                                              last:isLast
+                                            single:isSingle
+                                      cornerRadius:cornerRadius];
+    
+    UIView *normalBackgroundView = [[UIView alloc] initWithFrame:cell.bounds];
+    normalBackgroundView.backgroundColor = [UIColor clearColor];
+    
+    CAShapeLayer *normalFillLayer = [CAShapeLayer layer];
+    normalFillLayer.frame = normalBackgroundView.bounds;
+    normalFillLayer.path = fillPath.CGPath;
+    normalFillLayer.fillColor = fillColor.CGColor;
+    [normalBackgroundView.layer addSublayer:normalFillLayer];
+    
+    CAShapeLayer *normalBorderLayer = [CAShapeLayer layer];
+    normalBorderLayer.frame = normalBackgroundView.bounds;
+    normalBorderLayer.path = fillPath.CGPath;
+    normalBorderLayer.fillColor = [UIColor clearColor].CGColor;
+    normalBorderLayer.strokeColor = borderColor.CGColor;
+    normalBorderLayer.lineWidth = lineWidth;
+    
+    if (!isSingle) {
+        CGRect maskRect = normalBorderLayer.bounds;
+        if (isFirst) {
+            maskRect.size.height = MAX(0.0, maskRect.size.height - lineWidth);
+        } else if (isLast) {
+            maskRect.origin.y = lineWidth;
+            maskRect.size.height = MAX(0.0, maskRect.size.height - lineWidth);
+        } else {
+            maskRect.origin.y = lineWidth;
+            maskRect.size.height = MAX(0.0, maskRect.size.height - (2.0 * lineWidth));
+        }
+        CAShapeLayer *maskLayer = [CAShapeLayer layer];
+        maskLayer.path = [UIBezierPath bezierPathWithRect:maskRect].CGPath;
+        normalBorderLayer.mask = maskLayer;
+    }
+    [normalBackgroundView.layer addSublayer:normalBorderLayer];
+    
+    UIView *selectedBackgroundView = [[UIView alloc] initWithFrame:cell.bounds];
+    selectedBackgroundView.backgroundColor = [UIColor clearColor];
+    
+    CAShapeLayer *selectedFillLayer = [CAShapeLayer layer];
+    selectedFillLayer.frame = selectedBackgroundView.bounds;
+    selectedFillLayer.path = fillPath.CGPath;
+    selectedFillLayer.fillColor = selectedFillColor.CGColor;
+    [selectedBackgroundView.layer addSublayer:selectedFillLayer];
+    
+    CAShapeLayer *selectedBorderLayer = [CAShapeLayer layer];
+    selectedBorderLayer.frame = selectedBackgroundView.bounds;
+    selectedBorderLayer.path = fillPath.CGPath;
+    selectedBorderLayer.fillColor = [UIColor clearColor].CGColor;
+    selectedBorderLayer.strokeColor = borderColor.CGColor;
+    selectedBorderLayer.lineWidth = lineWidth;
+    if (!isSingle) {
+        CGRect maskRect = selectedBorderLayer.bounds;
+        if (isFirst) {
+            maskRect.size.height = MAX(0.0, maskRect.size.height - lineWidth);
+        } else if (isLast) {
+            maskRect.origin.y = lineWidth;
+            maskRect.size.height = MAX(0.0, maskRect.size.height - lineWidth);
+        } else {
+            maskRect.origin.y = lineWidth;
+            maskRect.size.height = MAX(0.0, maskRect.size.height - (2.0 * lineWidth));
+        }
+        CAShapeLayer *maskLayer = [CAShapeLayer layer];
+        maskLayer.path = [UIBezierPath bezierPathWithRect:maskRect].CGPath;
+        selectedBorderLayer.mask = maskLayer;
+    }
+    [selectedBackgroundView.layer addSublayer:selectedBorderLayer];
+    
+    cell.backgroundColor = [UIColor clearColor];
+    cell.contentView.backgroundColor = [UIColor clearColor];
+    cell.backgroundView = normalBackgroundView;
+    cell.selectedBackgroundView = selectedBackgroundView;
+}
+
 - (void)handleLongPress:(UILongPressGestureRecognizer *)gesture {
     if (gesture.state != UIGestureRecognizerStateBegan) return;
     
@@ -389,6 +511,7 @@
         cell.imageView.image = [UIImage systemImageNamed:@"plus.circle.fill"];
         cell.accessoryType = UITableViewCellAccessoryNone;
         cell.detailTextLabel.text = nil;
+        [self applySectionCardStyleToCell:cell atIndexPath:indexPath];
         return cell;
     }
     
@@ -398,11 +521,6 @@
     }
     
     RCConfigManager *config = [RCConfigManager sharedManager];
-    
-    cell.backgroundColor = [config tweakColorForKey:@"blockBackground" defaultVal:0.1];
-    UIView *selBg = [[UIView alloc] init];
-    selBg.backgroundColor = [config tweakColorForKey:@"selectionHighlight" defaultVal:0.2];
-    cell.selectedBackgroundView = selBg;
     
     cell.textLabel.text = [config displayNameForTrigger:triggerKey];
     cell.textLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightMedium];
@@ -437,8 +555,14 @@
         cell.detailTextLabel.textColor = [UIColor tertiaryLabelColor];
         cell.detailTextLabel.font = [UIFont systemFontOfSize:13]; // Regular font for placeholder
     }
+    
+    [self applySectionCardStyleToCell:cell atIndexPath:indexPath];
 
     return cell;
+}
+
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    [self applySectionCardStyleToCell:cell atIndexPath:indexPath];
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
