@@ -345,7 +345,7 @@
     BOOL isFirst = (indexPath.row == 0);
     BOOL isLast = (indexPath.row == rowCount - 1);
     
-    CGFloat lineWidth = 1.0 / UIScreen.mainScreen.scale;
+    CGFloat lineWidth = 1.0;
     CGFloat cornerRadius = 12.0;
     CGFloat horizontalInset = 0.0;
     CGRect cardRect = CGRectInset(cell.bounds, horizontalInset, 0.0);
