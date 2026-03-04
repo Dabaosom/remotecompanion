@@ -109,6 +109,7 @@
             @{ @"name": @"Run Shortcut...", @"command": @"__SHORTCUT_PICKER__", @"icon": @"command" },
             @{ @"name": @"Open App...", @"command": @"__OPEN_APP__", @"icon": @"square.grid.2x2.fill" },
             @{ @"name": @"Lock Device", @"command": @"lock", @"icon": @"lock.fill" },
+            @{ @"name": @"Unlock Device", @"command": @"unlock", @"icon": @"lock.open.fill" },
             @{ @"name": @"Do Not Disturb On", @"command": @"dnd on", @"icon": @"moon.fill" },
             @{ @"name": @"Do Not Disturb Off", @"command": @"dnd off", @"icon": @"moon" },
             @{ @"name": @"Do Not Disturb Toggle", @"command": @"dnd toggle", @"icon": @"moon.circle.fill" },

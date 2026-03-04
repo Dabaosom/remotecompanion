@@ -32,7 +32,7 @@ static CGFloat const RCPanelInset = 12.0f;
         UILabel *nameLabel = [[UILabel alloc] initWithFrame:CGRectZero];
         nameLabel.translatesAutoresizingMaskIntoConstraints = NO;
         nameLabel.text = title;
-        nameLabel.textColor = [UIColor colorWithWhite:0.82 alpha:1.0];
+        nameLabel.textColor = [UIColor colorWithRed:0.82 green:0.82 blue:0.82 alpha:1.0];
         nameLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium];
         [self addSubview:nameLabel];
         
@@ -90,10 +90,10 @@ static CGFloat const RCPanelInset = 12.0f;
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.backgroundColor = [UIColor colorWithWhite:0.10 alpha:0.96];
+        self.backgroundColor = [UIColor colorWithRed:0.10 green:0.10 blue:0.10 alpha:0.96];
         self.layer.cornerRadius = 12;
         self.layer.masksToBounds = YES;
-        self.layer.borderColor = [UIColor colorWithWhite:0.30 alpha:1.0].CGColor;
+        self.layer.borderColor = [UIColor colorWithRed:0.30 green:0.30 blue:0.30 alpha:1.0].CGColor;
         self.layer.borderWidth = 1.0;
         
         [self setupHeader];
@@ -112,7 +112,7 @@ static CGFloat const RCPanelInset = 12.0f;
 - (void)setupHeader {
     self.headerView = [[UIView alloc] initWithFrame:CGRectZero];
     self.headerView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.headerView.backgroundColor = [UIColor colorWithWhite:0.2 alpha:1.0];
+    self.headerView.backgroundColor = [UIColor colorWithRed:0.20 green:0.20 blue:0.20 alpha:1.0];
     [self addSubview:self.headerView];
     
     [NSLayoutConstraint activateConstraints:@[

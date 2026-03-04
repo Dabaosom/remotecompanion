@@ -434,7 +434,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 - (UIColor *)tweakColorForKey:(NSString *)key defaultVal:(CGFloat)defaultVal {
     CGFloat val = [self tweakValueForKey:key defaultVal:defaultVal];
     // We are working with monochrome, so we just use the val as white
-    return [UIColor colorWithWhite:val alpha:1.0];
+    return [UIColor colorWithRed:val green:val blue:val alpha:1.0];
 }
 
 
@@ -546,6 +546,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"haptic": @"Haptic Feedback",
         @"screenshot": @"Screenshot",
         @"lock": @"Lock Device",
+        @"unlock": @"Unlock Device",
         @"lock toggle": @"Lock Toggle",
         @"lock status": @"Lock Status",
         @"dnd on": @"Do Not Disturb On",
@@ -709,6 +710,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"haptic": @"hand.tap.fill",
         @"screenshot": @"camera.fill",
         @"lock": @"lock.fill",
+        @"unlock": @"lock.open.fill",
         @"lock toggle": @"lock.circle",
         @"lock status": @"lock.circle",
         @"dnd on": @"moon.fill",

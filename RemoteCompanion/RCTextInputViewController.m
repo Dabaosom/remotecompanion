@@ -29,7 +29,7 @@
     // Create text view
     _textView = [[UITextView alloc] init];
     _textView.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
-    _textView.backgroundColor = [UIColor colorWithWhite:0.08 alpha:1.0]; // Slightly darkened again
+    _textView.backgroundColor = [UIColor colorWithRed:0.08 green:0.08 blue:0.08 alpha:1.0]; // Slightly darkened again
     _textView.textColor = [UIColor whiteColor]; // White text
     _textView.layer.cornerRadius = 10;
     _textView.layer.masksToBounds = YES;
