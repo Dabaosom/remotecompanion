@@ -37,6 +37,7 @@
     if ([triggerKey hasPrefix:@"wifi_"]) return @"wifi";
     if ([triggerKey hasPrefix:@"bt_"]) return @"bolt.horizontal.fill";
     if ([triggerKey hasPrefix:@"app_launch_"]) return @"app.badge";
+    if ([triggerKey isEqualToString:@"shake"]) return @"waveform.path.ecg";
     return @"hand.tap"; // Default
 }
 
@@ -213,6 +214,7 @@
     addSection(@[@"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right"], @"Bottom Bar Gestures", NO);
     addSection(@[@"trigger_home_double_click", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"touchid_tap", @"touchid_hold"], @"Home Button", NO);
     addSection(@[@"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle"], @"Ringer Switch", NO);
+    addSection(@[@"shake"], @"Motion Gestures", NO);
 
     // Dynamic Sections (Hide if empty/favorited)
     addSection([[RCConfigManager sharedManager] nfcTriggerKeys], @"NFC Tags", YES);

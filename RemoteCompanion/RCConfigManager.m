@@ -72,7 +72,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                              @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", 
                              @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down",
                              @"volume_both_press", @"touchid_tap",
-                             @"power_volume_up", @"power_volume_down",
+                             @"power_volume_up", @"power_volume_down", @"shake",
                              @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle"];
         
         BOOL needsSave = NO;
@@ -146,6 +146,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                 @"trigger_ringer_mute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_unmute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"shake": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_bottombar_swipe_left": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_bottombar_swipe_right": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
             } mutableCopy]
@@ -260,6 +261,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 
 - (NSString *)displayNameForTrigger:(NSString *)triggerKey {
     NSDictionary *names = @{
+        @"shake": @"Shake Device",
         @"volume_up_hold": @"Volume Up Hold",
         @"volume_down_hold": @"Volume Down Hold",
         @"volume_both_press": @"Volume Up + Down (Both)",

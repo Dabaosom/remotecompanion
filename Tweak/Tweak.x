@@ -5193,6 +5193,14 @@ static void update_edge_gestures() {
 
 %hook SpringBoard
 
+- (void)motionEnded:(UIEventSubtype)motion withEvent:(UIEvent *)event {
+    if (motion == UIEventSubtypeMotionShake) {
+        SRLog(@"[Trigger] Shake detected");
+        RCExecuteTrigger(@"shake");
+    }
+    %orig;
+}
+
 - (void)frontDisplayDidChange:(id)arg1 {
     %orig;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
