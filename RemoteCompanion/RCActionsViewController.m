@@ -17,6 +17,8 @@
 
 @implementation RCActionsViewController
 
+static id g_actionClipboard = nil;
+
 - (NSString *)displayNameForCommand:(id)cmd {
     return [[RCConfigManager sharedManager] nameForCommand:cmd truncate:YES];
 }
@@ -664,38 +666,71 @@
     
     CGPoint touchPoint = [gesture locationInView:self.tableView];
     NSIndexPath *indexPath = [self.tableView indexPathForRowAtPoint:touchPoint];
-    if (!indexPath) return;
     
-    id item = self.actions[indexPath.row];
-    if (![self isIfActionItem:item]) return;
-    
-    NSInteger elseIndex = [self matchingElseIndexForIfAtIndex:indexPath.row];
-    BOOL hasElse = (elseIndex != NSNotFound);
-    
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"If Action Options" 
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:indexPath ? @"Action Options" : @"Actions"
                                                                    message:nil 
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     
-    if (hasElse) {
-        [alert addAction:[UIAlertAction actionWithTitle:@"Remove Else" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
-            [self.actions removeObjectAtIndex:elseIndex];
-            [self saveActions];
-            [self.tableView reloadData];
+    if (indexPath) {
+        id item = self.actions[indexPath.row];
+        
+        // Copy option
+        [alert addAction:[UIAlertAction actionWithTitle:@"Copy" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            g_actionClipboard = [item copy];
         }]];
-    } else {
-        [alert addAction:[UIAlertAction actionWithTitle:@"Add Else" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-            NSInteger endIndex = [self matchingEndIndexForIfAtIndex:indexPath.row];
-            if (endIndex != NSNotFound) {
-                [self.actions insertObject:@{ @"type": @"else" } atIndex:endIndex];
+        
+        // Paste Above/Below options
+        if (g_actionClipboard) {
+            [alert addAction:[UIAlertAction actionWithTitle:@"Paste Above" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+                [self.actions insertObject:[g_actionClipboard copy] atIndex:indexPath.row];
                 [self saveActions];
                 [self.tableView reloadData];
+            }]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"Paste Below" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+                [self.actions insertObject:[g_actionClipboard copy] atIndex:indexPath.row + 1];
+                [self saveActions];
+                [self.tableView reloadData];
+            }]];
+        }
+
+        // If-specific options
+        if ([self isIfActionItem:item]) {
+            NSInteger elseIndex = [self matchingElseIndexForIfAtIndex:indexPath.row];
+            BOOL hasElse = (elseIndex != NSNotFound);
+            
+            if (hasElse) {
+                [alert addAction:[UIAlertAction actionWithTitle:@"Remove Else" style:UIAlertActionStyleDestructive handler:^(__unused UIAlertAction *action) {
+                    [self.actions removeObjectAtIndex:elseIndex];
+                    [self saveActions];
+                    [self.tableView reloadData];
+                }]];
+            } else {
+                [alert addAction:[UIAlertAction actionWithTitle:@"Add Else" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+                    NSInteger endIndex = [self matchingEndIndexForIfAtIndex:indexPath.row];
+                    if (endIndex != NSNotFound) {
+                        [self.actions insertObject:@{ @"type": @"else" } atIndex:endIndex];
+                        [self saveActions];
+                        [self.tableView reloadData];
+                    }
+                }]];
             }
-        }]];
+            
+            [alert addAction:[UIAlertAction actionWithTitle:@"Edit Condition" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+                [self presentIfConditionPickerForIndex:indexPath.row];
+            }]];
+        }
+    } else {
+        // Long press on empty space
+        if (g_actionClipboard) {
+            [alert addAction:[UIAlertAction actionWithTitle:@"Paste" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+                [self.actions addObject:[g_actionClipboard copy]];
+                [self saveActions];
+                [self.tableView reloadData];
+            }]];
+        } else {
+            return; // Nothing to do on empty space if clipboard is empty
+        }
     }
-    
-    [alert addAction:[UIAlertAction actionWithTitle:@"Edit Condition" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        [self presentIfConditionPickerForIndex:indexPath.row];
-    }]];
     
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self configurePopoverSourceForAlert:alert];
