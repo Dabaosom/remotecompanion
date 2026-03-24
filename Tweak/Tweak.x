@@ -58,6 +58,7 @@ typedef uint32_t IOHIDEventOptionBits;
 typedef uint32_t IOOptionBits;
 
 void SRLog(NSString *format, ...);
+#import <objc/message.h>
 
 static IOHIDEventSystemClientRef (*_IOHIDEventSystemClientCreate)(CFAllocatorRef allocator);
 static IOHIDEventRef (*_IOHIDEventCreateKeyboardEvent)(CFAllocatorRef allocator, uint64_t timestamp, uint32_t usagePage, uint32_t usage, boolean_t down, IOHIDEventOptionBits flags);
@@ -374,6 +375,7 @@ extern void BKSTerminateApplicationForReasonAndReportWithDescription(NSString *b
 - (void)_simulateHomeButtonPress;
 - (void)_menuButtonDown:(id)arg1;
 - (void)_menuButtonUp:(id)arg1;
+- (void)_accessibilityHandleAppSwitcherEvent;
 @end
 
 @interface SBOrientationLockManager : NSObject
@@ -405,6 +407,12 @@ extern void BKSTerminateApplicationForReasonAndReportWithDescription(NSString *b
 @interface SBMainSwitcherViewController : UIViewController
 + (instancetype)sharedInstance;
 - (void)_toggleSwitcher;
+- (void)toggleSwitcherNoninteractively;
+@end
+
+@interface SBMainSwitcherController : NSObject
++ (instancetype)sharedInstance;
+- (void)toggleSwitcherNoninteractively;
 @end
 
 @interface AVSystemController : NSObject
@@ -2244,27 +2252,53 @@ static NSString *handle_command(NSString *cmd) {
         return opened ? @"Control Center opened\n" : @"Failed to open Control Center\n";
     } else if ([cleanCmd isEqualToString:@"switcher"] || [cleanCmd isEqualToString:@"app switcher"]) {
         __block BOOL success = NO;
+        SRLog(@"Attempting to toggle App Switcher...");
         dispatch_sync(dispatch_get_main_queue(), ^{
-            Class switcherClass = objc_getClass("SBMainSwitcherViewController");
-            if (switcherClass) {
+            Class SBClass = objc_getClass("SpringBoard");
+            id sb = [SBClass sharedApplication];
+            
+            // Method 1: SBMainSwitcherViewController (iOS 15/16 discovered methods)
+            Class viewCtrlClass = objc_getClass("SBMainSwitcherViewController");
+            if (viewCtrlClass) {
                 id switcher = nil;
-                if ([switcherClass respondsToSelector:@selector(sharedInstance)]) {
-                    switcher = [switcherClass sharedInstance];
+                if ([viewCtrlClass respondsToSelector:@selector(sharedInstance)]) {
+                    switcher = [viewCtrlClass sharedInstance];
                 }
-                if (switcher && [switcher respondsToSelector:@selector(_toggleSwitcher)]) {
-                    [switcher _toggleSwitcher];
-                    success = YES;
+                if (switcher) {
+                    if ([switcher respondsToSelector:@selector(toggleMainSwitcherNoninteractivelyWithSource:animated:)]) {
+                        SRLog(@"Using Method 1c: toggleMainSwitcherNoninteractivelyWithSource:animated:");
+                        ((void (*)(id, SEL, long long, BOOL))objc_msgSend)(switcher, @selector(toggleMainSwitcherNoninteractivelyWithSource:animated:), 1, YES);
+                        success = YES;
+                    } else if ([switcher respondsToSelector:@selector(activateMainSwitcherNoninteractivelyWithSource:animated:)]) {
+                        SRLog(@"Using Method 1d: activateMainSwitcherNoninteractivelyWithSource:animated:");
+                        ((void (*)(id, SEL, long long, BOOL))objc_msgSend)(switcher, @selector(activateMainSwitcherNoninteractivelyWithSource:animated:), 1, YES);
+                        success = YES;
+                    } else if ([switcher respondsToSelector:@selector(toggleSwitcherNoninteractively)]) {
+                        SRLog(@"Using Method 1a: toggleSwitcherNoninteractively");
+                        [switcher performSelector:@selector(toggleSwitcherNoninteractively)];
+                        success = YES;
+                    }
                 }
             }
             
+            // Method 2: SBUIController handleHomeButtonDoublePressDown
             if (!success) {
                 id uiCtrl = [objc_getClass("SBUIController") sharedInstance];
-                if ([uiCtrl respondsToSelector:@selector(_toggleSwitcher)]) {
-                    [uiCtrl performSelector:@selector(_toggleSwitcher)];
+                if ([uiCtrl respondsToSelector:@selector(handleHomeButtonDoublePressDown)]) {
+                    SRLog(@"Using Method 2: SBUIController handleHomeButtonDoublePressDown");
+                    [uiCtrl performSelector:@selector(handleHomeButtonDoublePressDown)];
                     success = YES;
                 }
             }
+
+            // Method 3: Accessibility
+            if (!success && [sb respondsToSelector:@selector(_accessibilityHandleAppSwitcherEvent)]) {
+                SRLog(@"Using Method 3: _accessibilityHandleAppSwitcherEvent");
+                [sb _accessibilityHandleAppSwitcherEvent];
+                success = YES;
+            }
         });
+        SRLog(@"App Switcher toggle final success: %d", success);
         return success ? @"Switcher toggled\n" : @"Failed to toggle switcher\n";
     } else if ([cleanCmd isEqualToString:@"is-locked"]) {
         // Query lock state
