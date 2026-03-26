@@ -54,6 +54,7 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 - `rc airplane [on|off|toggle]` - Control Airplane Mode.
 - `rc haptic` / `rc screenshot` - Haptic feedback / Screenshot (or activate Snapper 3).
 - `rc control-center` - Opens the system Control Center.
+- `rc switcher` - Opens/toggles the App Switcher.
 - `rc vibration [silent-toggle|ring-toggle]` - System "Vibrate on Silent/Ring" settings.
 
 ### Apps & Shortcuts
