@@ -122,7 +122,7 @@ Combine status queries with actions for smart automation:
 <details>
 <summary><h3>Lua Scripting & Objective-C Bridge</h3></summary>
 
-RemoteCompanion v2.2 introduces a powerful Lua bridge that allows you to execute arbitrary Lua scripts within the tweak's process. exact same context is available whether you run a script file from the CLI or paste code into the "Lua Script" action in the app.
+RemoteCompanion introduces a powerful Lua bridge that allows you to execute arbitrary Lua scripts within the tweak's process. The exact same context is available whether you run a script file from the CLI or paste code into the "Lua Script" action in the app.
 
 ### How to Run
 - **From CLI**: `rc lua /path/to/script.lua`
