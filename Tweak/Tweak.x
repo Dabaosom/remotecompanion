@@ -961,6 +961,16 @@ static void load_trigger_config() {
 
 static void update_simulation_observers();
 
+static float get_flash_brightness() {
+    float val = 1.0f;
+    if (g_triggerConfig && g_triggerConfig[@"flashBrightness"]) {
+        val = [g_triggerConfig[@"flashBrightness"] floatValue];
+    }
+    if (val < 0.01f) val = 0.01f;
+    if (val > 1.0f) val = 1.0f;
+    return val;
+}
+
 // Forward declarations for gesture management functions
 static BOOL should_register_edge_gestures();
 static void register_edge_gestures();
@@ -1828,7 +1838,7 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"prev"]) {
         MRMediaRemoteSendCommand(kMRPreviousTrack, nil);
         return @"Previous track\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight"] || [cleanCmd isEqualToString:@"torch"]) {
+    } else if ([cleanCmd isEqualToString:@"flashlight"] || [cleanCmd isEqualToString:@"torch"] || [cleanCmd isEqualToString:@"flashlight toggle"]) {
         SRLog(@"Toggling flashlight");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
@@ -1836,31 +1846,53 @@ static NSString *handle_command(NSString *cmd) {
             if (device.torchMode == AVCaptureTorchModeOn) {
                 [device setTorchMode:AVCaptureTorchModeOff];
             } else {
-                [device setTorchMode:AVCaptureTorchModeOn];
+                float level = get_flash_brightness();
+                [device setTorchModeOnWithLevel:level error:nil];
             }
             [device unlockForConfiguration];
         }
         return @"Flashlight toggled\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight on"]) {
-        SRLog(@"Flashlight ON");
+    } else if ([cleanCmd hasPrefix:@"flashlight on"] || [cleanCmd hasPrefix:@"flash on"]) {
+        float level = get_flash_brightness();
+        NSArray *parts = [cleanCmd componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (parts.count >= 3) {
+            float customLevel = [parts[2] floatValue];
+            if (customLevel > 0) level = customLevel;
+            if (level > 1.0f) level /= 100.0f; // Handle percentage
+        }
+        
+        SRLog(@"Flashlight ON at level: %f", level);
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
-            [device setTorchMode:AVCaptureTorchModeOn];
+            if (level < 0.01f) level = 0.01f;
+            if (level > 1.0f) level = 1.0f;
+            [device setTorchModeOnWithLevel:level error:nil];
             [device unlockForConfiguration];
         }
-        return @"Flashlight ON\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight off"]) {
-        SRLog(@"Flashlight OFF");
+        return [NSString stringWithFormat:@"Flashlight ON (%.0f%%)\n", level * 100];
+    } else if ([cleanCmd hasPrefix:@"flashlight "] || [cleanCmd hasPrefix:@"flash "]) {
+        // Handle "flashlight 0.5" or "flashlight 50"
+        NSString *valStr = [cleanCmd substringFromIndex:([cleanCmd hasPrefix:@"flashlight "] ? 11 : 6)];
+        float level = [valStr floatValue];
+        if (level > 1.0f) level /= 100.0f;
+        
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
-            [device setTorchMode:AVCaptureTorchModeOff];
+            if (level <= 0) {
+                [device setTorchMode:AVCaptureTorchModeOff];
+                [device unlockForConfiguration];
+                return @"Flashlight OFF\n";
+            }
+            if (level < 0.01f) level = 0.01f;
+            if (level > 1.0f) level = 1.0f;
+            [device setTorchModeOnWithLevel:level error:nil];
             [device unlockForConfiguration];
+            return [NSString stringWithFormat:@"Flashlight set to %.0f%%\n", level * 100];
         }
-        return @"Flashlight OFF\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight toggle"]) {
-        return handle_command(@"flashlight");
+        return @"Error: Flashlight not available\n";
+    } else if ([cleanCmd isEqualToString:@"flashlight off"] || [cleanCmd isEqualToString:@"torch off"]) {
     } else if ([cleanCmd hasPrefix:@"notify "]) {
         // notify "Title" "Body" [--urgent]
         // Parse: notify "Title" "Message" OR notify Title Message
@@ -3285,8 +3317,9 @@ static NSString *handle_command(NSString *cmd) {
                 [device setTorchMode:AVCaptureTorchModeOff];
                 NSLog(@"[RemoteCommand] Flashlight toggled OFF");
             } else {
-                [device setTorchMode:AVCaptureTorchModeOn];
-                NSLog(@"[RemoteCommand] Flashlight toggled ON");
+                float level = get_flash_brightness();
+                [device setTorchModeOnWithLevel:level error:nil];
+                NSLog(@"[RemoteCommand] Flashlight toggled ON at level %f", level);
             }
             [device unlockForConfiguration];
         }
@@ -3294,7 +3327,8 @@ static NSString *handle_command(NSString *cmd) {
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch] && [device isTorchAvailable]) {
             [device lockForConfiguration:nil];
-            [device setTorchMode:AVCaptureTorchModeOn];
+            float level = get_flash_brightness();
+            [device setTorchModeOnWithLevel:level error:nil];
             [device unlockForConfiguration];
         }
     } else if ([cleanCmd isEqualToString:@"flashlight off"]) {

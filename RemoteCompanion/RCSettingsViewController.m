@@ -152,7 +152,7 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 2; // Master + NFC
+    if (section == 0) return 3; // Master + NFC + Flashlight
     return 2; // Export, Import
 }
 
@@ -186,6 +186,17 @@
             _nfcSwitch.on = [RCConfigManager sharedManager].nfcEnabled;
             [_nfcSwitch addTarget:self action:@selector(nfcToggleChanged:) forControlEvents:UIControlEventValueChanged];
             cell.accessoryView = _nfcSwitch;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (indexPath.row == 2) {
+            cell.textLabel.text = @"Flashlight Level";
+            
+            UISlider *slider = [[UISlider alloc] initWithFrame:CGRectMake(0, 0, 120, 30)];
+            slider.minimumValue = 0.01; // Minimum level usually needs to be > 0 for torch
+            slider.maximumValue = 1.0;
+            slider.value = [RCConfigManager sharedManager].flashBrightness;
+            [slider addTarget:self action:@selector(flashlightBrightnessChanged:) forControlEvents:UIControlEventValueChanged];
+            
+            cell.accessoryView = slider;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         }
     } else {
@@ -227,6 +238,10 @@
 
 - (void)nfcToggleChanged:(UISwitch *)sender {
     [RCConfigManager sharedManager].nfcEnabled = sender.on;
+}
+
+- (void)flashlightBrightnessChanged:(UISlider *)sender {
+    [RCConfigManager sharedManager].flashBrightness = sender.value;
 }
 
 - (void)exportConfig {

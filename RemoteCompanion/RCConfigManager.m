@@ -111,6 +111,12 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             _config[@"hapticsEnabled"] = @YES;
             [self saveConfig];
         }
+
+        // Auto-add flashBrightness
+        if (_config[@"flashBrightness"] == nil) {
+            _config[@"flashBrightness"] = @1.0;
+            [self saveConfig];
+        }
     } else {
         // Default config with all triggers
         NSLog(@"[RCConfigManager] Using default config");
@@ -119,6 +125,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             @"tcpEnabled": @YES,
             @"nfcEnabled": @YES,
             @"rootEnabled": @YES,
+            @"flashBrightness": @1.0,
             @"triggers": [@{
                 @"volume_up_hold": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"volume_down_hold": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
@@ -214,7 +221,17 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     [self saveConfig];
 }
 
+- (float)flashBrightness {
+    if (!_config[@"flashBrightness"]) {
+        return 1.0f;
+    }
+    return [_config[@"flashBrightness"] floatValue];
+}
 
+- (void)setFlashBrightness:(float)flashBrightness {
+    _config[@"flashBrightness"] = @(flashBrightness);
+    [self saveConfig];
+}
 
 - (void)updateTrigger:(NSString *)triggerKey withData:(NSDictionary *)data {
     NSMutableDictionary *triggers = _config[@"triggers"];
@@ -635,6 +652,10 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             result = [NSString stringWithFormat:@"Set Volume %@", [cmd substringFromIndex:8]];
         } else if ([cmd hasPrefix:@"brightness "]) {
             result = [NSString stringWithFormat:@"Set Brightness %@", [cmd substringFromIndex:11]];
+        } else if ([cmd hasPrefix:@"flashlight "] && ![[cmd lowercaseString] hasSuffix:@"on"] && ![[cmd lowercaseString] hasSuffix:@"off"] && ![[cmd lowercaseString] hasSuffix:@"toggle"]) {
+            result = [NSString stringWithFormat:@"Flashlight %@%%", [cmd substringFromIndex:11]];
+        } else if ([cmd hasPrefix:@"flash "] && ![[cmd lowercaseString] hasSuffix:@"on"] && ![[cmd lowercaseString] hasSuffix:@"off"] && ![[cmd lowercaseString] hasSuffix:@"toggle"]) {
+            result = [NSString stringWithFormat:@"Flashlight %@%%", [cmd substringFromIndex:6]];
         } else if ([cmd hasPrefix:@"shortcut:"]) {
             result = [NSString stringWithFormat:@"Run %@", [cmd substringFromIndex:9]];
         } else if ([cmd hasPrefix:@"Lua "] || [cmd hasPrefix:@"lua_eval "] || [cmd hasPrefix:@"lua-eval "] || [cmd hasPrefix:@"lua "]) {
@@ -700,6 +721,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     if ([cmd hasPrefix:@"shortcut:"]) return @"command";
     if ([cmd hasPrefix:@"set-vol "]) return @"speaker.wave.3.fill";
     if ([cmd hasPrefix:@"brightness "]) return @"sun.max.fill";
+    if ([cmd hasPrefix:@"flashlight "] || [cmd hasPrefix:@"flash "]) return @"flashlight.on.fill";
     if ([cmd hasPrefix:@"Lua "] || [cmd hasPrefix:@"lua_eval "] || [cmd hasPrefix:@"lua-eval "] || [cmd hasPrefix:@"lua "]) return @"scroll.fill";
     if ([cmd hasPrefix:@"spotify "]) return @"music.note";
     if ([cmd isEqualToString:@"home"]) return @"house.fill";
@@ -772,7 +794,17 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"switcher": @"square.stack.3d.up.fill"
     };
     
-    return icons[cmd] ?: @"circle.fill";
+    NSString *result = icons[cmd];
+    
+    if (!result) {
+        if ([cmd hasPrefix:@"root "]) return @"command.square";
+        if ([cmd hasPrefix:@"delay "]) return @"timer";
+        if ([cmd hasPrefix:@"exec "]) return @"chevron.right.square";
+        if ([cmd hasPrefix:@"flashlight "] || [cmd hasPrefix:@"flash "]) return @"flashlight.on.fill";
+        if ([cmd hasPrefix:@"low power "]) return @"battery.100.bolt";
+    }
+    
+    return result ?: @"circle.fill";
 }
 
 @end
