@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-04-13
+
+### Added
+- **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups, automated system checks, or time-based alerts.
+- **Notification Triggers**: Bind actions to incoming notifications from any app. Filter by bundle ID or specific text within the notification (title/subtitle/message).
+- **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 to set the brightness level of the device torch (e.g., `rc flashlight 50`).
+- **Schedule Configuration UI**: A new, intuitive picker for selecting execution time and repeat days (Daily or specific weekdays).
+
 ## [2.4.0~beta1] - 2026-03-23
 
 ### Added

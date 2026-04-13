@@ -3,14 +3,17 @@
 RemoteCompanion provides fast, scriptable system control for modern rootless jailbreaks. It lets you bind physical gestures and hardware buttons, or send commands remotely from your computer, to trigger system actions, control media playback, and run custom scripts.
 
 > [!IMPORTANT]
-> **What's New in v2.4**
+> **What's New in v3.0**
 > - **Shake Trigger**: New "Motion Gestures" section with "Shake Device" trigger support. Assign any action sequence to fire when the device is physically shaken.
 > - **Action Copy-Paste**: Long-press any action entry to copy it to a global clipboard. Once copied, long-press any row to "Paste Above" or "Paste Below", or long-press empty space to paste at the end of the sequence.
 > - **App Launch Trigger**: Added a new trigger type that fires when a specific application is opened. Features a built-in search-enabled app picker.
 > - **Conditional Actions ("Else" Branch)**: "If" actions now support an optional "Else" branch. Long-press any "If" action in the sequence list to toggle the Else branch on or off.
 > - **Conditional Actions ("Front Application")**: Added a new condition type to check the currently active foreground application. Integrated the native app picker for easy configuration.
 > - **Edit Condition**: Added a native "Edit Condition" option to the long-press menu for "If" actions, allowing you to swap conditions or values without deleting the entire block.
-> - **Trigger Workflow**: Creating a new trigger (App Launch, NFC, etc.) now automatically redirects you to the action sequence configuration immediately for a faster setup process.
+> - **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups or time-based alerts.
+> - **Notification Triggers**: Bind actions to incoming notifications. Filter by app or keyword to build powerful notification-driven automations.
+> - **Flashlight Intensity**: Control the granular brightness of your flashlight via the new `rc flashlight <level>` command.
+> - **Trigger Workflow**: Creating a new trigger (App Launch, Scheduled, NFC, etc.) now automatically redirects you to the action sequence configuration immediately for a faster setup process.
 
 
 <p align="center">
@@ -85,6 +88,10 @@ Configure these in the `RemoteCompanion` app for custom action sequences. Tip: *
   - **Edge Gestures**: Vertical swipe on left/right edges.
 - **Motion Gestures**:
   - **Shake**: Fire actions when the device is physically shaken.
+- **System Events**:
+  - **Scheduled**: Run actions at specific times (e.g., Daily at 4 PM).
+  - **WiFi/Bluetooth**: Trigger actions on network or device connectivity.
+  - **App Launch**: Fire actions when a specific app is opened.
 
 ### Text & Notifications
 - `rc type "Text"` - Type text (supports symbols).

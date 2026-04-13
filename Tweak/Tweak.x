@@ -1368,6 +1368,68 @@ void RCExecuteTrigger(NSString *triggerKey) {
     });
 }
 
+// ============ SCHEDULING SYSTEM ============
+static NSInteger g_lastScheduledCheckMinute = -1;
+
+static void check_scheduled_triggers() {
+    NSDate *now = [NSDate date];
+    NSCalendar *calendar = [NSCalendar currentCalendar];
+    NSDateComponents *components = [calendar components:(NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitWeekday) fromDate:now];
+    
+    NSInteger currentHour = components.hour;
+    NSInteger currentMinute = components.minute;
+    NSInteger currentWeekday = components.weekday;
+    
+    // Prevent double firing within the same minute
+    if (g_lastScheduledCheckMinute == currentMinute) {
+        return;
+    }
+    
+    if (!g_triggerConfig) {
+        load_trigger_config();
+    }
+    
+    if (!g_triggerConfig) return;
+    
+    NSDictionary *triggers = g_triggerConfig[@"triggers"];
+    for (NSString *key in triggers) {
+        if ([key hasPrefix:@"sched_"]) {
+            NSDictionary *trigger = triggers[key];
+            if (![trigger[@"enabled"] boolValue]) continue;
+            
+            NSDictionary *sched = trigger[@"schedule"];
+            if (!sched) continue;
+            
+            NSInteger schedHour = [sched[@"hour"] integerValue];
+            NSInteger schedMinute = [sched[@"minute"] integerValue];
+            NSArray *schedDays = sched[@"days"];
+            
+            if (schedHour == currentHour && schedMinute == currentMinute) {
+                if ([schedDays containsObject:@(currentWeekday)]) {
+                    SRLog(@"[Schedule] FIRE: %@", key);
+                    RCExecuteTrigger(key);
+                }
+            }
+        }
+    }
+    
+    g_lastScheduledCheckMinute = currentMinute;
+}
+
+static void start_schedule_timer() {
+    SRLog(@"[Schedule] Starting background timer...");
+    static dispatch_source_t timer;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+        dispatch_source_set_timer(timer, DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC, 5 * NSEC_PER_SEC);
+        dispatch_source_set_event_handler(timer, ^{
+            check_scheduled_triggers();
+        });
+        dispatch_resume(timer);
+    });
+}
+
 BOOL RCIsNFCEnabled() {
     if (!g_triggerConfig) {
         load_trigger_config();
@@ -5358,6 +5420,7 @@ static void update_edge_gestures() {
             register_simulation_observers();
             register_system_event_observers(); // WiFi/BT Triggers
             start_server();
+            start_schedule_timer();
             
             // Conditionally register edge gestures based on config
             update_edge_gestures();
