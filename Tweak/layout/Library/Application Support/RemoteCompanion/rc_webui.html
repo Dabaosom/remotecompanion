@@ -8,524 +8,589 @@
   <meta name="theme-color" content="#000000">
   <title>RemoteCompanion</title>
 
-  <link rel="stylesheet" href="https://unpkg.com/framework7@8.3.1/framework7-bundle.min.css">
   <link rel="stylesheet" href="https://unpkg.com/framework7-icons@5.0.5/css/framework7-icons.css">
 
   <style>
-    :root {
-      --f7-theme-color: #007aff;
-      --f7-page-bg-color: #000;
-      --f7-list-bg-color: #1c1c1e;
-      --f7-list-border-color: rgba(255,255,255,0.08);
-      --f7-block-title-text-color: #8e8e93;
-      --f7-navbar-bg-color: rgba(0,0,0,0.72);
-      --f7-navbar-link-color: #fff;
-      --f7-list-item-title-text-color: #fff;
-      --f7-list-item-after-text-color: #8e8e93;
-      --f7-list-button-text-color: #007aff;
-      --f7-list-chevron-icon-color: #555;
-      --f7-list-item-footer-text-color: #636366;
-      --f7-toggle-active-color: #34c759;
-    }
-
-    * { box-sizing: border-box; }
-
-    html, body { background: #000; color: #fff; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; background: #000; color: #fff; height: 100%; }
     body {
       font-family: -apple-system, "SF Pro Display", "SF Pro Text", Helvetica, Arial, sans-serif;
       -webkit-font-smoothing: antialiased;
+      overscroll-behavior: none;
     }
 
     /* ── Navbar ── */
-    .navbar {
+    .rc-navbar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      /* Solid below scroll, transparent at top */
+      background: rgba(0,0,0,0.85);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      background: rgba(0,0,0,0.72);
-      border-bottom: 0.5px solid rgba(255,255,255,0.1);
+      border-bottom: 0.5px solid rgba(255,255,255,0.12);
+      /* Safe area */
+      padding-top: env(safe-area-inset-top, 0px);
     }
-    .navbar.navbar-transparent {
-      background: transparent;
+    .rc-navbar-inner {
+      display: flex;
+      align-items: center;
+      height: 44px;
+      padding: 0 8px;
     }
-    .navbar-inner .title { color: #fff; font-weight: 600; }
-    .navbar-inner .link { color: #fff; }
-    .title-large-text { color: #fff !important; }
+    .rc-navbar-left, .rc-navbar-right {
+      display: flex; align-items: center; gap: 2px;
+      min-width: 80px;
+    }
+    .rc-navbar-right { justify-content: flex-end; }
+    .rc-navbar-center {
+      flex: 1; text-align: center;
+      font-size: 17px; font-weight: 600; color: #fff;
+      /* Hidden when large title is fully visible */
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .rc-navbar-center.visible { opacity: 1; }
+    .nav-btn {
+      background: none; border: none; color: #fff;
+      font-size: 17px; font-family: inherit;
+      cursor: pointer; padding: 8px 10px;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+    }
+    .nav-btn i.f7-icons { font-size: 22px; }
+    .nav-btn.text-btn { font-size: 17px; }
 
-    /* ── Inset grouped list ── */
-    .list.inset {
-      margin: 0 16px 0;
-      border-radius: 12px;
-      overflow: hidden;
+    /* ── Page content ── */
+    .page-content {
+      /* Offset for fixed navbar + safe area */
+      padding-top: calc(44px + env(safe-area-inset-top, 0px));
+      padding-bottom: env(safe-area-inset-bottom, 34px);
+      min-height: 100vh;
     }
-    .list.inset ul {
-      background: #1c1c1e;
-      border: 0.5px solid rgba(255,255,255,0.08);
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    .list.inset ul::before, .list.inset ul::after { display: none; }
-    .list.inset li {
-      border-bottom: 0.5px solid rgba(255,255,255,0.08) !important;
-      background: transparent;
-    }
-    .list.inset li:last-child { border-bottom: none !important; }
 
-    /* ── Block title (section headers) ── */
-    .block-title {
-      text-transform: uppercase;
+    /* ── Large title ── */
+    .large-title {
+      font-size: 34px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: #fff;
+      padding: 4px 16px 12px;
+      margin: 0;
+    }
+
+    /* ── Section headers ── */
+    .section-header {
       font-size: 13px;
       font-weight: 500;
       letter-spacing: 0.05em;
+      text-transform: uppercase;
       color: #8e8e93;
-      margin: 28px 0 8px 32px;
-      padding: 0;
+      padding: 0 32px;
+      margin: 24px 0 6px;
     }
-    .block-title.favorites-title { color: #f2c350; font-weight: 600; }
+    .section-header.favorites { color: #f2c350; font-weight: 600; }
 
-    /* ── Row items ── */
-    .item-inner {
-      padding-top: 11px !important;
-      padding-bottom: 11px !important;
-      min-height: 50px;
-    }
-    .item-title { font-weight: 400; font-size: 17px; color: #fff; }
-    .item-after { color: #8e8e93; font-size: 15px; }
-    .item-footer { color: #636366; font-size: 12px; }
-
-    /* Subtitle (actions preview) */
-    .item-subtitle {
-      font-size: 12px;
-      color: #636366;
-      margin-top: 1px;
-      font-family: "SF Mono", Menlo, Monaco, monospace;
-      white-space: nowrap;
+    /* ── Inset list card ── */
+    .list-card {
+      margin: 0 16px 8px;
+      background: #1c1c1e;
+      border-radius: 12px;
       overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 200px;
+      border: 0.5px solid rgba(255,255,255,0.08);
     }
 
-    /* ── Icon badges (iOS-style colored squares) ── */
-    .item-media .rc-icon {
+    /* ── Trigger row ── */
+    .trigger-row {
+      display: flex;
+      align-items: center;
+      min-height: 54px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.08);
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .trigger-row:last-child { border-bottom: none; }
+    .trigger-row:active { background: rgba(255,255,255,0.05); }
+
+    /* Swipe container */
+    .trigger-row-inner {
+      display: flex; align-items: center;
+      flex: 1; min-width: 0;
+      padding: 10px 12px 10px 16px;
+      will-change: transform;
+      transform: translateX(0);
+      transition: transform 0.3s cubic-bezier(0.32,0.72,0,1);
+      background: #1c1c1e;
+      position: relative;
+      z-index: 2;
+    }
+
+    /* Swipe actions revealed behind the row */
+    .trigger-row-actions {
+      position: absolute;
+      right: 0; top: 0; bottom: 0;
+      display: flex;
+      align-items: stretch;
+      z-index: 1;
+    }
+    .swipe-action {
+      display: flex; align-items: center; justify-content: center;
+      width: 0; /* grows as user swipes */
+      min-width: 0;
+      overflow: hidden;
+      font-size: 22px;
+      color: #fff;
+      cursor: pointer;
+      transition: width 0.3s cubic-bezier(0.32,0.72,0,1);
+      flex-shrink: 0;
+    }
+    .swipe-action i { pointer-events: none; }
+    .sa-fav  { background: #f2c350; }
+    .sa-play { background: #34c759; }
+    .sa-del  { background: #ff3b30; }
+
+    /* Row revealed state */
+    .trigger-row.swiped-open .trigger-row-inner {
+      transform: translateX(-180px);
+    }
+    .trigger-row.swiped-open .swipe-action { width: 60px; }
+
+    /* Row icon */
+    .row-icon {
       width: 30px; height: 30px;
       border-radius: 7px;
       display: flex; align-items: center; justify-content: center;
-      margin: 4px 0;
       flex-shrink: 0;
-      overflow: hidden; /* Prevent text spill if font fails */
+      margin-right: 14px;
+      overflow: hidden;
     }
-    .item-media .rc-icon i {
-      font-size: 16px; color: #fff; line-height: 1;
-      display: block; font-display: block;
-    }
-    .icon-bg-blue    { background: linear-gradient(180deg, #5ac8fa 0%, #007aff 100%); }
-    .icon-bg-orange  { background: linear-gradient(180deg, #ffcc00 0%, #ff9500 100%); }
-    .icon-bg-red     { background: linear-gradient(180deg, #ff5e3a 0%, #ff2d55 100%); }
-    .icon-bg-green   { background: linear-gradient(180deg, #2ce672 0%, #34c759 100%); }
-    .icon-bg-purple  { background: linear-gradient(180deg, #d381fc 0%, #af52de 100%); }
-    .icon-bg-gray    { background: linear-gradient(180deg, #c7c7cc 0%, #8e8e93 100%); }
-    .icon-bg-cyan    { background: linear-gradient(180deg, #52edff 0%, #5ac8fa 100%); }
-    .icon-bg-pink    { background: linear-gradient(180deg, #ff4981 0%, #ff2d55 100%); }
-    .icon-bg-indigo  { background: linear-gradient(180deg, #5856d6 0%, #3b39d9 100%); }
-    .icon-bg-yellow  { background: linear-gradient(180deg, #ffe000 0%, #ffcc00 100%); }
-    .icon-bg-teal    { background: linear-gradient(180deg, #59adc4 0%, #007aff 100%); }
-    .icon-bg-darkgray{ background: linear-gradient(180deg, #636366 0%, #3a3a3c 100%); }
+    .row-icon i { font-size: 16px; color: #fff; }
 
-    /* ── Enable badge ── */
-    .rc-badge {
+    /* Row text */
+    .row-text { flex: 1; min-width: 0; }
+    .row-title {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 17px; font-weight: 400; color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .row-subtitle {
+      font-size: 12px; color: #636366;
+      font-family: "SF Mono", Menlo, monospace;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 280px;
+      margin-top: 1px;
+    }
+
+    /* ON/OFF badge */
+    .badge {
       font-size: 10px; font-weight: 700;
       border-radius: 5px; padding: 2px 6px;
       text-transform: uppercase; letter-spacing: 0.04em;
+      flex-shrink: 0;
     }
     .badge-on  { background: #34c759; color: #fff; }
     .badge-off { background: #3a3a3c; color: #636366; }
 
-    /* ── Swipe actions ── */
-    .swipeout-actions-right a {
-      padding: 0 18px;
-      display: flex; align-items: center; justify-content: center;
-    }
+    /* Chevron */
+    .row-chevron { color: #3a3a3c; font-size: 14px; margin-left: 8px; flex-shrink: 0; }
 
-    /* ── Disclosure chevron workaround for dark mode ── */
-    .item-link .item-after i { color: #555; font-size: 14px; }
-
-    /* ── Action editor panel ── */
-    .editor-panel { background: #000; }
-    .editor-panel .navbar { border-bottom: 0.5px solid rgba(255,255,255,0.12); }
-
-    /* Action rows indentation */
-    .action-indent-1 { padding-left: 20px !important; }
-    .action-indent-2 { padding-left: 40px !important; }
-    .action-indent-3 { padding-left: 60px !important; }
-    .action-control-row .item-title { color: #af52de; font-weight: 500; }
-
-    /* ── Action picker ── */
-    .picker-panel { background: #000; }
-    .picker-panel .list.inset ul { background: #1c1c1e; }
-    .search-result-row .item-title { color: #fff; }
-
-    /* ── Settings panel ── */
-    .settings-panel { background: #000; }
-    .settings-panel .list.inset ul { background: #1c1c1e; }
-
-    /* ── Page footer ── */
-    .page-footer {
-      text-align: center;
-      color: #636366;
-      font-size: 13px;
-      padding: 40px 0 60px;
-    }
-    .page-footer strong { display: block; font-size: 15px; font-weight: 600; color: #8e8e93; margin-bottom: 2px; }
-
-    /* ── Empty state ── */
-    .empty-state { color: #636366; font-style: italic; font-size: 15px; }
+    /* ── Icon gradients ── */
+    .icon-blue   { background: linear-gradient(180deg, #5ac8fa 0%, #007aff 100%); }
+    .icon-orange { background: linear-gradient(180deg, #ffcc00 0%, #ff9500 100%); }
+    .icon-red    { background: linear-gradient(180deg, #ff5e3a 0%, #ff2d55 100%); }
+    .icon-green  { background: linear-gradient(180deg, #2ce672 0%, #34c759 100%); }
+    .icon-purple { background: linear-gradient(180deg, #d381fc 0%, #af52de 100%); }
+    .icon-gray   { background: linear-gradient(180deg, #c7c7cc 0%, #8e8e93 100%); }
+    .icon-cyan   { background: linear-gradient(180deg, #52edff 0%, #5ac8fa 100%); }
+    .icon-pink   { background: linear-gradient(180deg, #ff4981 0%, #ff2d55 100%); }
+    .icon-indigo { background: linear-gradient(180deg, #5856d6 0%, #3b39d9 100%); }
+    .icon-yellow { background: linear-gradient(180deg, #ffe000 0%, #ffcc00 100%); }
+    .icon-teal   { background: linear-gradient(180deg, #59adc4 0%, #007aff 100%); }
+    .icon-dark   { background: linear-gradient(180deg, #636366 0%, #3a3a3c 100%); }
 
     /* ── Connection banner ── */
     #conn-banner {
-      background: #3a3a3c;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 500;
-      text-align: center;
-      padding: 8px;
+      background: #3a3a3c; color: #fff;
+      font-size: 13px; font-weight: 500;
+      text-align: center; padding: 8px;
       display: none;
-      position: sticky;
-      top: 0;
-      z-index: 999;
     }
     #conn-banner.visible { display: block; }
 
-    /* ── Prompt sheet simulation ── */
-    .rc-sheet-backdrop {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9000; display: none;
+    /* ── Page footer ── */
+    .page-footer {
+      text-align: center; color: #636366;
+      font-size: 13px; padding: 32px 0 60px;
     }
-    .rc-sheet {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: #1c1c1e;
-      border-radius: 16px 16px 0 0;
-      padding: 20px 0 env(safe-area-inset-bottom, 20px);
-      z-index: 9001;
-      transform: translateY(100%);
-      transition: transform 0.3s cubic-bezier(0.32,0.72,0,1);
-    }
-    .rc-sheet.open { transform: translateY(0); }
-    .rc-sheet-title {
-      font-size: 13px; font-weight: 600; color: #8e8e93;
-      text-transform: uppercase; letter-spacing: 0.04em;
-      text-align: center; padding: 0 20px 12px;
-    }
-    .rc-sheet-btn {
-      display: block; width: 100%; text-align: center;
-      padding: 18px 24px; font-size: 20px;
-      color: #007aff; background: transparent;
-      border: none; border-top: 0.5px solid rgba(255,255,255,0.08);
-      cursor: pointer; font-family: inherit;
-    }
-    .rc-sheet-btn:first-of-type { border-top: none; }
-    .rc-sheet-btn.destructive { color: #ff3b30; }
-    .rc-sheet-btn.cancel { color: #007aff; font-weight: 600; text-align: center; background: #2c2c2e; border-radius: 12px; margin: 8px 16px 16px; width: calc(100% - 32px); border-top: none; padding: 15px; }
-    .rc-sheet-btn .btn-icon { margin-right: 14px; font-size: 17px; vertical-align: -3px; }
+    .page-footer strong { display: block; font-size: 15px; font-weight: 600; color: #8e8e93; margin-bottom: 2px; }
 
-    /* ── Overlay panels (full-screen push) ── */
+    /* ── Full-screen panels (push navigation) ── */
     .rc-panel {
-      position: fixed; inset: 0; background: #000;
-      z-index: 8000;
+      position: fixed; inset: 0; z-index: 500;
+      background: #000;
       transform: translateX(100%);
       transition: transform 0.35s cubic-bezier(0.32,0.72,0,1);
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
     }
     .rc-panel.active { transform: translateX(0); }
-    .rc-panel-navbar {
+
+    /* Panel navbar */
+    .panel-navbar {
       position: sticky; top: 0; z-index: 10;
-      display: flex; align-items: center;
-      padding: env(safe-area-inset-top, 44px) 16px 0;
-      min-height: calc(44px + env(safe-area-inset-top, 0px));
+      background: rgba(0,0,0,0.85);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      background: rgba(0,0,0,0.72);
       border-bottom: 0.5px solid rgba(255,255,255,0.1);
+      padding-top: env(safe-area-inset-top, 0px);
+      display: flex; align-items: center;
+      min-height: calc(44px + env(safe-area-inset-top, 0px));
+      padding-left: 8px; padding-right: 8px;
     }
-    .rc-panel-navbar .nav-back {
-      color: #007aff; font-size: 17px;
-      background: none; border: none; cursor: pointer;
-      padding: 0 8px 0 0; font-family: inherit;
-      display: flex; align-items: center; gap: 4px;
-      flex-shrink: 0;
+    .panel-back {
+      background: none; border: none; color: #007aff;
+      font-size: 17px; font-family: inherit; cursor: pointer;
+      display: flex; align-items: center; gap: 2px;
+      padding: 8px; flex-shrink: 0; white-space: nowrap;
     }
-    .rc-panel-navbar .nav-title {
-      flex: 1; text-align: center; font-size: 17px; font-weight: 600; color: #fff;
+    .panel-back i { font-size: 20px; }
+    .panel-title {
+      flex: 1; text-align: center;
+      font-size: 17px; font-weight: 600; color: #fff;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .rc-panel-navbar .nav-action {
-      color: #fff; font-size: 17px;
-      background: none; border: none; cursor: pointer;
-      font-family: inherit; flex-shrink: 0; padding: 0 0 0 8px;
+    .panel-action {
+      background: none; border: none; color: #007aff;
+      font-size: 17px; font-family: inherit; cursor: pointer;
+      padding: 8px; flex-shrink: 0;
     }
-    .rc-panel-content { padding-bottom: 80px; }
+    .panel-action.white { color: #fff; }
 
-    /* Large title in actions panel */
     .panel-large-title {
       font-size: 34px; font-weight: 700; color: #fff;
+      letter-spacing: -0.02em;
       padding: 8px 20px 0; margin: 0;
     }
+    .panel-content { padding-bottom: 80px; }
 
-    /* Search bar in picker */
-    .rc-search-wrap {
-      padding: 8px 16px 4px;
+    /* ── Settings panel action lists ── */
+    .action-list-header {
+      font-size: 13px; font-weight: 500; letter-spacing: 0.05em;
+      text-transform: uppercase; color: #8e8e93;
+      padding: 0 32px; margin: 24px 0 6px;
+    }
+    .action-list-card {
+      margin: 0 16px 8px;
+      background: #1c1c1e; border-radius: 12px;
+      overflow: hidden; border: 0.5px solid rgba(255,255,255,0.08);
+    }
+    .action-list-row {
+      display: flex; align-items: center;
+      min-height: 50px;
+      padding: 10px 16px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.08);
+      cursor: pointer;
+    }
+    .action-list-row:last-child { border-bottom: none; }
+    .action-list-row:active { background: rgba(255,255,255,0.05); }
+    .action-row-icon {
+      width: 24px; height: 24px; border-radius: 6px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-right: 14px; overflow: hidden;
+    }
+    .action-row-icon i { font-size: 14px; color: #fff; }
+    .action-row-text {
+      flex: 1; font-size: 16px; font-weight: 400; color: #fff;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .action-row-handle { color: #3a3a3c; font-size: 18px; flex-shrink: 0; margin-left: 8px; }
+    .action-row-chevron { color: #3a3a3c; font-size: 14px; flex-shrink: 0; margin-left: 8px; }
+
+    /* Enabled toggle row */
+    .toggle-row {
+      display: flex; align-items: center;
+      padding: 12px 16px; min-height: 50px;
+    }
+    .toggle-label { flex: 1; font-size: 17px; color: #fff; }
+    .ios-toggle {
+      width: 51px; height: 31px; position: relative;
+      appearance: none; -webkit-appearance: none;
+      background: #3a3a3c; border-radius: 16px;
+      cursor: pointer; transition: background 0.2s;
+      flex-shrink: 0;
+    }
+    .ios-toggle:checked { background: #34c759; }
+    .ios-toggle::after {
+      content: ''; position: absolute;
+      width: 27px; height: 27px; border-radius: 50%;
+      background: #fff; top: 2px; left: 2px;
+      transition: left 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    }
+    .ios-toggle:checked::after { left: 22px; }
+
+    /* Add action button */
+    .add-action-btn {
+      display: block; width: calc(100% - 32px); margin: 12px 16px 0;
+      background: #1c1c1e; border-radius: 12px; border: none;
+      color: #007aff; font-size: 17px; font-family: inherit;
+      padding: 14px; text-align: center; cursor: pointer;
+    }
+    .add-action-btn:active { opacity: 0.7; }
+
+    /* ── Search bar ── */
+    .search-wrap {
+      padding: 8px 16px;
       position: sticky; top: calc(44px + env(safe-area-inset-top, 0px)); z-index: 9;
       background: #000;
     }
-    .rc-search {
+    .search-input {
       width: 100%; background: #1c1c1e; border: none;
       color: #fff; font-size: 16px; font-family: inherit;
       border-radius: 10px; padding: 9px 14px;
       outline: none;
     }
-    .rc-search::placeholder { color: #636366; }
+    .search-input::placeholder { color: #636366; }
 
-    /* ── Sortable drag handle ── */
-    .drag-handle {
-      padding: 0 8px; color: #636366; cursor: grab; font-size: 18px;
+    /* ── Picker action rows ── */
+    .picker-section-header {
+      font-size: 13px; font-weight: 500; letter-spacing: 0.05em;
+      text-transform: uppercase; color: #8e8e93;
+      padding: 0 32px; margin: 24px 0 6px;
+    }
+    .picker-row {
       display: flex; align-items: center;
+      min-height: 50px;
+      padding: 10px 16px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.08);
+      cursor: pointer;
+    }
+    .picker-row:last-child { border-bottom: none; }
+    .picker-row:active { background: rgba(255,255,255,0.05); }
+    .picker-row-icon {
+      width: 30px; height: 30px; border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-right: 14px; overflow: hidden;
+    }
+    .picker-row-icon i { font-size: 16px; color: #fff; }
+    .picker-row-text { flex: 1; font-size: 17px; color: #fff; }
+    .picker-row-chevron { color: #3a3a3c; font-size: 14px; }
+
+    /* ── Bottom sheet ── */
+    .sheet-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      z-index: 800; display: none;
+    }
+    .sheet-backdrop.visible { display: block; }
+    .sheet {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 801;
+      padding-bottom: env(safe-area-inset-bottom, 20px);
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.32,0.72,0,1);
+    }
+    .sheet.open { transform: translateY(0); }
+    .sheet-main { background: #1c1c1e; border-radius: 16px 16px 0 0; overflow: hidden; }
+    .sheet-title {
+      font-size: 13px; color: #8e8e93; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      text-align: center; padding: 16px 20px 10px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.08);
+    }
+    .sheet-btn {
+      display: block; width: 100%;
+      background: none; border: none; border-top: 0.5px solid rgba(255,255,255,0.08);
+      color: #007aff; font-size: 20px; font-family: inherit;
+      padding: 18px 20px; text-align: center; cursor: pointer;
+    }
+    .sheet-btn:first-of-type { border-top: none; }
+    .sheet-btn.destructive { color: #ff3b30; }
+    .sheet-cancel {
+      margin: 8px 16px 12px;
+      background: #2c2c2e; border-radius: 12px; border: none;
+      color: #007aff; font-size: 17px; font-weight: 600;
+      font-family: inherit; padding: 15px; width: calc(100% - 32px);
+      text-align: center; cursor: pointer;
     }
 
-    /* ── Toggle switch ── */
-    .toggle { cursor: pointer; }
-
-    /* ── Value slider dialog ── */
-    .rc-dialog-backdrop {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 9500; display: none;
+    /* ── Dialog ── */
+    .dialog-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      z-index: 900; display: none;
       align-items: center; justify-content: center;
     }
-    .rc-dialog-backdrop.visible { display: flex; }
-    .rc-dialog {
+    .dialog-backdrop.visible { display: flex; }
+    .dialog-box {
       background: #1c1c1e; border-radius: 14px;
       width: calc(100% - 48px); max-width: 360px;
-      padding: 0; overflow: hidden;
+      overflow: hidden;
     }
-    .rc-dialog-title { font-size: 17px; font-weight: 600; color: #fff; text-align: center; padding: 20px 20px 6px; }
-    .rc-dialog-msg { font-size: 13px; color: #8e8e93; text-align: center; padding: 0 20px 16px; }
-    .rc-dialog input[type=text], .rc-dialog input[type=number] {
-      width: calc(100% - 32px); margin: 0 16px 16px;
+    .dialog-title { font-size: 17px; font-weight: 600; color: #fff; text-align: center; padding: 20px 20px 4px; }
+    .dialog-msg { font-size: 13px; color: #8e8e93; text-align: center; padding: 0 20px 12px; }
+    .dialog-input {
+      width: calc(100% - 24px); margin: 0 12px 12px;
       background: #2c2c2e; border: none; color: #fff;
       font-size: 17px; font-family: inherit;
       border-radius: 10px; padding: 10px 12px; outline: none;
+      display: block;
     }
-    .rc-dialog-btns {
+    .dialog-btns {
       display: flex; border-top: 0.5px solid rgba(255,255,255,0.1);
     }
-    .rc-dialog-btns button {
+    .dialog-btns button {
       flex: 1; background: none; border: none; color: #007aff;
-      font-size: 17px; font-family: inherit; padding: 14px;
-      cursor: pointer;
+      font-size: 17px; font-family: inherit; padding: 14px; cursor: pointer;
     }
-    .rc-dialog-btns button:first-child { border-right: 0.5px solid rgba(255,255,255,0.1); color: #8e8e93; }
-    .rc-dialog-btns button.destructive { color: #ff3b30; }
+    .dialog-btns button:first-child { border-right: 0.5px solid rgba(255,255,255,0.1); color: #8e8e93; }
 
-    /* Misc */
+    /* ── Toast ── */
+    .toast {
+      position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+      background: rgba(58,58,60,0.98); color: #fff;
+      border-radius: 20px; padding: 10px 20px;
+      font-size: 15px; font-weight: 500;
+      z-index: 1000; pointer-events: none;
+      opacity: 0; transition: opacity 0.2s;
+      white-space: nowrap;
+    }
+    .toast.show { opacity: 1; }
+
+    /* Settings toggles */
+    .settings-row {
+      display: flex; align-items: center;
+      padding: 12px 16px; min-height: 50px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.08);
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-label { flex: 1; font-size: 17px; color: #fff; }
+    .settings-btn { display: flex; align-items: center; }
     a { color: inherit; text-decoration: none; }
-    .bg-star { background: #f2c350 !important; }
-    .bg-play { background: #34c759 !important; }
-    .bg-delete { background: #ff3b30 !important; }
-    .swipeout-actions-right a i { font-size: 18px; }
-
-    .page-content { padding-top: calc(var(--f7-navbar-height) + var(--f7-navbar-large-title-height, 0px)) !important; }
-    .title-large-text { font-size: 34px !important; line-height: 41px !important; font-weight: 700 !important; letter-spacing: -0.02em !important; }
   </style>
 </head>
 <body>
-<div id="app">
-  <div class="view view-main safe-areas">
-    <div class="page" data-name="home">
-      <!-- Main navbar with large title -->
-      <div class="navbar navbar-large">
-        <div class="navbar-bg"></div>
-        <div class="navbar-inner">
-          <div class="left">
-            <a href="#" class="link icon-only" onclick="openSettings()">
-              <i class="icon f7-icons">gear</i>
-            </a>
-            <a href="#" class="link icon-only" onclick="showAddTriggerSheet()">
-              <i class="icon f7-icons">plus</i>
-            </a>
-          </div>
-          <div class="title">RemoteCompanion</div>
-          <div class="right">
-            <a href="#" class="link" onclick="toggleEditMode()">Edit</a>
-          </div>
-          <div class="title-large">
-            <div class="title-large-text">RemoteCompanion</div>
-          </div>
-        </div>
-      </div>
 
-      <div class="page-content">
-        <div id="conn-banner">⚠ Unable to connect to device</div>
-
-        <!-- Trigger sections rendered here -->
-        <div id="triggers-root"></div>
-
-        <!-- Footer -->
-        <div class="page-footer">
-          <strong>RemoteCompanion</strong>
-          v3.0.0 · by Pizzaman
-        </div>
-      </div>
+<!-- ══ MAIN NAVBAR ══════════════════════════════════════════════════════════ -->
+<div class="rc-navbar" id="main-navbar">
+  <div class="rc-navbar-inner">
+    <div class="rc-navbar-left">
+      <button class="nav-btn" onclick="openSettings()" title="Settings">
+        <i class="f7-icons">gear</i>
+      </button>
+      <button class="nav-btn" onclick="showAddTriggerSheet()" title="Add Trigger">
+        <i class="f7-icons">plus</i>
+      </button>
+    </div>
+    <div class="rc-navbar-center" id="navbar-small-title">RemoteCompanion</div>
+    <div class="rc-navbar-right">
+      <button class="nav-btn text-btn" id="edit-btn" onclick="toggleEditMode()">Edit</button>
     </div>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-  ACTIONS PANEL (push-style, mirroring RCActionsViewController)
-════════════════════════════════════════════════════════ -->
+<!-- ══ MAIN PAGE ══════════════════════════════════════════════════════════ -->
+<div class="page-content">
+  <div id="conn-banner">⚠ Unable to connect to device</div>
+  <h1 class="large-title" id="main-large-title">RemoteCompanion</h1>
+  <div id="triggers-root"></div>
+  <div class="page-footer">
+    <strong>RemoteCompanion</strong>
+    v3.0.0 · by Pizzaman
+  </div>
+</div>
+
+<!-- ══ ACTIONS PANEL ══════════════════════════════════════════════════════ -->
 <div class="rc-panel" id="actions-panel">
-  <div class="rc-panel-navbar">
-    <button class="nav-back" onclick="closeActionsPanel()">
-      <i class="f7-icons" style="font-size:20px">chevron_left</i> Triggers
+  <div class="panel-navbar">
+    <button class="panel-back" onclick="closeActionsPanel()">
+      <i class="f7-icons">chevron_left</i> Triggers
     </button>
-    <div class="nav-title" id="actions-panel-title"></div>
-    <button class="nav-action" id="actions-play-btn" onclick="playCurrentTrigger()" title="Run trigger">
+    <div class="panel-title" id="actions-panel-title"></div>
+    <button class="panel-action white" onclick="playCurrentTrigger()" title="Run">
       <i class="f7-icons">play_fill</i>
     </button>
   </div>
-  <div class="rc-panel-content">
-    <!-- Large title -->
+  <div class="panel-content">
     <h1 class="panel-large-title" id="actions-large-title"></h1>
 
-    <!-- Trigger config: Enable toggle -->
-    <div class="block-title" style="margin-top:28px">Trigger Configuration</div>
-    <div class="list inset" style="margin-bottom:0">
-      <ul>
-        <li class="item-content">
-          <div class="item-inner">
-            <div class="item-title">Enabled</div>
-            <div class="item-after">
-              <label class="toggle toggle-init">
-                <input type="checkbox" id="trigger-enabled-toggle" onchange="onTriggerEnabledChange()">
-                <span class="toggle-icon"></span>
-              </label>
-            </div>
-          </div>
-        </li>
-      </ul>
+    <div class="action-list-header" style="margin-top:28px">Trigger Configuration</div>
+    <div class="action-list-card">
+      <div class="toggle-row">
+        <span class="toggle-label">Enabled</span>
+        <input type="checkbox" class="ios-toggle" id="trigger-enabled-toggle" onchange="onTriggerEnabledChange()">
+      </div>
     </div>
 
-    <!-- Action sequence -->
-    <div class="block-title">Action Sequence</div>
-    <div class="list inset" style="margin-bottom:0" id="action-list-wrap">
-      <ul id="action-list"></ul>
+    <div class="action-list-header">Action Sequence</div>
+    <div class="action-list-card" id="action-list-card">
+      <!-- Rendered by renderActionList() -->
     </div>
 
-    <!-- Add action button -->
-    <div class="list inset" style="margin-top:12px">
-      <ul>
-        <li>
-          <a class="item-link list-button" onclick="showActionPickerPanel()">Add Action</a>
-        </li>
-      </ul>
-    </div>
-    <div style="padding: 6px 20px 0; color:#636366; font-size:12px">
-      Hold a row to copy · Swipe left to delete · Drag to reorder
+    <button class="add-action-btn" onclick="showActionPickerPanel()">+ Add Action</button>
+    <div style="padding:8px 32px 0;color:#636366;font-size:12px">
+      Swipe left on an action to delete it
     </div>
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-  ACTION PICKER PANEL (mirroring RCActionPickerViewController)
-════════════════════════════════════════════════════════ -->
+<!-- ══ ACTION PICKER PANEL ════════════════════════════════════════════════ -->
 <div class="rc-panel" id="picker-panel">
-  <div class="rc-panel-navbar">
-    <button class="nav-back" onclick="closePickerPanel()">
-      <i class="f7-icons" style="font-size:20px">xmark</i> Cancel
+  <div class="panel-navbar">
+    <button class="panel-back" onclick="closePickerPanel()">
+      <i class="f7-icons">xmark</i> Cancel
     </button>
-    <div class="nav-title">Select Action</div>
-    <div style="width:60px"></div>
+    <div class="panel-title">Select Action</div>
+    <div style="width:80px"></div>
   </div>
-  <div class="rc-search-wrap">
-    <input class="rc-search" type="search" placeholder="Search Actions" id="action-search" oninput="filterActions()">
+  <div class="search-wrap">
+    <input class="search-input" type="search" placeholder="Search Actions" id="action-search" oninput="renderPickerSections()">
   </div>
-  <div class="rc-panel-content" id="picker-content">
-    <!-- rendered by renderPickerSections() -->
-  </div>
+  <div id="picker-content"></div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-  SETTINGS PANEL (mirroring RCSettingsViewController)
-════════════════════════════════════════════════════════ -->
+<!-- ══ SETTINGS PANEL ════════════════════════════════════════════════════ -->
 <div class="rc-panel" id="settings-panel">
-  <div class="rc-panel-navbar">
-    <div style="width:60px"></div>
-    <div class="nav-title">Settings</div>
-    <button class="nav-action" onclick="closeSettings()">Done</button>
+  <div class="panel-navbar">
+    <div style="width:80px"></div>
+    <div class="panel-title">Settings</div>
+    <button class="panel-action" onclick="closeSettings()" style="color:#007aff">Done</button>
   </div>
-  <div class="rc-panel-content">
-    <!-- General -->
-    <div class="block-title" style="margin-top:28px">General</div>
-    <div class="list inset">
-      <ul>
-        <li class="item-content">
-          <div class="item-inner">
-            <div class="item-title">Enable All Triggers</div>
-            <div class="item-after">
-              <label class="toggle toggle-init">
-                <input type="checkbox" id="setting-master" onchange="onSettingChange('masterEnabled', this.checked)">
-                <span class="toggle-icon"></span>
-              </label>
-            </div>
-          </div>
-        </li>
-        <li class="item-content">
-          <div class="item-inner">
-            <div class="item-title">NFC Scanning</div>
-            <div class="item-after">
-              <label class="toggle toggle-init">
-                <input type="checkbox" id="setting-nfc" onchange="onSettingChange('nfcEnabled', this.checked)">
-                <span class="toggle-icon"></span>
-              </label>
-            </div>
-          </div>
-        </li>
-        <li class="item-content">
-          <div class="item-inner">
-            <div class="item-title">Web UI (Port 8080)</div>
-            <div class="item-after">
-              <label class="toggle toggle-init">
-                <input type="checkbox" id="setting-webui" onchange="onSettingChange('webUIEnabled', this.checked)">
-                <span class="toggle-icon"></span>
-              </label>
-            </div>
-          </div>
-        </li>
-      </ul>
+  <div class="panel-content">
+    <div class="action-list-header" style="margin-top:28px">General</div>
+    <div class="action-list-card">
+      <div class="settings-row">
+        <span class="settings-label">Enable All Triggers</span>
+        <div class="settings-btn">
+          <input type="checkbox" class="ios-toggle" id="setting-master" onchange="config.masterEnabled=this.checked;saveConfig()">
+        </div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">NFC Scanning</span>
+        <div class="settings-btn">
+          <input type="checkbox" class="ios-toggle" id="setting-nfc" onchange="config.nfcEnabled=this.checked;saveConfig()">
+        </div>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Web UI (Port 8080)</span>
+        <div class="settings-btn">
+          <input type="checkbox" class="ios-toggle" id="setting-webui" onchange="config.webUIEnabled=this.checked;saveConfig()">
+        </div>
+      </div>
     </div>
 
-    <!-- Backup -->
-    <div class="block-title">Backup</div>
-    <div class="list inset">
-      <ul>
-        <li>
-          <a class="item-link item-content" onclick="exportConfig()">
-            <div class="item-media"><div class="rc-icon icon-bg-blue"><i class="f7-icons">square_arrow_up</i></div></div>
-            <div class="item-inner">
-              <div class="item-title">Export Configuration</div>
-            </div>
-          </a>
-        </li>
-        <li>
-          <a class="item-link item-content" onclick="importConfig()">
-            <div class="item-media"><div class="rc-icon icon-bg-green"><i class="f7-icons">square_arrow_down</i></div></div>
-            <div class="item-inner">
-              <div class="item-title">Import Configuration</div>
-            </div>
-          </a>
-        </li>
-      </ul>
+    <div class="action-list-header">Backup</div>
+    <div class="action-list-card">
+      <div class="action-list-row" onclick="exportConfig()">
+        <div class="action-row-icon icon-blue"><i class="f7-icons">square_arrow_up</i></div>
+        <div class="action-row-text">Export Configuration</div>
+      </div>
+      <div class="action-list-row" onclick="importConfig()">
+        <div class="action-row-icon icon-green"><i class="f7-icons">square_arrow_down</i></div>
+        <div class="action-row-text">Import Configuration</div>
+      </div>
     </div>
-    <div style="padding:6px 32px 0;color:#636366;font-size:12px">
-      Export your configuration to share or back up. Import to restore.
-    </div>
+    <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="handleImportFile(this)">
 
-    <!-- Footer -->
     <div class="page-footer" style="padding-top:32px">
       <strong>RemoteCompanion</strong>
       v3.0.0 · by Pizzaman
@@ -533,93 +598,79 @@
   </div>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-  BOTTOM SHEET (action sheet replacement)
-════════════════════════════════════════════════════════ -->
-<div class="rc-sheet-backdrop" id="sheet-backdrop" onclick="closeSheet()"></div>
-<div class="rc-sheet" id="sheet">
-  <div class="rc-sheet-title" id="sheet-title"></div>
-  <div id="sheet-buttons"></div>
-  <button class="rc-sheet-btn cancel" onclick="closeSheet()">Cancel</button>
+<!-- ══ BOTTOM SHEET ══════════════════════════════════════════════════════ -->
+<div class="sheet-backdrop" id="sheet-backdrop" onclick="closeSheet()"></div>
+<div class="sheet" id="sheet">
+  <div class="sheet-main">
+    <div class="sheet-title" id="sheet-title"></div>
+    <div id="sheet-buttons"></div>
+  </div>
+  <button class="sheet-cancel" onclick="closeSheet()">Cancel</button>
 </div>
 
-<!-- ══════════════════════════════════════════════════════
-  DIALOG (prompt replacement)
-════════════════════════════════════════════════════════ -->
-<div class="rc-dialog-backdrop" id="dialog-backdrop">
-  <div class="rc-dialog" id="dialog">
-    <div class="rc-dialog-title" id="dialog-title"></div>
-    <div class="rc-dialog-msg" id="dialog-msg"></div>
-    <input id="dialog-input" type="text" autocorrect="off" autocapitalize="off" spellcheck="false">
-    <div class="rc-dialog-btns">
-      <button id="dialog-cancel" onclick="closeDialog()">Cancel</button>
+<!-- ══ DIALOG ══════════════════════════════════════════════════════════════ -->
+<div class="dialog-backdrop" id="dialog-backdrop">
+  <div class="dialog-box">
+    <div class="dialog-title" id="dialog-title"></div>
+    <div class="dialog-msg" id="dialog-msg"></div>
+    <input class="dialog-input" id="dialog-input" type="text" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <div class="dialog-btns">
+      <button onclick="closeDialog()">Cancel</button>
       <button id="dialog-ok" onclick="dialogOk()">OK</button>
     </div>
   </div>
 </div>
-<input type="file" id="import-file-input" accept=".json" style="display:none" onchange="handleImportFile(this)">
 
-<!-- ══════════════════════════════════════════════════════  SCRIPTS  ════════ -->
-<script src="https://unpkg.com/framework7@8.3.1/framework7-bundle.min.js"></script>
+<!-- ══ TOAST ══════════════════════════════════════════════════════════════ -->
+<div class="toast" id="toast"></div>
+
 <script>
 'use strict';
 
-// ── Framework7 init (for toggles) ──────────────────────────────────────────
-const app = new Framework7({ el: '#app', name: 'RemoteCompanion', theme: 'ios',
-  on: { init() { loadData(); } }
-});
-
-// ── State ───────────────────────────────────────────────────────────────────
-let config = {
-  masterEnabled: true, nfcEnabled: true, webUIEnabled: false,
-  triggers: {}, favoriteTriggers: []
-};
-let currentKey = null; // trigger being edited
-let dialogCallback = null; // pending dialog resolve
+// ── State ────────────────────────────────────────────────────────────────────
+let config = { masterEnabled: true, nfcEnabled: true, webUIEnabled: false, triggers: {}, favoriteTriggers: [] };
+let currentKey = null;
+let dialogCallback = null;
 let editMode = false;
 
+// ── Scroll-linked small title ─────────────────────────────────────────────────
+window.addEventListener('scroll', () => {
+  const title = document.getElementById('main-large-title');
+  if (!title) return;
+  const rect = title.getBoundingClientRect();
+  const navbarHeight = document.getElementById('main-navbar').offsetHeight;
+  const small = document.getElementById('navbar-small-title');
+  if (rect.bottom <= navbarHeight) {
+    small.classList.add('visible');
+  } else {
+    small.classList.remove('visible');
+  }
+}, { passive: true });
+
+// ── Edit mode ────────────────────────────────────────────────────────────────
 function toggleEditMode() {
   editMode = !editMode;
-  document.querySelector('.navbar .right .link').textContent = editMode ? 'Done' : 'Edit';
+  document.getElementById('edit-btn').textContent = editMode ? 'Done' : 'Edit';
   renderAll();
 }
 
-// ── Trigger metadata ─────────────────────────────────────────────────────────
+// ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGER_SECTIONS = [
-  { title: 'Favorites', id: 'favorites', keys: [] /* dynamic */ },
-  { title: 'Volume Buttons', id: 'volume', keys: [
-    'volume_up_hold','volume_down_hold','volume_both_press'
-  ]},
-  { title: 'Power Button', id: 'power', keys: [
-    'power_double_tap','power_triple_click','power_quadruple_click',
-    'power_volume_up','power_volume_down','power_long_press'
-  ]},
-  { title: 'Screen Gestures', id: 'statusbar', keys: [
-    'trigger_statusbar_left_hold','trigger_statusbar_center_hold','trigger_statusbar_right_hold',
-    'trigger_statusbar_swipe_left','trigger_statusbar_swipe_right'
-  ]},
-  { title: 'Edge Gestures', id: 'edge', keys: [
-    'trigger_edge_left_swipe_up','trigger_edge_left_swipe_down',
-    'trigger_edge_right_swipe_up','trigger_edge_right_swipe_down'
-  ]},
-  { title: 'Bottom Bar Gestures', id: 'bottombar', keys: [
-    'trigger_bottombar_swipe_left','trigger_bottombar_swipe_right'
-  ]},
-  { title: 'Home Button', id: 'home', keys: [
-    'trigger_home_double_click','trigger_home_triple_click','trigger_home_quadruple_click',
-    'touchid_tap','touchid_hold'
-  ]},
-  { title: 'Ringer Switch', id: 'ringer', keys: [
-    'trigger_ringer_mute','trigger_ringer_unmute','trigger_ringer_toggle'
-  ]},
-  { title: 'Motion Gestures', id: 'motion', keys: ['shake'] },
-  // Dynamic sections added at render time
-  { title: 'NFC Tags',                id: 'nfc',    keys: [], dynamic: true, prefix: 'nfc_',       deletable: true },
-  { title: 'WiFi Network Triggers',   id: 'wifi',   keys: [], dynamic: true, prefix: 'wifi_',      deletable: true },
-  { title: 'Bluetooth Device Triggers',id:'bt',     keys: [], dynamic: true, prefix: 'bt_',        deletable: true },
-  { title: 'Notification Triggers',   id: 'notif',  keys: [], dynamic: true, prefix: 'notif_',     deletable: true },
-  { title: 'App Launch Triggers',     id: 'app',    keys: [], dynamic: true, prefix: 'app_launch_',deletable: true },
-  { title: 'Scheduled Triggers',      id: 'sched',  keys: [], dynamic: true, prefix: 'sched_',     deletable: true },
+  { title: 'Favorites',              id: 'favorites', keys: [] },
+  { title: 'Volume Buttons',         id: 'volume',    keys: ['volume_up_hold','volume_down_hold','volume_both_press'] },
+  { title: 'Power Button',           id: 'power',     keys: ['power_double_tap','power_triple_click','power_quadruple_click','power_volume_up','power_volume_down','power_long_press'] },
+  { title: 'Screen Gestures',        id: 'statusbar', keys: ['trigger_statusbar_left_hold','trigger_statusbar_center_hold','trigger_statusbar_right_hold','trigger_statusbar_swipe_left','trigger_statusbar_swipe_right'] },
+  { title: 'Edge Gestures',          id: 'edge',      keys: ['trigger_edge_left_swipe_up','trigger_edge_left_swipe_down','trigger_edge_right_swipe_up','trigger_edge_right_swipe_down'] },
+  { title: 'Bottom Bar Gestures',    id: 'bottombar', keys: ['trigger_bottombar_swipe_left','trigger_bottombar_swipe_right'] },
+  { title: 'Home Button',            id: 'home',      keys: ['trigger_home_double_click','trigger_home_triple_click','trigger_home_quadruple_click','touchid_tap','touchid_hold'] },
+  { title: 'Ringer Switch',          id: 'ringer',    keys: ['trigger_ringer_mute','trigger_ringer_unmute','trigger_ringer_toggle'] },
+  { title: 'Motion Gestures',        id: 'motion',    keys: ['shake'] },
+  { title: 'NFC Tags',               id: 'nfc',       keys: [], dynamic: true, prefix: 'nfc_',        deletable: true },
+  { title: 'WiFi Network Triggers',  id: 'wifi',      keys: [], dynamic: true, prefix: 'wifi_',       deletable: true },
+  { title: 'Bluetooth Device Triggers', id: 'bt',     keys: [], dynamic: true, prefix: 'bt_',         deletable: true },
+  { title: 'Notification Triggers',  id: 'notif',     keys: [], dynamic: true, prefix: 'notif_',      deletable: true },
+  { title: 'App Launch Triggers',    id: 'app',       keys: [], dynamic: true, prefix: 'app_launch_', deletable: true },
+  { title: 'Scheduled Triggers',     id: 'sched',     keys: [], dynamic: true, prefix: 'sched_',      deletable: true },
 ];
 
 const TRIGGER_NAMES = {
@@ -631,88 +682,87 @@ const TRIGGER_NAMES = {
   trigger_statusbar_left_hold:'Status Bar Left Hold', trigger_statusbar_center_hold:'Status Bar Center Hold',
   trigger_statusbar_right_hold:'Status Bar Right Hold', trigger_statusbar_swipe_left:'Status Bar Swipe Left',
   trigger_statusbar_swipe_right:'Status Bar Swipe Right',
-  trigger_home_double_click:'Home Button (Double Click)', trigger_home_triple_click:'Home Button (Triple Click)',
-  trigger_home_quadruple_click:'Home Button (Quadruple Click)',
-  touchid_tap:'Touch ID Single Tap', touchid_hold:'Touch ID Hold (Rest Finger)',
+  trigger_home_double_click:'Home (Double Click)', trigger_home_triple_click:'Home (Triple Click)',
+  trigger_home_quadruple_click:'Home (Quadruple Click)',
+  touchid_tap:'Touch ID Tap', touchid_hold:'Touch ID Hold (Rest Finger)',
   trigger_edge_left_swipe_up:'Left Edge Swipe Up', trigger_edge_left_swipe_down:'Left Edge Swipe Down',
   trigger_edge_right_swipe_up:'Right Edge Swipe Up', trigger_edge_right_swipe_down:'Right Edge Swipe Down',
-  trigger_ringer_mute:'Ringer Muted (Silent Mode On)', trigger_ringer_unmute:'Ringer Unmuted (Silent Mode Off)',
-  trigger_ringer_toggle:'Ringer Toggled (Any Change)',
+  trigger_ringer_mute:'Ringer Muted', trigger_ringer_unmute:'Ringer Unmuted', trigger_ringer_toggle:'Ringer Toggled',
   trigger_bottombar_swipe_left:'Bottom Bar Swipe Left', trigger_bottombar_swipe_right:'Bottom Bar Swipe Right',
 };
 
 const TRIGGER_ICONS = {
-  shake:           { icon:'waveform_path_ecg',         bg:'icon-bg-purple' },
-  volume_up_hold:  { icon:'speaker_3_fill',             bg:'icon-bg-blue' },
-  volume_down_hold:{ icon:'speaker_1_fill',             bg:'icon-bg-blue' },
-  volume_both_press:{ icon:'speaker_3_fill',            bg:'icon-bg-indigo' },
-  power_double_tap:{ icon:'bolt_fill',                  bg:'icon-bg-orange' },
-  power_long_press:{ icon:'power',                      bg:'icon-bg-red' },
-  power_triple_click:{ icon:'power',                    bg:'icon-bg-red' },
-  power_quadruple_click:{ icon:'power',                 bg:'icon-bg-red' },
-  power_volume_up: { icon:'plus_circle_fill',           bg:'icon-bg-indigo' },
-  power_volume_down:{ icon:'minus_circle_fill',         bg:'icon-bg-indigo' },
-  trigger_statusbar_left_hold:   { icon:'hand_draw',    bg:'icon-bg-gray' },
-  trigger_statusbar_center_hold: { icon:'hand_draw',    bg:'icon-bg-gray' },
-  trigger_statusbar_right_hold:  { icon:'hand_draw',    bg:'icon-bg-gray' },
-  trigger_statusbar_swipe_left:  { icon:'arrow_left_to_line', bg:'icon-bg-gray' },
-  trigger_statusbar_swipe_right: { icon:'arrow_right_to_line',bg:'icon-bg-gray' },
-  trigger_home_double_click:   { icon:'house_fill',     bg:'icon-bg-blue' },
-  trigger_home_triple_click:   { icon:'house_fill',     bg:'icon-bg-blue' },
-  trigger_home_quadruple_click:{ icon:'house_fill',     bg:'icon-bg-blue' },
-  touchid_tap:  { icon:'viewfinder',                    bg:'icon-bg-pink' },
-  touchid_hold: { icon:'viewfinder',                    bg:'icon-bg-pink' },
-  trigger_edge_left_swipe_up:   { icon:'arrow_up_to_line',   bg:'icon-bg-gray' },
-  trigger_edge_left_swipe_down: { icon:'arrow_down_to_line', bg:'icon-bg-gray' },
-  trigger_edge_right_swipe_up:  { icon:'arrow_up_to_line',   bg:'icon-bg-gray' },
-  trigger_edge_right_swipe_down:{ icon:'arrow_down_to_line', bg:'icon-bg-gray' },
-  trigger_bottombar_swipe_left: { icon:'pip_fill',      bg:'icon-bg-gray' },
-  trigger_bottombar_swipe_right:{ icon:'pip_fill',      bg:'icon-bg-gray' },
-  trigger_ringer_mute:   { icon:'bell_slash_fill',      bg:'icon-bg-red' },
-  trigger_ringer_unmute: { icon:'bell_fill',            bg:'icon-bg-green' },
-  trigger_ringer_toggle: { icon:'bell_badge_fill',      bg:'icon-bg-orange' },
+  shake:              { icon:'waveform_path_ecg',        cls:'icon-purple' },
+  volume_up_hold:     { icon:'speaker_3_fill',           cls:'icon-blue' },
+  volume_down_hold:   { icon:'speaker_1_fill',           cls:'icon-blue' },
+  volume_both_press:  { icon:'speaker_3_fill',           cls:'icon-indigo' },
+  power_double_tap:   { icon:'bolt_fill',                cls:'icon-orange' },
+  power_long_press:   { icon:'power',                    cls:'icon-red' },
+  power_triple_click: { icon:'power',                    cls:'icon-red' },
+  power_quadruple_click:{ icon:'power',                  cls:'icon-red' },
+  power_volume_up:    { icon:'plus_circle_fill',         cls:'icon-indigo' },
+  power_volume_down:  { icon:'minus_circle_fill',        cls:'icon-indigo' },
+  trigger_statusbar_left_hold:   { icon:'hand_draw',     cls:'icon-gray' },
+  trigger_statusbar_center_hold: { icon:'hand_draw',     cls:'icon-gray' },
+  trigger_statusbar_right_hold:  { icon:'hand_draw',     cls:'icon-gray' },
+  trigger_statusbar_swipe_left:  { icon:'arrow_left_to_line', cls:'icon-gray' },
+  trigger_statusbar_swipe_right: { icon:'arrow_right_to_line',cls:'icon-gray' },
+  trigger_home_double_click:   { icon:'house_fill',      cls:'icon-blue' },
+  trigger_home_triple_click:   { icon:'house_fill',      cls:'icon-blue' },
+  trigger_home_quadruple_click:{ icon:'house_fill',      cls:'icon-blue' },
+  touchid_tap:  { icon:'viewfinder',                     cls:'icon-pink' },
+  touchid_hold: { icon:'viewfinder',                     cls:'icon-pink' },
+  trigger_edge_left_swipe_up:   { icon:'arrow_up_to_line',   cls:'icon-gray' },
+  trigger_edge_left_swipe_down: { icon:'arrow_down_to_line', cls:'icon-gray' },
+  trigger_edge_right_swipe_up:  { icon:'arrow_up_to_line',   cls:'icon-gray' },
+  trigger_edge_right_swipe_down:{ icon:'arrow_down_to_line', cls:'icon-gray' },
+  trigger_bottombar_swipe_left: { icon:'pip_fill', cls:'icon-gray' },
+  trigger_bottombar_swipe_right:{ icon:'pip_fill', cls:'icon-gray' },
+  trigger_ringer_mute:   { icon:'bell_slash_fill', cls:'icon-red' },
+  trigger_ringer_unmute: { icon:'bell_fill',       cls:'icon-green' },
+  trigger_ringer_toggle: { icon:'bell_badge_fill', cls:'icon-orange' },
 };
 
 function iconForKey(key) {
   if (TRIGGER_ICONS[key]) return TRIGGER_ICONS[key];
-  if (key.startsWith('nfc_'))       return { icon:'antenna_radiowaves_left_right', bg:'icon-bg-cyan' };
-  if (key.startsWith('wifi_'))      return { icon:'wifi',                          bg:'icon-bg-blue' };
-  if (key.startsWith('bt_'))        return { icon:'bolt_horizontal_fill',          bg:'icon-bg-indigo' };
-  if (key.startsWith('app_launch_'))return { icon:'app_badge_fill',                bg:'icon-bg-pink' };
-  if (key.startsWith('notif_'))     return { icon:'bell_circle_fill',              bg:'icon-bg-red' };
-  if (key.startsWith('sched_'))     return { icon:'clock_fill',                    bg:'icon-bg-orange' };
-  return { icon:'hand_tap', bg:'icon-bg-gray' };
+  if (key.startsWith('nfc_'))        return { icon:'antenna_radiowaves_left_right', cls:'icon-cyan' };
+  if (key.startsWith('wifi_'))       return { icon:'wifi',                          cls:'icon-blue' };
+  if (key.startsWith('bt_'))         return { icon:'bolt_horizontal_fill',          cls:'icon-indigo' };
+  if (key.startsWith('app_launch_')) return { icon:'app_badge_fill',                cls:'icon-pink' };
+  if (key.startsWith('notif_'))      return { icon:'bell_circle_fill',              cls:'icon-red' };
+  if (key.startsWith('sched_'))      return { icon:'clock_fill',                    cls:'icon-orange' };
+  return { icon:'hand_tap', cls:'icon-gray' };
 }
 
 function nameForKey(key) {
   if (TRIGGER_NAMES[key]) return TRIGGER_NAMES[key];
   const t = config.triggers[key];
   if (t && t.name) return t.name;
-  if (key.startsWith('nfc_'))        return `NFC Tag ${key.slice(4)}`;
+  if (key.startsWith('nfc_'))        return `NFC: ${key.slice(4)}`;
   if (key.startsWith('wifi_'))       return `WiFi: ${key.slice(5)}`;
   if (key.startsWith('bt_'))         return `BT: ${key.slice(3)}`;
-  if (key.startsWith('app_launch_')) return `Launch ${key.slice(11)}`;
+  if (key.startsWith('app_launch_')) return `Launch: ${key.slice(11)}`;
   if (key.startsWith('notif_'))      return `Notif: ${key.slice(6)}`;
   if (key.startsWith('sched_'))      return `Sched: ${key.slice(6)}`;
   return key;
 }
 
-// ── Command → friendly name (matches RCConfigManager nameForCommand) ──────────
+// ── Command naming ────────────────────────────────────────────────────────────
 const CMD_NAMES = {
   'play':'Play','pause':'Pause','playpause':'Play/Pause','next':'Next Track','prev':'Previous Track',
   'volume up':'Volume Up','volume down':'Volume Down',
   'flashlight':'Flashlight Toggle','flashlight on':'Flashlight On','flashlight off':'Flashlight Off','flashlight toggle':'Flashlight Toggle',
   'rotate lock':'Rotate Lock','rotate unlock':'Rotate Unlock','rotate toggle':'Rotate Toggle',
   'wifi on':'WiFi On','wifi off':'WiFi Off','wifi toggle':'WiFi Toggle',
-  'bluetooth on':'Bluetooth On','bluetooth off':'Bluetooth Off','bluetooth toggle':'Bluetooth Toggle','bt toggle':'Bluetooth Toggle',
+  'bluetooth on':'Bluetooth On','bluetooth off':'Bluetooth Off','bluetooth toggle':'Bluetooth Toggle',
   'airplane on':'Airplane On','airplane off':'Airplane Off','airplane toggle':'Airplane Toggle',
   'haptic':'Haptic Feedback','screenshot':'Screenshot',
-  'lock':'Lock Device','unlock':'Unlock Device','lock toggle':'Lock Toggle','lock status':'Lock Status',
+  'lock':'Lock Device','unlock':'Unlock Device',
   'dnd on':'Do Not Disturb On','dnd off':'Do Not Disturb Off','dnd toggle':'Do Not Disturb Toggle',
   'respring':'Respring','siri':'Activate Siri','home':'Home Button','switcher':'App Switcher',
-  'open control center':'Open Control Center','control center':'Open Control Center',
-  'ldrestart':'Soft Reboot (ldrestart)','userspace-reboot':'Userspace Reboot','uicache':'Refresh Icon Cache',
-  'low power on':'Low Power Mode On','low power off':'Low Power Mode Off','low power toggle':'Low Power Mode Toggle',
+  'open control center':'Open Control Center',
+  'ldrestart':'Soft Reboot','userspace-reboot':'Userspace Reboot','uicache':'Refresh Icon Cache',
+  'low power on':'Low Power On','low power off':'Low Power Off','low power toggle':'Low Power Toggle',
   'anc on':'Noise Cancellation On','anc off':'Noise Cancellation Off','anc transparency':'Transparency Mode',
   'airplay disconnect':'Disconnect AirPlay',
   'vibration silent-toggle':'Silent Vibrate Toggle','vibration ring-toggle':'Ring Vibrate Toggle',
@@ -720,173 +770,138 @@ const CMD_NAMES = {
 };
 
 function nameForCmd(cmd) {
-  if (typeof cmd !== 'string') {
-    if (!cmd || typeof cmd !== 'object') return 'Unknown Action';
+  if (!cmd) return 'Unknown';
+  if (typeof cmd === 'object') {
     const t = (cmd.type||'').toLowerCase();
-    if (t === 'if') {
-      const ct = cmd.conditionTitle || cmd.conditionName || 'Condition';
-      const et = cmd.expectedTitle  || cmd.expectedLabel  || 'Value';
-      return `If ${ct} is ${et}`;
-    }
-    if (t === 'else')   return 'Else';
+    if (t === 'if') return `If ${cmd.conditionTitle||'Condition'} is ${cmd.expectedTitle||'Value'}`;
+    if (t === 'else') return 'Else';
     if (t === 'end_if' || t === 'end') return 'End If';
     if (t === 'repeat') return `Repeat ${cmd.count||''}`;
-    return 'Conditional Block';
+    return 'Block';
   }
   if (CMD_NAMES[cmd]) return CMD_NAMES[cmd];
-  if (cmd.startsWith('root '))        return `[root] ${cmd.slice(5)}`;
-  if (cmd.startsWith('exec-root '))   return `[root] ${cmd.slice(10)}`;
-  if (cmd.startsWith('exec '))        return cmd.slice(5);
-  if (cmd.startsWith('delay '))       return `Delay ${cmd.slice(6)}s`;
-  if (cmd.startsWith('bt connect ') || cmd.startsWith('bluetooth connect '))
-    return `Connect ${cmd.startsWith('bluetooth connect ') ? cmd.slice(18) : cmd.slice(11)}`;
-  if (cmd.startsWith('bt disconnect ') || cmd.startsWith('bluetooth disconnect '))
-    return `Disconnect ${cmd.startsWith('bluetooth disconnect ') ? cmd.slice(21) : cmd.slice(14)}`;
-  if (cmd.startsWith('airplay connect ')) {
-    let v = cmd.slice(16);
-    if (v.includes(' # ')) v = v.split(' # ').pop();
-    return `Connect ${v}`;
-  }
-  if (cmd.startsWith('set-vol '))   return `Set Volume ${cmd.slice(8)}%`;
-  if (cmd.startsWith('brightness '))return `Set Brightness ${cmd.slice(11)}%`;
-  if (cmd.startsWith('flashlight ') && !cmd.endsWith('on') && !cmd.endsWith('off') && !cmd.endsWith('toggle'))
-    return `Flashlight ${cmd.slice(11)}%`;
-  if (cmd.startsWith('shortcut:'))  return `Run ${cmd.slice(9)}`;
-  if (cmd.startsWith('Lua ') || cmd.startsWith('lua ') || cmd.startsWith('lua_eval '))
-    return 'Lua Script';
-  if (cmd.startsWith('uiopen '))    return `Open ${cmd.slice(7)}`;
+  if (cmd.startsWith('delay '))      return `Delay ${cmd.slice(6)}s`;
+  if (cmd.startsWith('exec '))       return cmd.slice(5);
+  if (cmd.startsWith('root '))       return `[root] ${cmd.slice(5)}`;
+  if (cmd.startsWith('bt connect ')) return `Connect ${cmd.slice(11)}`;
+  if (cmd.startsWith('bt disconnect ')) return `Disconnect ${cmd.slice(14)}`;
+  if (cmd.startsWith('set-vol '))    return `Set Volume ${cmd.slice(8)}%`;
+  if (cmd.startsWith('brightness ')) return `Set Brightness ${cmd.slice(11)}%`;
+  if (cmd.startsWith('shortcut:'))   return `Shortcut: ${cmd.slice(9)}`;
+  if (cmd.startsWith('uiopen '))     return `Open: ${cmd.slice(7)}`;
   return cmd;
 }
 
 function iconForCmd(cmd) {
-  if (typeof cmd !== 'string') {
-    if (!cmd) return { icon:'questionmark', bg:'icon-bg-gray' };
+  if (!cmd) return { icon:'questionmark', cls:'icon-gray' };
+  if (typeof cmd === 'object') {
     const t = (cmd.type||'').toLowerCase();
-    if (t === 'if' || t === 'else') return { icon:'arrow_triangle_branch', bg:'icon-bg-purple' };
-    if (t === 'end_if' || t === 'end') return { icon:'arrow_turn_up_left', bg:'icon-bg-purple' };
-    if (t === 'repeat') return { icon:'repeat', bg:'icon-bg-green' };
-    return { icon:'square_grid_2x2', bg:'icon-bg-gray' };
+    if (t === 'if' || t === 'else') return { icon:'arrow_triangle_branch', cls:'icon-purple' };
+    if (t === 'end_if' || t === 'end') return { icon:'arrow_turn_up_left', cls:'icon-purple' };
+    return { icon:'repeat', cls:'icon-green' };
   }
-  const cmdIcons = {
+  const map = {
     'play':'play_fill','pause':'pause_fill','playpause':'playpause_fill',
     'next':'forward_fill','prev':'backward_fill',
     'volume up':'speaker_3_fill','volume down':'speaker_1_fill',
-    'flashlight':'flashlight_on_fill','flashlight on':'flashlight_on_fill',
-    'flashlight off':'flashlight_off_fill','flashlight toggle':'flashlight_on_fill',
-    'rotate lock':'lock_rotation','rotate unlock':'lock_rotation_open','rotate toggle':'lock_rotation',
+    'flashlight':'flashlight_on_fill','flashlight on':'flashlight_on_fill','flashlight off':'flashlight_off_fill','flashlight toggle':'flashlight_on_fill',
     'wifi on':'wifi','wifi off':'wifi_slash','wifi toggle':'wifi',
     'bluetooth on':'bolt_horizontal_fill','bluetooth off':'bolt_horizontal','bluetooth toggle':'bolt_horizontal_fill',
     'airplane on':'airplane','airplane off':'airplane','airplane toggle':'airplane',
-    'haptic':'hand_tap_fill','screenshot':'camera_fill',
-    'lock':'lock_fill','unlock':'lock_open_fill','lock status':'lock_circle',
+    'lock':'lock_fill','unlock':'lock_open_fill',
     'dnd on':'moon_fill','dnd off':'moon','dnd toggle':'moon_circle_fill',
-    'respring':'memories','siri':'mic_circle_fill','home':'house_fill','switcher':'square_stack_3d_up_fill',
-    'open control center':'switch_2','ldrestart':'arrow_clockwise',
-    'low power on':'battery_25','low power off':'battery_100','low power toggle':'battery_25',
-    'anc on':'ear','anc off':'ear','anc transparency':'waveform_circle_fill',
-    'mute toggle':'speaker_slash_fill',
+    'respring':'memories','siri':'mic_circle_fill','home':'house_fill',
+    'open control center':'switch_2',
+    'low power on':'battery_25','low power off':'battery_100',
+    'screenshot':'camera_fill','haptic':'hand_tap_fill',
   };
-  if (cmdIcons[cmd]) return { icon: cmdIcons[cmd], bg: 'icon-bg-gray' };
-  if (cmd.startsWith('root ') || cmd.startsWith('exec ') || cmd.startsWith('exec-root '))
-    return { icon:'terminal_fill', bg:'icon-bg-gray' };
-  if (cmd.startsWith('delay '))       return { icon:'timer',              bg:'icon-bg-orange' };
-  if (cmd.startsWith('bt connect ') || cmd.startsWith('bluetooth connect '))
-    return { icon:'link',           bg:'icon-bg-indigo' };
-  if (cmd.startsWith('bt disconnect ')|| cmd.startsWith('bluetooth disconnect '))
-    return { icon:'xmark_circle',   bg:'icon-bg-red' };
-  if (cmd.startsWith('airplay connect ')) return { icon:'airplayaudio',   bg:'icon-bg-blue' };
-  if (cmd.startsWith('set-vol '))     return { icon:'speaker_3_fill',     bg:'icon-bg-blue' };
-  if (cmd.startsWith('brightness '))  return { icon:'sun_max_fill',       bg:'icon-bg-yellow' };
-  if (cmd.startsWith('flashlight '))  return { icon:'flashlight_on_fill', bg:'icon-bg-yellow' };
-  if (cmd.startsWith('shortcut:'))    return { icon:'command',            bg:'icon-bg-indigo' };
-  if (cmd.startsWith('Lua ') || cmd.startsWith('lua ')) return { icon:'scroll_fill', bg:'icon-bg-purple' };
-  if (cmd.startsWith('uiopen '))      return { icon:'app_badge_fill',     bg:'icon-bg-pink' };
-  return { icon:'questionmark', bg:'icon-bg-gray' };
+  if (map[cmd]) return { icon:map[cmd], cls:'icon-dark' };
+  if (cmd.startsWith('delay '))      return { icon:'timer',             cls:'icon-orange' };
+  if (cmd.startsWith('bt connect ')) return { icon:'link',              cls:'icon-indigo' };
+  if (cmd.startsWith('set-vol '))    return { icon:'speaker_3_fill',    cls:'icon-blue' };
+  if (cmd.startsWith('brightness ')) return { icon:'sun_max_fill',      cls:'icon-yellow' };
+  if (cmd.startsWith('shortcut:'))   return { icon:'command',           cls:'icon-indigo' };
+  if (cmd.startsWith('uiopen '))     return { icon:'app_badge_fill',    cls:'icon-pink' };
+  if (cmd.startsWith('exec ') || cmd.startsWith('root ')) return { icon:'terminal_fill', cls:'icon-dark' };
+  return { icon:'bolt_fill', cls:'icon-dark' };
 }
 
-// ── Action picker definitions (matches RCActionPickerViewController) ─────────
+// ── Action picker data ────────────────────────────────────────────────────────
 const ACTION_SECTIONS = [
   { title:'Media', actions:[
-    { name:'Play',               cmd:'play',          icon:'play_fill' },
-    { name:'Pause',              cmd:'pause',         icon:'pause_fill' },
-    { name:'Play/Pause Toggle',  cmd:'playpause',     icon:'playpause_fill' },
-    { name:'Next Track',         cmd:'next',          icon:'forward_fill' },
-    { name:'Previous Track',     cmd:'prev',          icon:'backward_fill' },
-    { name:'Volume Up',          cmd:'volume up',     icon:'speaker_3_fill' },
-    { name:'Volume Down',        cmd:'volume down',   icon:'speaker_1_fill' },
-    { name:'Set Volume…',        cmd:'__SET_VOLUME__',icon:'speaker_3_fill',  needs_input:true },
-    { name:'Set Brightness…',    cmd:'__SET_BRIGHTNESS__',icon:'sun_max_fill',needs_input:true },
+    { name:'Play',              cmd:'play',         icon:'play_fill' },
+    { name:'Pause',             cmd:'pause',        icon:'pause_fill' },
+    { name:'Play/Pause',        cmd:'playpause',    icon:'playpause_fill' },
+    { name:'Next Track',        cmd:'next',         icon:'forward_fill' },
+    { name:'Previous Track',    cmd:'prev',         icon:'backward_fill' },
+    { name:'Volume Up',         cmd:'volume up',    icon:'speaker_3_fill' },
+    { name:'Volume Down',       cmd:'volume down',  icon:'speaker_1_fill' },
+    { name:'Set Volume…',       cmd:'__SET_VOLUME__',icon:'speaker_3_fill', needs_input:true },
+    { name:'Set Brightness…',   cmd:'__SET_BRIGHTNESS__',icon:'sun_max_fill', needs_input:true },
   ]},
   { title:'Device Controls', actions:[
-    { name:'Flashlight Toggle',  cmd:'flashlight toggle', icon:'flashlight_on_fill' },
-    { name:'Flashlight On',      cmd:'flashlight on',     icon:'flashlight_on_fill' },
-    { name:'Flashlight Off',     cmd:'flashlight off',    icon:'flashlight_off_fill' },
+    { name:'Flashlight Toggle', cmd:'flashlight toggle', icon:'flashlight_on_fill' },
+    { name:'Flashlight On',     cmd:'flashlight on',     icon:'flashlight_on_fill' },
+    { name:'Flashlight Off',    cmd:'flashlight off',    icon:'flashlight_off_fill' },
     { name:'Flashlight Intensity…', cmd:'__SET_FLASHLIGHT__', icon:'flashlight_on_fill', needs_input:true },
-    { name:'Rotate Lock',        cmd:'rotate lock',       icon:'lock_rotation' },
-    { name:'Rotate Unlock',      cmd:'rotate unlock',     icon:'lock_rotation_open' },
-    { name:'Rotate Toggle',      cmd:'rotate toggle',     icon:'lock_rotation' },
+    { name:'Rotate Lock',       cmd:'rotate lock',       icon:'lock_rotation' },
+    { name:'Rotate Unlock',     cmd:'rotate unlock',     icon:'lock_rotation_open' },
+    { name:'Rotate Toggle',     cmd:'rotate toggle',     icon:'lock_rotation' },
   ]},
   { title:'Connectivity', actions:[
-    { name:'WiFi On',            cmd:'wifi on',       icon:'wifi' },
-    { name:'WiFi Off',           cmd:'wifi off',      icon:'wifi_slash' },
-    { name:'WiFi Toggle',        cmd:'wifi toggle',   icon:'wifi' },
-    { name:'Bluetooth On',       cmd:'bluetooth on',  icon:'bolt_horizontal_fill' },
-    { name:'Bluetooth Off',      cmd:'bluetooth off', icon:'bolt_horizontal' },
-    { name:'Bluetooth Toggle',   cmd:'bluetooth toggle',icon:'bolt_horizontal_fill' },
-    { name:'Airplane Mode On',   cmd:'airplane on',   icon:'airplane' },
-    { name:'Airplane Mode Off',  cmd:'airplane off',  icon:'airplane' },
-    { name:'Airplane Mode Toggle',cmd:'airplane toggle',icon:'airplane' },
-    { name:'Connect Bluetooth…', cmd:'__BT_CONNECT__',icon:'link', needs_input:true },
+    { name:'WiFi On',           cmd:'wifi on',      icon:'wifi' },
+    { name:'WiFi Off',          cmd:'wifi off',     icon:'wifi_slash' },
+    { name:'WiFi Toggle',       cmd:'wifi toggle',  icon:'wifi' },
+    { name:'Bluetooth On',      cmd:'bluetooth on', icon:'bolt_horizontal_fill' },
+    { name:'Bluetooth Off',     cmd:'bluetooth off',icon:'bolt_horizontal' },
+    { name:'Bluetooth Toggle',  cmd:'bluetooth toggle',icon:'bolt_horizontal_fill' },
+    { name:'Airplane Mode On',  cmd:'airplane on',  icon:'airplane' },
+    { name:'Airplane Mode Off', cmd:'airplane off', icon:'airplane' },
+    { name:'Airplane Toggle',   cmd:'airplane toggle',icon:'airplane' },
+    { name:'Connect Bluetooth…',cmd:'__BT_CONNECT__',icon:'link', needs_input:true },
     { name:'Disconnect Bluetooth…',cmd:'__BT_DISCONNECT__',icon:'xmark_circle', needs_input:true },
-    { name:'Disconnect AirPlay', cmd:'airplay disconnect',icon:'airplayaudio' },
+    { name:'Disconnect AirPlay',cmd:'airplay disconnect',icon:'airplayaudio' },
   ]},
   { title:'System', actions:[
-    { name:'Haptic Feedback',    cmd:'haptic',        icon:'hand_tap_fill' },
-    { name:'Screenshot',         cmd:'screenshot',    icon:'camera_fill' },
-    { name:'Run Shortcut…',      cmd:'__SHORTCUT__',  icon:'command', needs_input:true },
-    { name:'Open App…',          cmd:'__OPEN_APP__',  icon:'square_grid_2x2_fill', needs_input:true },
-    { name:'Lock Device',        cmd:'lock',          icon:'lock_fill' },
-    { name:'Unlock Device',      cmd:'unlock',        icon:'lock_open_fill' },
-    { name:'Do Not Disturb On',  cmd:'dnd on',        icon:'moon_fill' },
-    { name:'Do Not Disturb Off', cmd:'dnd off',       icon:'moon' },
-    { name:'Do Not Disturb Toggle',cmd:'dnd toggle',  icon:'moon_circle_fill' },
-    { name:'Activate Siri',      cmd:'siri',          icon:'mic_circle_fill' },
-    { name:'Home Button',        cmd:'home',          icon:'house_fill' },
-    { name:'App Switcher',       cmd:'switcher',      icon:'square_stack_3d_up_fill' },
-    { name:'Open Control Center',cmd:'open control center',icon:'switch_2' },
-    { name:'Respring Device',    cmd:'respring',      icon:'memories' },
-    { name:'Soft Reboot (ldrestart)',cmd:'ldrestart', icon:'arrow_clockwise' },
-    { name:'Userspace Reboot',   cmd:'userspace-reboot',icon:'arrow_clockwise_circle' },
-    { name:'Refresh Icon Cache (uicache)',cmd:'uicache',icon:'square_grid_2x2' },
-    { name:'Silent Vibrate Toggle',cmd:'vibration silent-toggle',icon:'bell_slash' },
-    { name:'Ring Vibrate Toggle',cmd:'vibration ring-toggle',icon:'bell' },
-    { name:'Low Power Mode On',  cmd:'low power on',  icon:'battery_25' },
-    { name:'Low Power Mode Off', cmd:'low power off', icon:'battery_100' },
-    { name:'Low Power Mode Toggle',cmd:'low power toggle',icon:'battery_25' },
-  ]},
-  { title:'Audio', actions:[
-    { name:'ANC On',             cmd:'anc on',        icon:'ear' },
-    { name:'ANC Off',            cmd:'anc off',       icon:'ear' },
-    { name:'Transparency Mode',  cmd:'anc transparency',icon:'waveform_circle_fill' },
+    { name:'Haptic Feedback',   cmd:'haptic',        icon:'hand_tap_fill' },
+    { name:'Screenshot',        cmd:'screenshot',    icon:'camera_fill' },
+    { name:'Run Shortcut…',     cmd:'__SHORTCUT__',  icon:'command', needs_input:true },
+    { name:'Open App…',         cmd:'__OPEN_APP__',  icon:'square_grid_2x2_fill', needs_input:true },
+    { name:'Lock Device',       cmd:'lock',          icon:'lock_fill' },
+    { name:'Unlock Device',     cmd:'unlock',        icon:'lock_open_fill' },
+    { name:'Do Not Disturb On', cmd:'dnd on',        icon:'moon_fill' },
+    { name:'Do Not Disturb Off',cmd:'dnd off',       icon:'moon' },
+    { name:'DND Toggle',        cmd:'dnd toggle',    icon:'moon_circle_fill' },
+    { name:'Activate Siri',     cmd:'siri',          icon:'mic_circle_fill' },
+    { name:'Home Button',       cmd:'home',          icon:'house_fill' },
+    { name:'App Switcher',      cmd:'switcher',      icon:'square_stack_3d_up_fill' },
+    { name:'Control Center',    cmd:'open control center',icon:'switch_2' },
+    { name:'Respring',          cmd:'respring',      icon:'memories' },
+    { name:'Soft Reboot',       cmd:'ldrestart',     icon:'arrow_clockwise' },
+    { name:'Low Power On',      cmd:'low power on',  icon:'battery_25' },
+    { name:'Low Power Off',     cmd:'low power off', icon:'battery_100' },
+    { name:'Low Power Toggle',  cmd:'low power toggle',icon:'battery_25' },
   ]},
   { title:'Scripting & Logic', actions:[
-    { name:'Custom Lua Script',  cmd:'__LUA_SCRIPT__',icon:'scroll_fill', needs_input:true },
-    { name:'If Condition…',      cmd:'__IF_CONDITION__',icon:'arrow_triangle_branch', needs_input:true },
-    { name:'Delay',              cmd:'__DELAY__',     icon:'timer', needs_input:true },
-    { name:'Terminal Command',   cmd:'__CUSTOM__',    icon:'terminal_fill', needs_input:true },
+    { name:'If Condition…',     cmd:'__IF_CONDITION__',icon:'arrow_triangle_branch', needs_input:true },
+    { name:'Delay…',            cmd:'__DELAY__',     icon:'timer', needs_input:true },
+    { name:'Terminal Command…', cmd:'__CUSTOM__',    icon:'terminal_fill', needs_input:true },
+    { name:'Lua Script…',       cmd:'__LUA_SCRIPT__',icon:'scroll_fill', needs_input:true },
+    { name:'Set Volume…',       cmd:'__SET_VOLUME__',icon:'speaker_3_fill', needs_input:true },
   ]},
 ];
 
 const CONDITION_DEFS = [
-  { key:'lock',      title:'Lock Status',      values:[{value:'LOCKED',title:'Locked'},{value:'UNLOCKED',title:'Unlocked'}] },
-  { key:'player',    title:'Player Status',    values:[{value:'PLAYING',title:'Playing'},{value:'PAUSED',title:'Paused'},{value:'STOPPED',title:'Stopped'}] },
-  { key:'wifi',      title:'Wi-Fi',            values:[{value:'ON',title:'On'},{value:'OFF',title:'Off'}] },
-  { key:'bluetooth', title:'Bluetooth',        values:[{value:'ON',title:'On'},{value:'OFF',title:'Off'}] },
-  { key:'airplane',  title:'Airplane Mode',   values:[{value:'ON',title:'On'},{value:'OFF',title:'Off'}] },
-  { key:'orientation',title:'Orientation',    values:[{value:'PORTRAIT',title:'Portrait'},{value:'LANDSCAPE',title:'Landscape'}] },
+  { key:'lock',       title:'Lock Status',  values:[{value:'LOCKED',title:'Locked'},{value:'UNLOCKED',title:'Unlocked'}] },
+  { key:'player',     title:'Player',       values:[{value:'PLAYING',title:'Playing'},{value:'PAUSED',title:'Paused'},{value:'STOPPED',title:'Stopped'}] },
+  { key:'wifi',       title:'Wi-Fi',        values:[{value:'ON',title:'On'},{value:'OFF',title:'Off'}] },
+  { key:'bluetooth',  title:'Bluetooth',    values:[{value:'ON',title:'On'},{value:'OFF',title:'Off'}] },
+  { key:'airplane',   title:'Airplane Mode',values:[{value:'ON',title:'On'},{value:'OFF',title:'Off'}] },
+  { key:'orientation',title:'Orientation',  values:[{value:'PORTRAIT',title:'Portrait'},{value:'LANDSCAPE',title:'Landscape'}] },
+  { key:'frontApp',   title:'Front App is', values:null, freeText:true },
 ];
 
-// ── API ─────────────────────────────────────────────────────────────────────
+// ── API ───────────────────────────────────────────────────────────────────────
 async function loadData() {
   try {
     const res = await fetch('/api/config');
@@ -908,7 +923,7 @@ async function saveConfig() {
       body: JSON.stringify(config),
       headers: { 'Content-Type': 'application/json' }
     });
-  } catch(e) { /* offline, ignore */ }
+  } catch(e) { /* offline */ }
 }
 
 function triggerData(key) {
@@ -916,57 +931,50 @@ function triggerData(key) {
   return config.triggers[key];
 }
 
-// ── Render main list ─────────────────────────────────────────────────────────
+// ── Render main list ──────────────────────────────────────────────────────────
 function renderAll() {
   const root = document.getElementById('triggers-root');
   root.innerHTML = '';
 
-  // Build dynamic section keys from config
-  const allConfigKeys = Object.keys(config.triggers);
+  const allKeys = Object.keys(config.triggers);
   TRIGGER_SECTIONS.forEach(sec => {
-    if (sec.dynamic) {
-      sec.keys = allConfigKeys.filter(k => k.startsWith(sec.prefix));
-    }
-    if (sec.id === 'favorites') {
-      sec.keys = (config.favoriteTriggers || []).filter(k => config.triggers[k]);
-    }
+    if (sec.dynamic) sec.keys = allKeys.filter(k => k.startsWith(sec.prefix));
+    if (sec.id === 'favorites') sec.keys = (config.favoriteTriggers || []).filter(k => config.triggers[k]);
   });
 
   TRIGGER_SECTIONS.forEach(sec => {
-    // For non-favorites static sections, filter out favorites
-    const favorites = config.favoriteTriggers || [];
+    const favs = config.favoriteTriggers || [];
     let keys = sec.keys;
-    if (sec.id !== 'favorites') keys = keys.filter(k => !favorites.includes(k));
-
-    // Skip if empty + hide-if-empty (dynamic)
+    if (sec.id !== 'favorites') keys = keys.filter(k => !favs.includes(k));
     if (sec.dynamic && keys.length === 0) return;
-    // Skip favorites if empty
     if (sec.id === 'favorites' && keys.length === 0) return;
 
     // Section header
     const hdr = document.createElement('div');
-    hdr.className = 'block-title' + (sec.id === 'favorites' ? ' favorites-title' : '');
+    hdr.className = 'section-header' + (sec.id === 'favorites' ? ' favorites' : '');
     hdr.textContent = sec.title.toUpperCase();
     root.appendChild(hdr);
 
-    // List
-    const listDiv = document.createElement('div');
-    listDiv.className = 'list inset';
-    const ul = document.createElement('ul');
-    ul.id = `sec-${sec.id}`;
-
-    keys.forEach(key => {
-      ul.appendChild(renderTriggerRow(key, !!sec.deletable));
-    });
-
-    listDiv.appendChild(ul);
-    root.appendChild(listDiv);
+    // Card
+    const card = document.createElement('div');
+    card.className = 'list-card';
+    keys.forEach(key => card.appendChild(renderTriggerRow(key, !!sec.deletable)));
+    root.appendChild(card);
   });
+}
+
+// ── Trigger row (custom swipe — no Framework7 dependency) ─────────────────────
+let _openRow = null; // currently open swipeout row
+
+function closeOpenRow() {
+  if (!_openRow) return;
+  _openRow.classList.remove('swiped-open');
+  _openRow = null;
 }
 
 function renderTriggerRow(key, deletable) {
   const data = triggerData(key);
-  const { icon, bg } = iconForKey(key);
+  const { icon, cls } = iconForKey(key);
   const name = nameForKey(key);
   const isFav = (config.favoriteTriggers || []).includes(key);
   const actions = data.actions || [];
@@ -974,62 +982,130 @@ function renderTriggerRow(key, deletable) {
     ? actions.map(a => nameForCmd(a)).join(' › ')
     : 'Not configured';
 
-  const li = document.createElement('li');
-  li.className = 'swipeout';
-  li.dataset.key = key;
+  const row = document.createElement('div');
+  row.className = 'trigger-row';
+  row.dataset.key = key;
 
-  li.innerHTML = `
-    <div class="swipeout-content">
-      <div class="item-content item-link" onclick="handleItemClick(event, '${key}')">
-        <div class="item-media">
-          <div class="rc-icon ${bg}"><i class="f7-icons">${icon}</i></div>
-        </div>
-        <div class="item-inner">
-          <div class="item-title-row" style="display:flex;align-items:center;gap:8px">
-            <div class="item-title">${name}</div>
-            <span class="rc-badge ${data.enabled ? 'badge-on':'badge-off'}">${data.enabled?'ON':'OFF'}</span>
-          </div>
-          <div class="item-subtitle" style="max-width:280px">${escHtml(subtitle)}</div>
-        </div>
-        <div class="item-after">
-          ${editMode ? `<i class="f7-icons" style="color:#ff3b30;font-size:20px">minus_circle_fill</i>` : `<i class="f7-icons" style="color:#555;font-size:14px">chevron_right</i>`}
-        </div>
-      </div>
-    </div>
-    <div class="swipeout-actions-right">
-      <a class="bg-star" onclick="toggleFavorite('${key}');swipeoutClose(this)" style="color:#fff">
-        <i class="f7-icons">${isFav ? 'star_fill' : 'star'}</i>
-      </a>
-      <a class="bg-play" onclick="runTrigger('${key}');swipeoutClose(this)" style="color:#fff">
-        <i class="f7-icons">play_fill</i>
-      </a>
-      ${deletable ? `<a class="bg-delete swipeout-delete" onclick="deleteTrigger('${key}')" style="color:#fff"><i class="f7-icons">trash_fill</i></a>` : ''}
-    </div>`;
-  return li;
-}
+  // ── Swipe actions (Star, Play, [Delete]) ──
+  const actionsEl = document.createElement('div');
+  actionsEl.className = 'trigger-row-actions';
 
-function handleItemClick(e, key) {
-  // Prevent click if swipeout is moving or opened
-  const li = e.currentTarget.closest('li.swipeout');
-  if (li.classList.contains('swipeout-opened') || li.querySelector('.swipeout-content').style.transform !== '') {
-    return;
+  const favBtn = document.createElement('div');
+  favBtn.className = 'swipe-action sa-fav';
+  favBtn.innerHTML = `<i class="f7-icons">${isFav ? 'star_fill' : 'star'}</i>`;
+  favBtn.addEventListener('click', e => { e.stopPropagation(); toggleFavorite(key); closeOpenRow(); });
+
+  const playBtn = document.createElement('div');
+  playBtn.className = 'swipe-action sa-play';
+  playBtn.innerHTML = `<i class="f7-icons">play_fill</i>`;
+  playBtn.addEventListener('click', e => { e.stopPropagation(); runTrigger(key); closeOpenRow(); });
+
+  actionsEl.appendChild(favBtn);
+  actionsEl.appendChild(playBtn);
+
+  if (deletable) {
+    const delBtn = document.createElement('div');
+    delBtn.className = 'swipe-action sa-del';
+    delBtn.innerHTML = `<i class="f7-icons">trash_fill</i>`;
+    delBtn.addEventListener('click', e => { e.stopPropagation(); deleteTrigger(key); });
+    actionsEl.appendChild(delBtn);
   }
-  // Prevent click if we tap on an action button (though they aren't here, it's good practice)
-  if (e.target.closest('a')) return;
-  
-  openActionsPanel(key);
-}
 
-function swipeoutClose(el) {
-  const li = el.closest('li.swipeout');
-  if (li && app && app.swipeout) app.swipeout.close(li);
+  row.appendChild(actionsEl);
+
+  // ── Row content (slides left on swipe) ──
+  const inner = document.createElement('div');
+  inner.className = 'trigger-row-inner';
+  inner.innerHTML = `
+    <div class="row-icon ${cls}"><i class="f7-icons">${icon}</i></div>
+    <div class="row-text">
+      <div class="row-title">
+        <span>${escHtml(name)}</span>
+        <span class="badge ${data.enabled ? 'badge-on' : 'badge-off'}">${data.enabled ? 'ON' : 'OFF'}</span>
+      </div>
+      <div class="row-subtitle">${escHtml(subtitle)}</div>
+    </div>
+    <i class="f7-icons row-chevron">chevron_right</i>
+  `;
+  row.appendChild(inner);
+
+  // ── Touch-based swipe handling ──
+  let startX = 0, startY = 0, dx = 0, isSwipe = false, didMove = false;
+  const ACTION_WIDTH = deletable ? 180 : 120; // total px of actions
+
+  inner.addEventListener('touchstart', e => {
+    // Close other open row
+    if (_openRow && _openRow !== row) closeOpenRow();
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    dx = 0; isSwipe = false; didMove = false;
+  }, { passive: true });
+
+  inner.addEventListener('touchmove', e => {
+    const curX = e.touches[0].clientX;
+    const curY = e.touches[0].clientY;
+    dx = curX - startX;
+    const dy = curY - startY;
+    if (!didMove && Math.abs(dy) > Math.abs(dx)) { isSwipe = false; return; }
+    didMove = true;
+    if (!isSwipe && Math.abs(dx) > 5) isSwipe = true;
+    if (!isSwipe) return;
+    e.preventDefault();
+    const isOpen = row.classList.contains('swiped-open');
+    let offset = isOpen ? -ACTION_WIDTH + dx : dx;
+    offset = Math.max(-ACTION_WIDTH, Math.min(0, offset));
+    inner.style.transition = 'none';
+    inner.style.transform = `translateX(${offset}px)`;
+    // Proportionally show action buttons
+    const ratio = Math.min(1, Math.abs(offset) / ACTION_WIDTH);
+    actionsEl.querySelectorAll('.swipe-action').forEach(el => {
+      el.style.transition = 'none';
+      el.style.width = `${ratio * (ACTION_WIDTH / actionsEl.children.length)}px`;
+    });
+  }, { passive: false });
+
+  inner.addEventListener('touchend', () => {
+    inner.style.transition = '';
+    actionsEl.querySelectorAll('.swipe-action').forEach(el => { el.style.transition = ''; });
+    if (!isSwipe) return;
+    const isOpen = row.classList.contains('swiped-open');
+    const threshold = ACTION_WIDTH * 0.35;
+    if (!isOpen && dx < -threshold) {
+      // Snap open
+      row.classList.add('swiped-open');
+      inner.style.transform = '';
+      _openRow = row;
+    } else {
+      // Snap closed
+      inner.style.transform = '';
+      row.classList.remove('swiped-open');
+      if (_openRow === row) _openRow = null;
+    }
+  });
+
+  // ── Click to open edit panel (only if not swiped) ──
+  inner.addEventListener('click', e => {
+    if (row.classList.contains('swiped-open')) {
+      closeOpenRow();
+      return;
+    }
+    openActionsPanel(key);
+  });
+
+  // Close swipe if tapping elsewhere
+  document.addEventListener('touchstart', e => {
+    if (_openRow === row && !row.contains(e.target)) closeOpenRow();
+  }, { passive: true });
+
+  return row;
 }
 
 function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Actions ──────────────────────────────────────────────────────────────────
+// ── Action management ─────────────────────────────────────────────────────────
 function toggleFavorite(key) {
   const favs = config.favoriteTriggers || [];
   const idx = favs.indexOf(key);
@@ -1039,10 +1115,10 @@ function toggleFavorite(key) {
 }
 
 function deleteTrigger(key) {
-  showSheet('Delete', [
-    { label:`Delete "${nameForKey(key)}"`, destructive: true, action() {
+  showSheet('Delete Trigger', [
+    { label: `Delete "${nameForKey(key)}"`, destructive: true, action() {
       delete config.triggers[key];
-      config.favoriteTriggers = (config.favoriteTriggers||[]).filter(k=>k!==key);
+      config.favoriteTriggers = (config.favoriteTriggers||[]).filter(k => k !== key);
       saveConfig(); renderAll();
     }}
   ]);
@@ -1050,12 +1126,12 @@ function deleteTrigger(key) {
 
 async function runTrigger(key) {
   try {
-    await fetch(`/api/trigger/${key}`);
-    showToast('▶ Triggered');
-  } catch(e) { showToast('⚠ Disconnected'); }
+    const res = await fetch(`/api/trigger/${encodeURIComponent(key)}`);
+    showToast(res.ok ? '▶ Triggered' : '⚠ Server Error');
+  } catch(e) { showToast('⚠ Could not connect'); }
 }
 
-// ── Actions Panel ───────────────────────────────────────────────────────────
+// ── Actions panel ─────────────────────────────────────────────────────────────
 function openActionsPanel(key) {
   currentKey = key;
   const data = triggerData(key);
@@ -1063,98 +1139,101 @@ function openActionsPanel(key) {
   document.getElementById('actions-panel-title').textContent = name;
   document.getElementById('actions-large-title').textContent = name;
   document.getElementById('trigger-enabled-toggle').checked = !!data.enabled;
-  app.toggle.get('#trigger-enabled-toggle') && app.toggle.get('#trigger-enabled-toggle').setValue(!!data.enabled);
   renderActionList();
   document.getElementById('actions-panel').classList.add('active');
-  document.body.style.overflow = 'hidden';
 }
 
 function closeActionsPanel() {
   document.getElementById('actions-panel').classList.remove('active');
-  document.body.style.overflow = '';
   setTimeout(renderAll, 350);
 }
 
 function onTriggerEnabledChange() {
-  const val = document.getElementById('trigger-enabled-toggle').checked;
-  triggerData(currentKey).enabled = val;
+  triggerData(currentKey).enabled = document.getElementById('trigger-enabled-toggle').checked;
   saveConfig();
 }
 
-function playCurrentTrigger() { if (currentKey) runTrigger(currentKey); }
+function playCurrentTrigger() {
+  if (currentKey) runTrigger(currentKey);
+}
 
-let dragSrcIdx = null;
+// ── renderActionList — draws the action sequence without any external library
+let actionSwipeOpen = null;
 
 function renderActionList() {
-  const ul = document.getElementById('action-list');
-  ul.innerHTML = '';
+  const card = document.getElementById('action-list-card');
+  card.innerHTML = '';
   const actions = triggerData(currentKey).actions || [];
 
   if (actions.length === 0) {
-    ul.innerHTML = `<li class="item-content"><div class="item-inner"><div class="item-title empty-state">No actions configured</div></div></li>`;
+    card.innerHTML = `<div style="padding:20px 16px;color:#636366;font-size:15px;font-style:italic">No actions — tap Add Action below</div>`;
     return;
   }
 
   let indent = 0;
   actions.forEach((action, idx) => {
-    let displayName = nameForCmd(action);
-    const isControl = typeof action === 'object';
-    const type = isControl ? (action.type||'').toLowerCase() : null;
-    const isEnd   = type === 'end_if' || type === 'end';
-    const isElse  = type === 'else';
-    const isIf    = type === 'if';
+    const isCtrl = typeof action === 'object';
+    const type = isCtrl ? (action.type||'').toLowerCase() : null;
+    const isEnd  = type === 'end_if' || type === 'end';
+    const isElse = type === 'else';
+    const isIf   = type === 'if';
 
-    const rowIndent = indent;
-    const li = document.createElement('li');
-    li.className = 'swipeout';
-    li.dataset.idx = idx;
-    
-    // Icon Logic for Action List
-    let icon = 'bolt_fill';
-    let iconBg = 'icon-bg-darkgray';
-    if (isIf || isElse || isEnd) { icon = 'arrow_triangle_branch'; iconBg = 'icon-bg-gray'; }
-    else if (action.includes('wifi')) { icon = 'wifi'; iconBg = 'icon-bg-blue'; }
-    else if (action.includes('bluetooth')) { icon = 'bluetooth'; iconBg = 'icon-bg-blue'; }
-    else if (action.includes('volume')) { icon = 'speaker_3_fill'; iconBg = 'icon-bg-blue'; }
-    else if (action.includes('delay')) { icon = 'timer'; iconBg = 'icon-bg-orange'; }
+    const rowIndent = (isEnd || isElse) ? Math.max(0, indent - 1) : indent;
+    const { icon, cls } = iconForCmd(action);
 
-    li.innerHTML = `
-      <div class="swipeout-content item-content" style="padding-left: ${16 + (rowIndent*20)}px">
-        <div class="item-media">
-          <div class="rc-icon ${iconBg}" style="width:24px;height:24px;border-radius:6px">
-            <i class="f7-icons" style="font-size:14px">${icon}</i>
-          </div>
-        </div>
-        <div class="item-inner">
-          <div class="item-title" style="font-size:16px;font-weight:400">${escHtml(String(displayName))}</div>
-          <div class="item-after" style="margin-right: -4px">
-            <i class="f7-icons" style="font-size:18px;color:#3a3a3c">bars</i>
-          </div>
-        </div>
+    const row = document.createElement('div');
+    row.className = 'action-list-row';
+    row.style.paddingLeft = `${16 + rowIndent * 20}px`;
+    row.style.borderBottom = '0.5px solid rgba(255,255,255,0.08)';
+    if (idx === actions.length - 1) row.style.borderBottom = 'none';
+
+    row.innerHTML = `
+      <div class="action-row-icon ${cls}" style="width:24px;height:24px;border-radius:6px;margin-right:12px">
+        <i class="f7-icons" style="font-size:13px">${icon}</i>
       </div>
-      <div class="swipeout-actions-right">
-        <a onclick="editAction(${idx})" style="background:#3a3a3c;color:#fff"><i class="f7-icons">pencil</i></a>
-        <a class="swipeout-delete bg-delete" onclick="removeAction(${idx})" style="color:#fff"><i class="f7-icons">trash_fill</i></a>
-      </div>`;
+      <div class="action-row-text">${escHtml(nameForCmd(action))}</div>
+      <i class="f7-icons action-row-handle">bars</i>
+    `;
 
-    li.addEventListener('dragstart', e => {
-      dragSrcIdx = idx;
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    li.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-    li.addEventListener('drop', e => {
+    // Swipe-to-delete on action rows
+    let aStartX = 0, aDx = 0, aDidSwipe = false, aDidMove = false;
+    const deleteBtn = document.createElement('div');
+    deleteBtn.style.cssText = 'position:absolute;right:0;top:0;bottom:0;width:0;background:#ff3b30;display:flex;align-items:center;justify-content:center;overflow:hidden;transition:width 0.2s;cursor:pointer;';
+    deleteBtn.innerHTML = `<i class="f7-icons" style="color:#fff;font-size:18px">trash_fill</i>`;
+    deleteBtn.addEventListener('click', e => { e.stopPropagation(); removeAction(idx); });
+    row.style.position = 'relative';
+    row.style.overflow = 'hidden';
+    row.appendChild(deleteBtn);
+
+    row.addEventListener('touchstart', e => {
+      if (actionSwipeOpen && actionSwipeOpen !== deleteBtn) {
+        actionSwipeOpen.style.width = '0';
+        actionSwipeOpen = null;
+      }
+      aStartX = e.touches[0].clientX; aDx = 0; aDidSwipe = false; aDidMove = false;
+    }, { passive: true });
+    row.addEventListener('touchmove', e => {
+      aDx = e.touches[0].clientX - aStartX;
+      if (!aDidMove && Math.abs(aDx) > 5) { aDidSwipe = true; }
+      aDidMove = true;
+      if (!aDidSwipe || aDx > 0) return;
       e.preventDefault();
-      if (dragSrcIdx === null || dragSrcIdx === idx) return;
-      const arr = triggerData(currentKey).actions;
-      const [item] = arr.splice(dragSrcIdx, 1);
-      arr.splice(idx, 0, item);
-      dragSrcIdx = null;
-      saveConfig(); renderActionList();
+      deleteBtn.style.width = `${Math.min(80, Math.abs(aDx))}px`;
+    }, { passive: false });
+    row.addEventListener('touchend', () => {
+      if (!aDidSwipe) return;
+      if (aDx < -40) {
+        deleteBtn.style.width = '80px';
+        actionSwipeOpen = deleteBtn;
+      } else {
+        deleteBtn.style.width = '0';
+        actionSwipeOpen = null;
+      }
     });
 
-    ul.appendChild(li);
+    card.appendChild(row);
 
-    if (isIf || isElse || type === 'repeat') indent++;
+    if (isIf || isElse) indent++;
     if (isEnd || isElse) indent = Math.max(0, indent - 1);
   });
 }
@@ -1165,19 +1244,7 @@ function removeAction(idx) {
   saveConfig(); renderActionList();
 }
 
-function editAction(idx) {
-  const cur = triggerData(currentKey).actions[idx];
-  const current = typeof cur === 'string' ? cur : JSON.stringify(cur);
-  showDialog('Edit Action', 'Command string:', current, 'Save', val => {
-    if (!val) return;
-    let parsed;
-    try { parsed = JSON.parse(val); } catch(e) { parsed = val; }
-    triggerData(currentKey).actions[idx] = parsed;
-    saveConfig(); renderActionList();
-  });
-}
-
-// ── Action Picker Panel ──────────────────────────────────────────────────────
+// ── Action picker ─────────────────────────────────────────────────────────────
 function showActionPickerPanel() {
   document.getElementById('action-search').value = '';
   renderPickerSections();
@@ -1188,129 +1255,73 @@ function closePickerPanel() {
   document.getElementById('picker-panel').classList.remove('active');
 }
 
-function filterActions() {
-  renderPickerSections();
-}
-
 function renderPickerSections() {
   const q = (document.getElementById('action-search').value || '').toLowerCase().trim();
   const content = document.getElementById('picker-content');
   content.innerHTML = '';
 
   let sections = ACTION_SECTIONS;
-
   if (q) {
     const all = ACTION_SECTIONS.flatMap(s => s.actions);
     const filtered = all.filter(a => a.name.toLowerCase().includes(q) || a.cmd.toLowerCase().includes(q));
-    sections = [{ title:'Search Results', actions: filtered }];
+    sections = [{ title:'Results', actions: filtered }];
   }
 
   sections.forEach(sec => {
     if (!sec.actions.length) return;
-
     const hdr = document.createElement('div');
-    hdr.className = 'block-title';
+    hdr.className = 'picker-section-header';
     hdr.textContent = sec.title.toUpperCase();
     content.appendChild(hdr);
 
-    const listDiv = document.createElement('div');
-    listDiv.className = 'list inset';
-    const ul = document.createElement('ul');
-
-    sec.actions.forEach(action => {
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <a class="item-link item-content" onclick="selectAction(${JSON.stringify(JSON.stringify(action))})">
-          <div class="item-media">
-            <div class="rc-icon icon-bg-darkgray"><i class="f7-icons">${action.icon}</i></div>
-          </div>
-          <div class="item-inner">
-            <div class="item-title">${action.name}</div>
-          </div>
-          ${action.needs_input ? `<div class="item-after"><i class="f7-icons" style="color:#555;font-size:14px">chevron_right</i></div>` : ''}
-        </a>`;
-      ul.appendChild(li);
+    const card = document.createElement('div');
+    card.className = 'action-list-card';
+    sec.actions.forEach(a => {
+      const row = document.createElement('div');
+      row.className = 'picker-row';
+      row.innerHTML = `
+        <div class="picker-row-icon icon-dark"><i class="f7-icons">${a.icon}</i></div>
+        <div class="picker-row-text">${escHtml(a.name)}</div>
+        ${a.needs_input ? `<i class="f7-icons picker-row-chevron">chevron_right</i>` : ''}
+      `;
+      // Use the encoded JSON string safely
+      row.addEventListener('click', () => selectAction(a));
+      card.appendChild(row);
     });
-
-    listDiv.appendChild(ul);
-    content.appendChild(listDiv);
+    content.appendChild(card);
   });
 
-  if (q && !sections[0]?.actions.length) {
+  if (q && (!sections[0] || !sections[0].actions.length)) {
     content.innerHTML = `<div style="text-align:center;color:#636366;padding:40px">No results for "${escHtml(q)}"</div>`;
   }
 }
 
-async function selectAction(actionJson) {
-  const action = JSON.parse(actionJson);
+async function selectAction(action) {
   const cmd = action.cmd;
 
-  if (cmd === '__DELAY__') {
-    showDialog('Add Delay', 'Enter delay in seconds:', '1.0', 'Add', val => {
+  const needsText = {
+    '__DELAY__':          { title:'Add Delay',        msg:'Seconds:', def:'1', type:'number', build: v => `delay ${v}` },
+    '__SET_VOLUME__':     { title:'Set Volume',        msg:'Value (0-100):', def:'50', type:'number', build: v => `set-vol ${Math.max(0,Math.min(100,+v||50))}` },
+    '__SET_BRIGHTNESS__': { title:'Set Brightness',    msg:'Value (0-100):', def:'50', type:'number', build: v => `brightness ${Math.max(0,Math.min(100,+v||50))}` },
+    '__SET_FLASHLIGHT__': { title:'Flashlight %',      msg:'Value (0-100):', def:'50', type:'number', build: v => `flashlight ${Math.max(0,Math.min(100,+v||50))}` },
+    '__BT_CONNECT__':     { title:'Connect BT Device', msg:'Device name:',   def:'',  type:'text',   build: v => `bt connect ${v}` },
+    '__BT_DISCONNECT__':  { title:'Disconnect BT',     msg:'Device name:',   def:'',  type:'text',   build: v => `bt disconnect ${v}` },
+    '__SHORTCUT__':       { title:'Run Shortcut',      msg:'Shortcut name:', def:'',  type:'text',   build: v => `shortcut:${v}` },
+    '__OPEN_APP__':       { title:'Open App',          msg:'Bundle ID:',     def:'',  type:'text',   build: v => `uiopen ${v}` },
+    '__LUA_SCRIPT__':     { title:'Lua Script',        msg:'Lua code:',      def:'',  type:'text',   build: v => `Lua ${v}` },
+    '__CUSTOM__':         { title:'Terminal Command',  msg:'Command:',       def:'',  type:'text',   build: v => `exec ${v}` },
+  };
+
+  if (needsText[cmd]) {
+    const d = needsText[cmd];
+    showDialog(d.title, d.msg, d.def, 'Add', val => {
       if (!val) return;
-      addAction(`delay ${val}`);
-    }, 'number');
+      addAction(d.build(val));
+    }, d.type);
     return;
   }
-  if (cmd === '__SET_VOLUME__') {
-    showDialog('Set Volume', 'Enter value (0–100):', '50', 'Set', val => {
-      if (!val) return;
-      addAction(`set-vol ${Math.max(0,Math.min(100,parseInt(val)||50))}`);
-    }, 'number');
-    return;
-  }
-  if (cmd === '__SET_BRIGHTNESS__') {
-    showDialog('Set Brightness', 'Enter value (0–100):', '50', 'Set', val => {
-      if (!val) return;
-      addAction(`brightness ${Math.max(0,Math.min(100,parseInt(val)||50))}`);
-    }, 'number');
-    return;
-  }
-  if (cmd === '__SET_FLASHLIGHT__') {
-    showDialog('Flashlight Intensity', 'Enter value (0–100):', '50', 'Set', val => {
-      if (!val) return;
-      addAction(`flashlight ${Math.max(0,Math.min(100,parseInt(val)||50))}`);
-    }, 'number');
-    return;
-  }
-  if (cmd === '__BT_CONNECT__') {
-    showDialog('Connect Bluetooth', 'Enter exact device name:', '', 'Add', val => {
-      if (val) addAction(`bt connect ${val}`);
-    });
-    return;
-  }
-  if (cmd === '__BT_DISCONNECT__') {
-    showDialog('Disconnect Bluetooth', 'Enter exact device name:', '', 'Add', val => {
-      if (val) addAction(`bt disconnect ${val}`);
-    });
-    return;
-  }
-  if (cmd === '__SHORTCUT__') {
-    showDialog('Run Shortcut', 'Enter shortcut name:', '', 'Add', val => {
-      if (val) addAction(`shortcut:${val}`);
-    });
-    return;
-  }
-  if (cmd === '__OPEN_APP__') {
-    showDialog('Open App', 'Enter bundle ID (e.g. com.apple.mobilemail):', '', 'Add', val => {
-      if (val) addAction(`uiopen ${val}`);
-    });
-    return;
-  }
-  if (cmd === '__LUA_SCRIPT__') {
-    showDialog('Lua Script', 'Enter Lua code:', '', 'Add', val => {
-      if (val) addAction(`Lua ${val}`);
-    });
-    return;
-  }
-  if (cmd === '__CUSTOM__') {
-    showDialog('Terminal Command', 'Enter command:', '', 'Add', val => {
-      if (val) addAction(`exec ${val}`);
-    });
-    return;
-  }
+
   if (cmd === '__IF_CONDITION__') {
-    // Multi-step: pick condition then value
     showConditionPicker();
     return;
   }
@@ -1320,111 +1331,102 @@ async function selectAction(actionJson) {
 }
 
 function addAction(cmd) {
+  if (!currentKey) return;
   const data = triggerData(currentKey);
   if (!data.actions) data.actions = [];
   data.actions.push(cmd);
-  if (!data.enabled && data.actions.length > 0) data.enabled = true;
-  saveConfig(); renderActionList();
-  document.getElementById('trigger-enabled-toggle').checked = true;
+  if (!data.enabled) { data.enabled = true; document.getElementById('trigger-enabled-toggle').checked = true; }
+  saveConfig();
+  renderActionList();
   closePickerPanel();
 }
 
-// ── Condition picker ─────────────────────────────────────────────────────────
 function showConditionPicker() {
   const btns = CONDITION_DEFS.map(c => ({
     label: c.title,
     action: () => {
-      if (c.values) {
+      if (c.freeText) {
+        showDialog(`If ${c.title}`, 'App bundle ID (e.g. com.apple.Music):', '', 'Add', val => {
+          if (!val) return;
+          const ifAction = { type:'if', conditionKey:c.key, conditionTitle:c.title, expectedValue:val, expectedTitle:val };
+          const data = triggerData(currentKey);
+          if (!data.actions) data.actions = [];
+          data.actions.push(ifAction, { type:'end_if' });
+          saveConfig(); renderActionList(); closePickerPanel();
+        });
+      } else if (c.values) {
         showSheet(`${c.title} is…`, c.values.map(v => ({
           label: v.title,
           action: () => {
-            const ifAction = {
-              type:'if', conditionKey:c.key, conditionTitle:c.title,
-              expectedValue:v.value, expectedTitle:v.title
-            };
+            const ifAction = { type:'if', conditionKey:c.key, conditionTitle:c.title, expectedValue:v.value, expectedTitle:v.title };
             const data = triggerData(currentKey);
             if (!data.actions) data.actions = [];
             data.actions.push(ifAction, { type:'end_if' });
-            saveConfig(); renderActionList();
-            closePickerPanel();
+            saveConfig(); renderActionList(); closePickerPanel();
           }
         })));
       }
     }
   }));
-  showSheet('If Condition — Choose status', btns);
+  showSheet('If Condition', btns);
 }
 
-// ── Add trigger sheet ────────────────────────────────────────────────────────
+// ── Add trigger ───────────────────────────────────────────────────────────────
 function showAddTriggerSheet() {
   showSheet('New Trigger', [
-    { label:'NFC Tag',            action:() => promptNewTrigger('nfc', 'NFC identifier') },
-    { label:'WiFi Network',       action:() => promptNewTrigger('wifi', 'Network SSID') },
-    { label:'Bluetooth Device',   action:() => promptNewTrigger('bt', 'Device name') },
-    { label:'App Launch',         action:() => promptNewTrigger('app_launch', 'Bundle ID (e.g. com.apple.mobilemail)') },
-    { label:'Notification',       action:() => promptNewTrigger('notif', 'App bundle ID') },
-    { label:'Scheduled Trigger',  action:() => promptNewTrigger('sched', 'Trigger name (e.g. morning)') },
+    { label:'NFC Tag',           action:() => promptNewTrigger('nfc',        'NFC tag ID or name') },
+    { label:'WiFi Network',      action:() => promptNewTrigger('wifi',       'Network SSID') },
+    { label:'Bluetooth Device',  action:() => promptNewTrigger('bt',         'Device name') },
+    { label:'App Launch',        action:() => promptNewTrigger('app_launch', 'Bundle ID (e.g. com.apple.Music)') },
+    { label:'Notification',      action:() => promptNewTrigger('notif',      'App bundle ID') },
+    { label:'Scheduled',         action:() => promptNewTrigger('sched',      'Trigger name (e.g. morning)') },
   ]);
 }
 
 function promptNewTrigger(prefix, placeholder) {
   showDialog('New Trigger', placeholder + ':', '', 'Create', val => {
     if (!val) return;
-    const key = `${prefix}_${val.toLowerCase().replace(/\s+/g,'_')}`;
+    const key = `${prefix}_${val.toLowerCase().replace(/\s+/g,'_').replace(/[^a-z0-9_]/g,'')}`;
     config.triggers[key] = { enabled: true, actions: [], name: val };
     saveConfig(); renderAll();
   });
 }
 
-// ── Settings panel ───────────────────────────────────────────────────────────
+// ── Settings ──────────────────────────────────────────────────────────────────
 function openSettings() {
   document.getElementById('setting-master').checked = !!config.masterEnabled;
   document.getElementById('setting-nfc').checked    = !!config.nfcEnabled;
   document.getElementById('setting-webui').checked  = !!config.webUIEnabled;
   document.getElementById('settings-panel').classList.add('active');
-  document.body.style.overflow = 'hidden';
 }
 function closeSettings() {
   document.getElementById('settings-panel').classList.remove('active');
-  document.body.style.overflow = '';
-}
-function onSettingChange(key, val) {
-  config[key] = val;
-  saveConfig();
 }
 
 function exportConfig() {
   const blob = new Blob([JSON.stringify(config, null, 2)], { type:'application/json' });
   const url  = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `rc_config_${formatDate()}.json`; a.click();
+  const d = new Date();
+  a.href = url;
+  a.download = `rc_config_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.json`;
+  a.click();
   URL.revokeObjectURL(url);
 }
-function formatDate() {
-  const d = new Date();
-  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
-}
-function pad(n) { return String(n).padStart(2,'0'); }
-
-function importConfig() {
-  document.getElementById('import-file-input').click();
-}
+function importConfig() { document.getElementById('import-file-input').click(); }
 function handleImportFile(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const imported = JSON.parse(e.target.result);
-      // Merge triggers
-      if (imported.triggers) Object.assign(config.triggers, imported.triggers);
-      if (imported.masterEnabled !== undefined) config.masterEnabled = imported.masterEnabled;
-      if (imported.nfcEnabled !== undefined) config.nfcEnabled = imported.nfcEnabled;
-      saveConfig(); renderAll(); openSettings(); // refresh toggles
+      const imp = JSON.parse(e.target.result);
+      if (imp.triggers) Object.assign(config.triggers, imp.triggers);
+      if (imp.masterEnabled !== undefined) config.masterEnabled = imp.masterEnabled;
+      if (imp.nfcEnabled !== undefined) config.nfcEnabled = imp.nfcEnabled;
+      saveConfig(); renderAll();
       showToast('✓ Import successful');
-    } catch(err) {
-      showToast('⚠ Invalid config file');
-    }
+    } catch { showToast('⚠ Invalid config file'); }
   };
   reader.readAsText(file);
   input.value = '';
@@ -1437,20 +1439,20 @@ function showSheet(title, buttons) {
   container.innerHTML = '';
   buttons.forEach(btn => {
     const b = document.createElement('button');
-    b.className = 'rc-sheet-btn' + (btn.destructive ? ' destructive' : '');
+    b.className = 'sheet-btn' + (btn.destructive ? ' destructive' : '');
     b.textContent = btn.label;
-    b.onclick = () => { closeSheet(); btn.action && btn.action(); };
+    b.addEventListener('click', () => { closeSheet(); if (btn.action) btn.action(); });
     container.appendChild(b);
   });
-  document.getElementById('sheet-backdrop').style.display = 'block';
+  document.getElementById('sheet-backdrop').classList.add('visible');
   requestAnimationFrame(() => document.getElementById('sheet').classList.add('open'));
 }
 function closeSheet() {
   document.getElementById('sheet').classList.remove('open');
-  setTimeout(() => { document.getElementById('sheet-backdrop').style.display = 'none'; }, 320);
+  setTimeout(() => document.getElementById('sheet-backdrop').classList.remove('visible'), 320);
 }
 
-// ── Dialog ───────────────────────────────────────────────────────────────────
+// ── Dialog ────────────────────────────────────────────────────────────────────
 function showDialog(title, msg, defaultVal, okLabel, callback, inputType='text') {
   document.getElementById('dialog-title').textContent = title;
   document.getElementById('dialog-msg').textContent = msg;
@@ -1458,7 +1460,6 @@ function showDialog(title, msg, defaultVal, okLabel, callback, inputType='text')
   input.type = inputType === 'number' ? 'number' : 'text';
   input.value = defaultVal || '';
   document.getElementById('dialog-ok').textContent = okLabel || 'OK';
-  document.getElementById('dialog-ok').className = '';
   dialogCallback = callback;
   document.getElementById('dialog-backdrop').classList.add('visible');
   setTimeout(() => input.focus(), 100);
@@ -1478,12 +1479,18 @@ document.getElementById('dialog-input').addEventListener('keydown', e => {
   if (e.key === 'Escape') closeDialog();
 });
 
-// ── Toast ────────────────────────────────────────────────────────────────────
+// ── Toast ─────────────────────────────────────────────────────────────────────
 let _toastTimer;
 function showToast(msg) {
   clearTimeout(_toastTimer);
-  app.toast.create({ text: msg, closeTimeout: 1800 }).open();
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 2000);
 }
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+loadData();
 </script>
 </body>
 </html>
