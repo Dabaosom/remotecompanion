@@ -9,7 +9,7 @@
   <title>RemoteCompanion</title>
 
   <link rel="stylesheet" href="https://unpkg.com/framework7@8.3.1/framework7-bundle.min.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/framework7io/framework7-icons/css/framework7-icons.css">
+  <link rel="stylesheet" href="https://unpkg.com/framework7-icons@5.0.5/css/framework7-icons.css">
 
   <style>
     :root {
@@ -41,8 +41,11 @@
     .navbar {
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
-      background: rgba(0,0,0,0.72) !important;
+      background: rgba(0,0,0,0.72);
       border-bottom: 0.5px solid rgba(255,255,255,0.1);
+    }
+    .navbar.navbar-transparent {
+      background: transparent;
     }
     .navbar-inner .title { color: #fff; font-weight: 600; }
     .navbar-inner .link { color: #fff; }
@@ -108,9 +111,11 @@
       display: flex; align-items: center; justify-content: center;
       margin: 4px 0;
       flex-shrink: 0;
+      overflow: hidden; /* Prevent text spill if font fails */
     }
     .item-media .rc-icon i {
       font-size: 16px; color: #fff; line-height: 1;
+      display: block; font-display: block;
     }
     .icon-bg-blue    { background: linear-gradient(180deg, #5ac8fa 0%, #007aff 100%); }
     .icon-bg-orange  { background: linear-gradient(180deg, #ffcc00 0%, #ff9500 100%); }
