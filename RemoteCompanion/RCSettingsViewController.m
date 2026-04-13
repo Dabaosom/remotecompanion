@@ -9,6 +9,7 @@
 @property (nonatomic, strong) UILabel *appTitleLabel;
 @property (nonatomic, strong) UISwitch *masterSwitch;
 @property (nonatomic, strong) UISwitch *nfcSwitch;
+@property (nonatomic, strong) UISwitch *webUISwitch;
 @end
 
 @implementation RCSettingsViewController
@@ -152,7 +153,7 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    if (section == 0) return 3; // Master + NFC + Flashlight
+    if (section == 0) return 4; // Master + NFC + Flashlight + WebUI
     return 2; // Export, Import
 }
 
@@ -198,6 +199,13 @@
             
             cell.accessoryView = slider;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        } else if (indexPath.row == 3) {
+            cell.textLabel.text = @"Web UI (Port 8080)";
+            _webUISwitch = [[UISwitch alloc] init];
+            _webUISwitch.on = [RCConfigManager sharedManager].webUIEnabled;
+            [_webUISwitch addTarget:self action:@selector(webUIToggleChanged:) forControlEvents:UIControlEventValueChanged];
+            cell.accessoryView = _webUISwitch;
+            cell.selectionStyle = UITableViewCellSelectionStyleNone;
         }
     } else {
         if (indexPath.row == 0) {
@@ -238,6 +246,10 @@
 
 - (void)nfcToggleChanged:(UISwitch *)sender {
     [RCConfigManager sharedManager].nfcEnabled = sender.on;
+}
+
+- (void)webUIToggleChanged:(UISwitch *)sender {
+    [RCConfigManager sharedManager].webUIEnabled = sender.on;
 }
 
 - (void)flashlightBrightnessChanged:(UISlider *)sender {
@@ -347,6 +359,7 @@
     if (success) {
         _masterSwitch.on = [RCConfigManager sharedManager].masterEnabled;
         _nfcSwitch.on = [RCConfigManager sharedManager].nfcEnabled;
+        _webUISwitch.on = [RCConfigManager sharedManager].webUIEnabled;
         [self.tableView reloadData];
         
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import Successful" message:@"Configuration restored. Return to Triggers to see changes." preferredStyle:UIAlertControllerStyleAlert];

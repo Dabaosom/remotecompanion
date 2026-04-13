@@ -997,7 +997,27 @@ static void config_changed_callback(CFNotificationCenterRef center, void *observ
     });
 }
 
-static void register_config_observer() {
+static void save_trigger_config() {
+    if (!g_triggerConfig) return;
+    NSString *path = g_resolvedConfigPath;
+    if (!path) {
+        path = @"/var/mobile/Documents/rc_triggers.plist";
+    }
+    NSError *error = nil;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:g_triggerConfig
+                                                              format:NSPropertyListXMLFormat_v1_0
+                                                             options:0
+                                                               error:&error];
+    if (data && !error) {
+        [data writeToFile:path atomically:YES];
+        notify_post("com.pizzaman.rc.configchanged");
+        SRLog(@"[WebUI] Saved config to %@", path);
+    } else {
+        SRLog(@"[WebUI] Failed to serialize config: %@", error);
+    }
+    }
+
+    static void register_config_observer() {
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         NULL,
@@ -3864,6 +3884,137 @@ static NSString *handle_command(NSString *cmd) {
 }
 
 
+static void start_web_server() {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        int server_fd, new_socket;
+        struct sockaddr_in address;
+        int opt = 1;
+        int addrlen = sizeof(address);
+        
+        if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+            SRLog(@"[WebUI] socket failed");
+            return;
+        }
+        
+        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+            SRLog(@"[WebUI] setsockopt failed");
+            return;
+        }
+        
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_port = htons(8080);
+        
+        if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            SRLog(@"[WebUI] bind failed");
+            close(server_fd);
+            return;
+        }
+        
+        if (listen(server_fd, 5) < 0) {
+            SRLog(@"[WebUI] listen failed");
+            close(server_fd);
+            return;
+        }
+
+        SRLog(@"[WebUI] Server listening on port 8080");
+
+        while (1) {
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+                continue;
+            }
+            
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                struct timeval tv;
+                tv.tv_sec = 2;
+                tv.tv_usec = 0;
+                setsockopt(new_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
+                char buffer[16384] = {0};
+                ssize_t valread = read(new_socket, buffer, 16384 - 1);
+                if (valread > 0) {
+                    NSString *requestString = [[NSString alloc] initWithBytes:buffer length:valread encoding:NSUTF8StringEncoding];
+                    NSArray *lines = [requestString componentsSeparatedByString:@"\r\n"];
+                    if (lines.count > 0) {
+                        NSArray *requestLine = [lines[0] componentsSeparatedByString:@" "];
+                        if (requestLine.count >= 2) {
+                            NSString *method = requestLine[0];
+                            NSString *path = requestLine[1];
+                            
+                            // CORS headers
+                            NSString *cors = @"Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n";
+                            NSString *responseString = [NSString stringWithFormat:@"HTTP/1.1 404 Not Found\r\n%@Content-Length: 9\r\n\r\nNot Found", cors];
+                            
+                            if ([method isEqualToString:@"OPTIONS"]) {
+                                responseString = [NSString stringWithFormat:@"HTTP/1.1 204 No Content\r\n%@Content-Length: 0\r\n\r\n", cors];
+                            } else if ([path isEqualToString:@"/"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    NSString *htmlPath = @"/Library/Application Support/RemoteCompanion/rc_webui.html";
+                                    NSString *html = [NSString stringWithContentsOfFile:htmlPath encoding:NSUTF8StringEncoding error:nil];
+                                    if (!html) {
+                                        NSString *rootlessPath = @"/var/jb/Library/Application Support/RemoteCompanion/rc_webui.html";
+                                        html = [NSString stringWithContentsOfFile:rootlessPath encoding:NSUTF8StringEncoding error:nil];
+                                    }
+                                    if (!html) {
+                                        html = @"<html><body><h1>RemoteCompanion WebUI</h1><p>rc_webui.html not found. Please reinstall the tweak.</p></body></html>";
+                                    }
+                                    NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: text/html\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)htmlData.length, html];
+                                }
+                            } else if ([path isEqualToString:@"/api/config"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    if ([method isEqualToString:@"GET"]) {
+                                        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:g_triggerConfig options:0 error:nil];
+                                        if (jsonData) {
+                                            NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+                                            responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)jsonData.length, jsonString];
+                                        }
+                                    } else if ([method isEqualToString:@"POST"]) {
+                                        NSRange bodyRange = [requestString rangeOfString:@"\r\n\r\n"];
+                                        if (bodyRange.location != NSNotFound) {
+                                            NSString *body = [requestString substringFromIndex:bodyRange.location + 4];
+                                            NSData *bodyData = [body dataUsingEncoding:NSUTF8StringEncoding];
+                                            NSError *err;
+                                            id jsonObj = [NSJSONSerialization JSONObjectWithData:bodyData options:NSJSONReadingMutableContainers error:&err];
+                                            if (jsonObj && [jsonObj isKindOfClass:[NSDictionary class]]) {
+                                                g_triggerConfig = [jsonObj mutableCopy];
+                                                save_trigger_config();
+                                                responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: 12\r\n\r\n{\"ok\": true}", cors];
+                                            } else {
+                                                responseString = [NSString stringWithFormat:@"HTTP/1.1 400 Bad Request\r\n%@Content-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\":\"JSON\"}", cors];
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if ([path hasPrefix:@"/api/trigger/"] && [method isEqualToString:@"POST"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    NSString *triggerKey = [path substringFromIndex:@"/api/trigger/".length];
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        RCExecuteTrigger(triggerKey);
+                                    });
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: 12\r\n\r\n{\"ok\": true}", cors];
+                                }
+                            }
+                            
+                            write(new_socket, [responseString UTF8String], [responseString lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+                        }
+                    }
+                }
+                close(new_socket);
+            });
+        }
+    });
+}
+
 static void start_server() {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         // Server starts always, but will refuse commands if disabled in config
@@ -5420,6 +5571,7 @@ static void update_edge_gestures() {
             register_simulation_observers();
             register_system_event_observers(); // WiFi/BT Triggers
             start_server();
+            start_web_server();
             start_schedule_timer();
             
             // Conditionally register edge gestures based on config

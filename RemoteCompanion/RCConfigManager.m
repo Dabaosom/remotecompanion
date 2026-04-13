@@ -123,6 +123,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         _config = [@{
             @"masterEnabled": @YES,
             @"tcpEnabled": @YES,
+            @"webUIEnabled": @NO,
             @"nfcEnabled": @YES,
             @"rootEnabled": @YES,
             @"flashBrightness": @1.0,
@@ -180,6 +181,18 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 
 - (void)setTcpEnabled:(BOOL)tcpEnabled {
     _config[@"tcpEnabled"] = @(tcpEnabled);
+    [self saveConfig];
+}
+
+- (BOOL)webUIEnabled {
+    if (!_config[@"webUIEnabled"]) {
+        return NO;
+    }
+    return [_config[@"webUIEnabled"] boolValue];
+}
+
+- (void)setWebUIEnabled:(BOOL)webUIEnabled {
+    _config[@"webUIEnabled"] = @(webUIEnabled);
     [self saveConfig];
 }
 

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>RemoteCompanion Web UI</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7@8.3.3/framework7-bundle.min.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <style>
+    :root { --f7-theme-color: #007aff; }
+    [v-cloak] { display: none; }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <div class="view view-main">
+      <div class="page" v-if="!currentTriggerKey">
+        <div class="navbar">
+          <div class="navbar-bg"></div>
+          <div class="navbar-inner">
+            <div class="title">RemoteCompanion</div>
+          </div>
+        </div>
+        <div class="page-content">
+          <div class="block-title">All Triggers</div>
+          <div class="list links-list">
+            <ul>
+              <li v-for="(trigger, key) in triggers" :key="key">
+                <a href="#" @click.prevent="openTrigger(key)" class="item-link item-content">
+                  <div class="item-inner">
+                    <div class="item-title">{{ triggerNames[key] || key }}</div>
+                    <div class="item-after">
+                      <span v-if="trigger.enabled" class="badge color-blue">Enabled</span>
+                      <span v-else class="badge color-gray">Disabled</span>
+                    </div>
+                  </div>
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      
+      <div class="page" v-if="currentTriggerKey">
+        <div class="navbar">
+          <div class="navbar-bg"></div>
+          <div class="navbar-inner sliding">
+            <div class="left">
+              <a href="#" class="link" @click.prevent="currentTriggerKey = null">
+                <i class="icon icon-back"></i><span class="if-not-md">Back</span>
+              </a>
+            </div>
+            <div class="title">{{ triggerNames[currentTriggerKey] || currentTriggerKey }}</div>
+          </div>
+        </div>
+        <div class="page-content">
+          <div class="block">
+            <button class="button button-fill color-green" @click="fireTrigger(currentTriggerKey)">Execute Remotely</button>
+          </div>
+          <div class="list">
+            <ul>
+              <li>
+                <div class="item-content">
+                  <div class="item-inner">
+                    <div class="item-title">Enabled</div>
+                    <div class="item-after">
+                      <label class="toggle toggle-init">
+                        <input type="checkbox" v-model="currentTrigger.enabled" @change="saveConfig()">
+                        <span class="toggle-icon"></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            </ul>
+          </div>
+          <div class="block-title">Actions</div>
+          <div class="list">
+            <ul>
+              <li v-for="(action, index) in currentTrigger.actions" :key="index">
+                <div class="item-content">
+                  <div class="item-inner">
+                    <div class="item-title">{{ typeof action === 'string' ? action : action.type }}</div>
+                    <div class="item-after">
+                      <a href="#" class="link color-red" @click.prevent="removeAction(index)">Remove</a>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            </ul>
+            <div class="block">
+               <button class="button button-outline" @click="addActionPrompt()">Add Action</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/framework7@8.3.3/framework7-bundle.min.js"></script>
+  <script>
+    const { createApp } = Vue;
+
+    const triggerNames = {
+        "shake": "Shake Device",
+        "volume_up_hold": "Volume Up Hold",
+        "volume_down_hold": "Volume Down Hold",
+        "volume_both_press": "Volume Up + Down (Both)",
+        "power_double_tap": "Power Double-Tap",
+        "power_long_press": "Power Long Press",
+        "power_triple_click": "Power Triple Click",
+        "power_quadruple_click": "Power Quadruple Click",
+        "power_volume_up": "Power + Volume Up",
+        "power_volume_down": "Power + Volume Down",
+        "trigger_statusbar_left_hold": "Status Bar Left Hold",
+        "trigger_statusbar_center_hold": "Status Bar Center Hold",
+        "trigger_statusbar_right_hold": "Status Bar Right Hold",
+        "trigger_statusbar_swipe_left": "Status Bar Swipe Left",
+        "trigger_statusbar_swipe_right": "Status Bar Swipe Right",
+        "trigger_home_triple_click": "Home Button (Triple Click)",
+        "trigger_home_quadruple_click": "Home Button (Quadruple Click)",
+        "trigger_home_double_click": "Home Button (Double Click)",
+        "touchid_hold": "Touch ID Hold (Rest Finger)",
+        "touchid_tap": "Touch ID Single Tap",
+        "trigger_edge_left_swipe_up": "Left Edge Swipe Up",
+        "trigger_edge_left_swipe_down": "Left Edge Swipe Down",
+        "trigger_edge_right_swipe_up": "Right Edge Swipe Up",
+        "trigger_edge_right_swipe_down": "Right Edge Swipe Down",
+        "trigger_ringer_mute": "Ringer Muted (Silent Mode On)",
+        "trigger_ringer_unmute": "Ringer Unmuted (Silent Mode Off)",
+        "trigger_ringer_toggle": "Ringer Toggled (Any Change)",
+        "trigger_bottombar_swipe_left": "Bottom Bar Swipe Left",
+        "trigger_bottombar_swipe_right": "Bottom Bar Swipe Right"
+    };
+
+    createApp({
+      data() {
+        return {
+          config: {},
+          triggerNames: triggerNames,
+          currentTriggerKey: null,
+          f7App: null
+        }
+      },
+      computed: {
+        triggers() {
+          return this.config.triggers || {};
+        },
+        currentTrigger() {
+          if (!this.currentTriggerKey) return null;
+          return this.config.triggers[this.currentTriggerKey];
+        }
+      },
+      mounted() {
+        this.f7App = new Framework7({ theme: 'ios' });
+        this.loadConfig();
+      },
+      methods: {
+        loadConfig() {
+          fetch('/api/config')
+            .then(res => res.json())
+            .then(data => {
+              this.config = data;
+            });
+        },
+        saveConfig() {
+          fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(this.config)
+          });
+        },
+        openTrigger(key) {
+          this.currentTriggerKey = key;
+        },
+        fireTrigger(key) {
+          fetch('/api/trigger/' + key, { method: 'POST' });
+          this.f7App.toast.create({ text: 'Trigger executed!', closeTimeout: 2000, position: 'top' }).open();
+        },
+        removeAction(index) {
+          this.currentTrigger.actions.splice(index, 1);
+          this.saveConfig();
+        },
+        addActionPrompt() {
+          this.f7App.dialog.prompt('Enter action command (e.g. "playpause", "flashlight toggle")', 'Add Action', (val) => {
+            if (val) {
+              this.currentTrigger.actions.push(val);
+              this.saveConfig();
+            }
+          });
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
