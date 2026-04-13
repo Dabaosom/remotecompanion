@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [3.0.0] - 2026-04-13
 
 ### Added
+- **Refactored Web UI**: Completely redesigned the web interface to match the iOS app's premium "Inset Grouped" aesthetic. 
+  - **Premium Design**: Modern iOS-consistent look with glassmorphism on the navigation bar, SF Symbols-style iconography, and high-contrast dark mode.
+  - **Full Automation Management**: Creating, renaming, and deleting dynamic triggers (NFC, WiFi, BT, App Launch, Notifications, Scheduled) is now fully supported from the browser.
+  - **Advanced Action Editor**: A powerful new sequence editor with reorderable actions, support for logic blocks (`If/Else/End`), and inline value editing.
+  - **Remote Execution**: Added "Execute" buttons to every trigger for instant remote testing and verification.
+  - **Favorites Access**: Pinned "Favorites" section mirroring the iOS app's home screen.
 - **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups, automated system checks, or time-based alerts.
 - **Notification Triggers**: Bind actions to incoming notifications from any app. Filter by bundle ID or specific text within the notification (title/subtitle/message).
 - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 to set the brightness level of the device torch (e.g., `rc flashlight 50`).
 - **Schedule Configuration UI**: A new, intuitive picker for selecting execution time and repeat days (Daily or specific weekdays).
+
 
 ## [2.4.0~beta1] - 2026-03-23
 

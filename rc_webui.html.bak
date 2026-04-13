@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>RemoteCompanion Web UI</title>
+  <!-- Framework7 iOS theme CSS -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7@8.3.3/framework7-bundle.min.css">
+  <style>
+    :root {
+      --f7-theme-color: #007aff;
+    }
+    .action-icon {
+      font-size: 22px;
+      color: var(--f7-theme-color);
+      width: 28px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="view view-main">
+      <div class="page" data-name="home">
+        <div class="navbar">
+          <div class="navbar-bg"></div>
+          <div class="navbar-inner">
+            <div class="title">RemoteCompanion</div>
+          </div>
+        </div>
+        <div class="page-content">
+          <div class="block-title">All Triggers</div>
+          <div class="list inset" id="triggers-list">
+             <div class="block text-align-center"><div class="preloader"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template for Trigger Detail -->
+  <script type="text/template" id="trigger-detail-template">
+    <div class="page" data-name="trigger-detail">
+      <div class="navbar">
+        <div class="navbar-bg"></div>
+        <div class="navbar-inner sliding">
+          <div class="left">
+            <a href="#" class="link back">
+              <i class="icon icon-back"></i>
+              <span class="if-not-md">Back</span>
+            </a>
+          </div>
+          <div class="title">{{title}}</div>
+          <div class="right">
+            <a href="#" class="link" onclick="executeTrigger('{{key}}')">Test</a>
+          </div>
+        </div>
+      </div>
+      <div class="page-content">
+        <div class="block-title">Settings</div>
+        <div class="list inset">
+          <ul>
+            <li>
+              <div class="item-content">
+                <div class="item-inner">
+                  <div class="item-title">Enabled</div>
+                  <div class="item-after">
+                    <label class="toggle toggle-init">
+                      <input type="checkbox" id="trigger-enabled-toggle" {{#if enabled}}checked{{/if}} onchange="toggleTriggerEnabled('{{key}}')">
+                      <span class="toggle-icon"></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </li>
+          </ul>
+        </div>
+        
+        <div class="block-title">Actions Sequence</div>
+        <div class="list inset sortable" id="actions-sequence-list">
+          <ul>
+            <!-- Actions injected here -->
+          </ul>
+        </div>
+        <div class="list inset">
+          <ul>
+            <li>
+              <a href="#" class="item-link list-button" onclick="openActionPicker('{{key}}')">Add Action</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </script>
+
+  <!-- Template for Action Picker -->
+  <script type="text/template" id="action-picker-template">
+    <div class="page" data-name="action-picker">
+      <div class="navbar">
+        <div class="navbar-bg"></div>
+        <div class="navbar-inner sliding">
+          <div class="left">
+            <a href="#" class="link back">Cancel</a>
+          </div>
+          <div class="title">Select Action</div>
+        </div>
+      </div>
+      <div class="page-content">
+        <div id="action-categories-container"></div>
+      </div>
+    </div>
+  </script>
+
+  <!-- Framework7 JS -->
+  <script src="https://cdn.jsdelivr.net/npm/framework7@8.3.3/framework7-bundle.min.js"></script>
+  <script>
+    const triggerNames = {
+        "shake": "Shake Device",
+        "volume_up_hold": "Volume Up Hold",
+        "volume_down_hold": "Volume Down Hold",
+        "volume_both_press": "Volume Up + Down (Both)",
+        "power_double_tap": "Power Double-Tap",
+        "power_long_press": "Power Long Press",
+        "power_triple_click": "Power Triple Click",
+        "power_quadruple_click": "Power Quadruple Click",
+        "power_volume_up": "Power + Volume Up",
+        "power_volume_down": "Power + Volume Down",
+        "trigger_statusbar_left_hold": "Status Bar Left Hold",
+        "trigger_statusbar_center_hold": "Status Bar Center Hold",
+        "trigger_statusbar_right_hold": "Status Bar Right Hold",
+        "trigger_statusbar_swipe_left": "Status Bar Swipe Left",
+        "trigger_statusbar_swipe_right": "Status Bar Swipe Right",
+        "trigger_home_triple_click": "Home Button (Triple)",
+        "trigger_home_quadruple_click": "Home Button (Quad)",
+        "trigger_home_double_click": "Home Button (Double)",
+        "touchid_hold": "Touch ID Hold",
+        "touchid_tap": "Touch ID Tap",
+        "trigger_edge_left_swipe_up": "Left Edge Swipe Up",
+        "trigger_edge_left_swipe_down": "Left Edge Swipe Down",
+        "trigger_edge_right_swipe_up": "Right Edge Swipe Up",
+        "trigger_edge_right_swipe_down": "Right Edge Swipe Down",
+        "trigger_ringer_mute": "Ringer Muted",
+        "trigger_ringer_unmute": "Ringer Unmuted",
+        "trigger_ringer_toggle": "Ringer Toggled",
+        "trigger_bottombar_swipe_left": "Bottom Bar Swipe Left",
+        "trigger_bottombar_swipe_right": "Bottom Bar Swipe Right"
+    };
+
+    const actionCategories = [
+        {
+            title: "Media",
+            items: [
+                {"name": "Play", "command": "play", "icon": "▶️"},
+                {"name": "Pause", "command": "pause", "icon": "⏸️"},
+                {"name": "Play/Pause Toggle", "command": "playpause", "icon": "⏯️"},
+                {"name": "Next Track", "command": "next", "icon": "⏭️"},
+                {"name": "Previous Track", "command": "prev", "icon": "⏮️"},
+                {"name": "Volume Up", "command": "volume up", "icon": "🔊"},
+                {"name": "Volume Down", "command": "volume down", "icon": "🔉"},
+                {"name": "Set Volume...", "command": "__SET_VOLUME__", "icon": "🔈"},
+                {"name": "Set Brightness...", "command": "__SET_BRIGHTNESS__", "icon": "☀️"}
+            ]
+        },
+        {
+            title: "Device Controls",
+            items: [
+                {"name": "Set Flashlight...", "command": "__SET_FLASHLIGHT__", "icon": "🔦"},
+                {"name": "Flashlight Toggle", "command": "flashlight toggle", "icon": "🔦"},
+                {"name": "Flashlight On", "command": "flashlight on", "icon": "🔦"},
+                {"name": "Flashlight Off", "command": "flashlight off", "icon": "🔦"},
+                {"name": "Rotate Lock", "command": "rotate lock", "icon": "🔒"},
+                {"name": "Rotate Unlock", "command": "rotate unlock", "icon": "🔓"},
+                {"name": "Rotate Toggle", "command": "rotate toggle", "icon": "🔄"}
+            ]
+        },
+        {
+            title: "Connectivity",
+            items: [
+                {"name": "WiFi On", "command": "wifi on", "icon": "📶"},
+                {"name": "WiFi Off", "command": "wifi off", "icon": "🛜"},
+                {"name": "WiFi Toggle", "command": "wifi toggle", "icon": "📶"},
+                {"name": "Bluetooth On", "command": "bluetooth on", "icon": "🔵"},
+                {"name": "Bluetooth Off", "command": "bluetooth off", "icon": "⭕"},
+                {"name": "Bluetooth Toggle", "command": "bluetooth toggle", "icon": "🔵"},
+                {"name": "Airplane Mode On", "command": "airplane on", "icon": "✈️"},
+                {"name": "Airplane Mode Off", "command": "airplane off", "icon": "✈️"},
+                {"name": "Airplane Mode Toggle", "command": "airplane toggle", "icon": "✈️"},
+                {"name": "Connect Bluetooth...", "command": "__BT_CONNECT__", "icon": "🔗"},
+                {"name": "Disconnect Bluetooth...", "command": "__BT_DISCONNECT__", "icon": "❌"},
+                {"name": "Connect AirPlay...", "command": "__AIRPLAY_CONNECT__", "icon": "📺"},
+                {"name": "Disconnect AirPlay", "command": "airplay disconnect", "icon": "📺"}
+            ]
+        },
+        {
+            title: "System",
+            items: [
+                {"name": "Haptic Feedback", "command": "haptic", "icon": "📳"},
+                {"name": "Screenshot", "command": "screenshot", "icon": "📸"},
+                {"name": "Run Shortcut...", "command": "__SHORTCUT_PICKER__", "icon": "⚙️"},
+                {"name": "Open App...", "command": "__OPEN_APP__", "icon": "📱"},
+                {"name": "Lock Device", "command": "lock", "icon": "🔒"},
+                {"name": "Unlock Device", "command": "unlock", "icon": "🔓"},
+                {"name": "Do Not Disturb On", "command": "dnd on", "icon": "🌙"},
+                {"name": "Do Not Disturb Off", "command": "dnd off", "icon": "🌙"},
+                {"name": "Do Not Disturb Toggle", "command": "dnd toggle", "icon": "🌙"},
+                {"name": "Activate Siri", "command": "siri", "icon": "🎙️"},
+                {"name": "Home Button", "command": "home", "icon": "🏠"},
+                {"name": "App Switcher", "command": "switcher", "icon": "🗂️"},
+                {"name": "Open Control Center", "command": "open control center", "icon": "🎛️"},
+                {"name": "Respring Device", "command": "respring", "icon": "🔄"},
+                {"name": "Soft Reboot (ldrestart)", "command": "ldrestart", "icon": "🔄"},
+                {"name": "Userspace Reboot", "command": "userspace-reboot", "icon": "🔄"},
+                {"name": "Refresh Icon Cache (uicache)", "command": "uicache", "icon": "🔄"},
+                {"name": "Lock Status", "command": "lock status", "icon": "ℹ️"},
+                {"name": "Orientation Status", "command": "orientation status", "icon": "ℹ️"},
+                {"name": "Silent Vibrate Toggle", "command": "vibration silent-toggle", "icon": "📳"},
+                {"name": "Ring Vibrate Toggle", "command": "vibration ring-toggle", "icon": "📳"},
+                {"name": "Low Power Mode On", "command": "low power on", "icon": "🔋"},
+                {"name": "Low Power Mode Off", "command": "low power off", "icon": "🔋"},
+                {"name": "Low Power Mode Toggle", "command": "low power toggle", "icon": "🔋"}
+            ]
+        },
+        {
+            title: "Audio",
+            items: [
+                {"name": "ANC On", "command": "anc on", "icon": "🎧"},
+                {"name": "ANC Off", "command": "anc off", "icon": "🎧"},
+                {"name": "Transparency Mode", "command": "anc transparency", "icon": "🎧"}
+            ]
+        },
+        {
+            title: "Scripting & Logic",
+            items: [
+                {"name": "Custom Lua Script", "command": "__LUA_SCRIPT__", "icon": "📜"},
+                {"name": "If Condition...", "command": "__IF_CONDITION__", "icon": "🔀"},
+                {"name": "Delay", "command": "__DELAY__", "icon": "⏱️"},
+                {"name": "Terminal Command", "command": "__CUSTOM__", "icon": "💻"}
+            ]
+        }
+    ];
+
+    let rcConfig = {};
+    
+    const app = new Framework7({
+      el: '#app',
+      theme: 'ios',
+      routes: [
+        {
+          path: '/trigger/:key/',
+          template: document.getElementById('trigger-detail-template').innerHTML,
+          on: {
+            pageInit: function (e, page) {
+              renderActionSequence(page.route.params.key);
+            }
+          }
+        },
+        {
+          path: '/action-picker/:key/',
+          template: document.getElementById('action-picker-template').innerHTML,
+          on: {
+            pageInit: function (e, page) {
+              renderActionPickerCategories(page.route.params.key);
+            }
+          }
+        }
+      ]
+    });
+    
+    const mainView = app.views.create('.view-main', {
+      url: '/'
+    });
+
+    async function loadConfig() {
+      try {
+        const res = await fetch('/api/config');
+        rcConfig = await res.json();
+        renderMainList();
+      } catch (e) {
+        document.getElementById('triggers-list').innerHTML = '<div class="block">Failed to connect to device. Make sure you are on the same Wi-Fi and Web UI is enabled.</div>';
+      }
+    }
+
+    async function saveConfig() {
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rcConfig)
+        });
+        renderMainList();
+      } catch (e) {
+        app.toast.create({ text: 'Failed to save config', closeTimeout: 2000 }).open();
+      }
+    }
+
+    function renderMainList() {
+      const list = document.getElementById('triggers-list');
+      let html = '<ul>';
+      if (rcConfig.triggers) {
+        for (const [key, trigger] of Object.entries(rcConfig.triggers)) {
+          const name = triggerNames[key] || key;
+          const statusText = trigger.enabled ? 'Enabled' : 'Disabled';
+          const colorColor = trigger.enabled ? 'color-green' : 'color-gray';
+          html += `
+            <li>
+              <a href="/trigger/${key}/" class="item-link item-content" data-context='{"key":"${key}", "title":"${name}", "enabled": ${trigger.enabled}}'>
+                <div class="item-inner">
+                  <div class="item-title">${name}</div>
+                  <div class="item-after"><span class="badge ${colorColor}">${statusText}</span></div>
+                </div>
+              </a>
+            </li>
+          `;
+        }
+      }
+      html += '</ul>';
+      list.innerHTML = html;
+    }
+
+    window.toggleTriggerEnabled = function(key) {
+      const checkbox = document.getElementById('trigger-enabled-toggle');
+      rcConfig.triggers[key].enabled = checkbox.checked;
+      saveConfig();
+    };
+
+    function formatAction(cmd) {
+        if (typeof cmd !== 'string') return { name: cmd.type || 'Unknown', subtitle: '' };
+        
+        if (cmd.startsWith("root ")) return { name: "[root] " + cmd.substring(5), subtitle: cmd };
+        if (cmd.startsWith("exec-root ")) return { name: "[root] " + cmd.substring(10), subtitle: cmd };
+        if (cmd.startsWith("exec ")) return { name: "Terminal Command", subtitle: cmd.substring(5) };
+        if (cmd.startsWith("delay ")) return { name: "Delay", subtitle: cmd.substring(6) + "s" };
+        if (cmd.startsWith("bt connect ")) return { name: "Connect Bluetooth", subtitle: cmd.substring(11) };
+        if (cmd.startsWith("bt disconnect ")) return { name: "Disconnect Bluetooth", subtitle: cmd.substring(14) };
+        if (cmd.startsWith("set-vol ")) return { name: "Set Volume", subtitle: cmd.substring(8) + "%" };
+        if (cmd.startsWith("brightness ")) return { name: "Set Brightness", subtitle: cmd.substring(11) + "%" };
+        if (cmd.startsWith("flashlight ") && !cmd.endsWith("on") && !cmd.endsWith("off") && !cmd.endsWith("toggle")) return { name: "Set Flashlight", subtitle: cmd.substring(11) + "%" };
+        if (cmd.startsWith("flash ") && !cmd.endsWith("on") && !cmd.endsWith("off") && !cmd.endsWith("toggle")) return { name: "Set Flashlight", subtitle: cmd.substring(6) + "%" };
+        if (cmd.startsWith("shortcut:")) return { name: "Run Shortcut", subtitle: cmd.substring(9) };
+        if (cmd.startsWith("uiopen ")) return { name: "Open App", subtitle: cmd.substring(7) };
+        
+        for (const cat of actionCategories) {
+            for (const item of cat.items) {
+                if (item.command === cmd) return { name: item.name, subtitle: '' };
+            }
+        }
+        return { name: cmd, subtitle: '' };
+    }
+
+    function renderActionSequence(key) {
+      const listEl = document.getElementById('actions-sequence-list');
+      const ul = listEl.querySelector('ul');
+      ul.innerHTML = '';
+      
+      const actions = rcConfig.triggers[key].actions || [];
+      if (actions.length === 0) {
+        ul.innerHTML = '<li class="item-content"><div class="item-inner"><div class="item-title" style="color:#8e8e93">No actions configured</div></div></li>';
+        return;
+      }
+      
+      actions.forEach((action, idx) => {
+        const formatted = formatAction(action);
+        let subHtml = formatted.subtitle ? `<div class="item-footer">${formatted.subtitle}</div>` : '';
+        
+        ul.innerHTML += `
+          <li class="swipeout">
+            <div class="item-content swipeout-content">
+              <div class="item-media"><i class="icon f7-icons color-gray">line_horizontal_3</i></div>
+              <div class="item-inner">
+                <div class="item-title-row">
+                  <div class="item-title">${formatted.name}</div>
+                </div>
+                ${subHtml}
+              </div>
+            </div>
+            <div class="swipeout-actions-right">
+              <a href="#" class="swipeout-delete" onclick="deleteAction('${key}', ${idx})">Delete</a>
+            </div>
+          </li>
+        `;
+      });
+
+      // Enable sortable
+      app.sortable.enable(listEl);
+      listEl.addEventListener('sortable:sort', function (e) {
+        const from = e.detail.from;
+        const to = e.detail.to;
+        const trigger = rcConfig.triggers[key];
+        const action = trigger.actions.splice(from, 1)[0];
+        trigger.actions.splice(to, 0, action);
+        saveConfig();
+      });
+    }
+
+    window.deleteAction = function(key, idx) {
+      rcConfig.triggers[key].actions.splice(idx, 1);
+      saveConfig();
+      // Remove element is handled by framework7 swipeout-delete
+    };
+
+    window.executeTrigger = async function(key) {
+      try {
+        await fetch('/api/trigger/' + key, { method: 'POST' });
+        app.toast.create({ text: 'Trigger executed!', closeTimeout: 2000 }).open();
+      } catch (e) {
+        app.dialog.alert('Failed to execute trigger');
+      }
+    };
+
+    window.openActionPicker = function(key) {
+      mainView.router.navigate(`/action-picker/${key}/`);
+    };
+
+    function renderActionPickerCategories(key) {
+      const container = document.getElementById('action-categories-container');
+      let html = '';
+      
+      actionCategories.forEach(cat => {
+        html += `<div class="block-title">${cat.title}</div><div class="list inset"><ul>`;
+        cat.items.forEach(item => {
+          html += `
+            <li>
+              <a href="#" class="item-link item-content" onclick="handleActionSelection('${key}', '${item.command}', '${item.name}')">
+                <div class="item-media"><span class="action-icon">${item.icon}</span></div>
+                <div class="item-inner">
+                  <div class="item-title">${item.name}</div>
+                </div>
+              </a>
+            </li>
+          `;
+        });
+        html += `</ul></div>`;
+      });
+      
+      container.innerHTML = html;
+    }
+
+    window.handleActionSelection = function(triggerKey, cmd, title) {
+      if (['__SET_VOLUME__', '__SET_BRIGHTNESS__', '__SET_FLASHLIGHT__'].includes(cmd)) {
+        app.dialog.prompt('Enter value (0-100)', title, function (val) {
+          if (!val) return;
+          let prefix = cmd === '__SET_VOLUME__' ? 'set-vol' : (cmd === '__SET_BRIGHTNESS__' ? 'brightness' : 'flashlight');
+          addActionToTrigger(triggerKey, `${prefix} ${val}`);
+        });
+      } else if (cmd === '__SHORTCUT_PICKER__') {
+        app.dialog.prompt('Exact shortcut name', 'Run Shortcut', function (val) {
+          if (val) addActionToTrigger(triggerKey, `shortcut:${val}`);
+        });
+      } else if (cmd === '__OPEN_APP__') {
+        app.dialog.prompt('App Bundle ID (e.g. com.apple.mobilesafari)', 'Open App', function (val) {
+          if (val) addActionToTrigger(triggerKey, `uiopen ${val}`);
+        });
+      } else if (cmd === '__DELAY__') {
+        app.dialog.prompt('Seconds to wait', 'Delay', function (val) {
+          if (val) addActionToTrigger(triggerKey, `delay ${val}`);
+        });
+      } else if (cmd === '__CUSTOM__') {
+        app.dialog.prompt('Terminal Command (e.g. killall SpringBoard)', 'Execute', function (val) {
+          if (val) addActionToTrigger(triggerKey, `exec ${val}`);
+        });
+      } else if (cmd === '__BT_CONNECT__') {
+        app.dialog.prompt('Device MAC or Name', 'Bluetooth Connect', function (val) {
+          if (val) addActionToTrigger(triggerKey, `bt connect ${val}`);
+        });
+      } else if (cmd === '__BT_DISCONNECT__') {
+        app.dialog.prompt('Device MAC or Name', 'Bluetooth Disconnect', function (val) {
+          if (val) addActionToTrigger(triggerKey, `bt disconnect ${val}`);
+        });
+      } else if (cmd === '__AIRPLAY_CONNECT__') {
+        app.dialog.prompt('AirPlay Device Name', 'AirPlay Connect', function (val) {
+          if (val) addActionToTrigger(triggerKey, `airplay connect ${val}`);
+        });
+      } else if (cmd === '__LUA_SCRIPT__' || cmd === '__IF_CONDITION__') {
+        app.dialog.alert('This complex action must be configured from the iOS app.');
+      } else {
+        addActionToTrigger(triggerKey, cmd);
+      }
+    };
+
+    function addActionToTrigger(triggerKey, actionCommand) {
+      if (!rcConfig.triggers[triggerKey].actions) {
+        rcConfig.triggers[triggerKey].actions = [];
+      }
+      rcConfig.triggers[triggerKey].actions.push(actionCommand);
+      saveConfig();
+      mainView.router.back();
+      // Re-render the previous page's list
+      setTimeout(() => renderActionSequence(triggerKey), 300);
+    }
+
+    loadConfig();
+  </script>
+</body>
+</html>

@@ -4,16 +4,15 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 
 > [!IMPORTANT]
 > **What's New in v3.0**
-> - **Shake Trigger**: New "Motion Gestures" section with "Shake Device" trigger support. Assign any action sequence to fire when the device is physically shaken.
-> - **Action Copy-Paste**: Long-press any action entry to copy it to a global clipboard. Once copied, long-press any row to "Paste Above" or "Paste Below", or long-press empty space to paste at the end of the sequence.
-> - **App Launch Trigger**: Added a new trigger type that fires when a specific application is opened. Features a built-in search-enabled app picker.
-> - **Conditional Actions ("Else" Branch)**: "If" actions now support an optional "Else" branch. Long-press any "If" action in the sequence list to toggle the Else branch on or off.
-> - **Conditional Actions ("Front Application")**: Added a new condition type to check the currently active foreground application. Integrated the native app picker for easy configuration.
-> - **Edit Condition**: Added a native "Edit Condition" option to the long-press menu for "If" actions, allowing you to swap conditions or values without deleting the entire block.
+> - **Premium Web UI Refactor**: Completely redesigned the web-based automation hub to match the iOS app's premium "Inset Grouped" aesthetic. Manage, edit, and remotely test your automations from any device on your network.
 > - **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups or time-based alerts.
 > - **Notification Triggers**: Bind actions to incoming notifications. Filter by app or keyword to build powerful notification-driven automations.
 > - **Flashlight Intensity**: Control the granular brightness of your flashlight via the new `rc flashlight <level>` command.
-> - **Trigger Workflow**: Creating a new trigger (App Launch, Scheduled, NFC, etc.) now automatically redirects you to the action sequence configuration immediately for a faster setup process.
+> - **Shake Trigger**: New "Motion Gestures" section with "Shake Device" trigger support.
+> - **Action Copy-Paste**: Long-press any action entry to copy it to a global clipboard and paste it elsewhere in your sequence.
+> - **App Launch Trigger**: Fire actions when a specific application is opened.
+> - **Conditional Actions**: Support for optional "Else" branches and new "Front Application" status queries.
+
 
 
 <p align="center">
@@ -26,7 +25,9 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 
 ## Features
 - **Instant Response**: High-speed command execution (~0.2s) using optimized SSH-tunneled UNIX domain sockets.
+- **Premium Web UI**: Desktop-class automation hub with iOS aesthetics, allowing full workflow engineering and remote testing from any browser.
 - **Smart Control**: Run multi-step action sequences, edit existing actions inline, or control settings remotely.
+
 - **Hardware Triggers**: Bind actions to Power/Volume buttons, Home button, Touch ID (Tap/Hold), or the Ringer Switch.
 - **Visual Excellence**: Modern iOS aesthetics with Large Titles, SF Symbols, and a professional dark terminal editor.
 - **Universal Search**: Instantly find actions, shortcuts, and devices with integrated search bars in every picker.
