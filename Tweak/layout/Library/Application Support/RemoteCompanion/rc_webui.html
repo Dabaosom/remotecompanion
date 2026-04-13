@@ -74,13 +74,13 @@
     .block-title {
       text-transform: uppercase;
       font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
+      font-weight: 500;
+      letter-spacing: 0.05em;
       color: #8e8e93;
-      margin: 28px 0 6px 32px;
+      margin: 28px 0 8px 32px;
       padding: 0;
     }
-    .block-title.favorites-title { color: #f2c350; }
+    .block-title.favorites-title { color: #f2c350; font-weight: 600; }
 
     /* ── Row items ── */
     .item-inner {
@@ -214,15 +214,15 @@
       text-align: center; padding: 0 20px 12px;
     }
     .rc-sheet-btn {
-      display: block; width: 100%; text-align: left;
-      padding: 15px 24px; font-size: 17px;
-      color: #fff; background: transparent;
+      display: block; width: 100%; text-align: center;
+      padding: 18px 24px; font-size: 20px;
+      color: #007aff; background: transparent;
       border: none; border-top: 0.5px solid rgba(255,255,255,0.08);
       cursor: pointer; font-family: inherit;
     }
     .rc-sheet-btn:first-of-type { border-top: none; }
     .rc-sheet-btn.destructive { color: #ff3b30; }
-    .rc-sheet-btn.cancel { color: #007aff; font-weight: 600; text-align: center; background: #2c2c2e; border-radius: 0; margin-top: 8px; border-top: none; padding: 15px; }
+    .rc-sheet-btn.cancel { color: #007aff; font-weight: 600; text-align: center; background: #2c2c2e; border-radius: 12px; margin: 8px 16px 16px; width: calc(100% - 32px); border-top: none; padding: 15px; }
     .rc-sheet-btn .btn-icon { margin-right: 14px; font-size: 17px; vertical-align: -3px; }
 
     /* ── Overlay panels (full-screen push) ── */
@@ -329,7 +329,8 @@
     .bg-delete { background: #ff3b30 !important; }
     .swipeout-actions-right a i { font-size: 18px; }
 
-    .page-content { padding-top: 0 !important; }
+    .page-content { padding-top: calc(var(--f7-navbar-height) + var(--f7-navbar-large-title-height, 0px)) !important; }
+    .title-large-text { font-size: 34px !important; line-height: 41px !important; font-weight: 700 !important; letter-spacing: -0.02em !important; }
   </style>
 </head>
 <body>
@@ -337,19 +338,20 @@
   <div class="view view-main safe-areas">
     <div class="page" data-name="home">
       <!-- Main navbar with large title -->
-      <div class="navbar navbar-large navbar-transparent">
+      <div class="navbar navbar-large">
         <div class="navbar-bg"></div>
         <div class="navbar-inner">
           <div class="left">
-            <a href="#" class="link icon-only" id="btn-settings" onclick="openSettings()">
+            <a href="#" class="link icon-only" onclick="openSettings()">
               <i class="icon f7-icons">gear</i>
+            </a>
+            <a href="#" class="link icon-only" onclick="showAddTriggerSheet()">
+              <i class="icon f7-icons">plus</i>
             </a>
           </div>
           <div class="title">RemoteCompanion</div>
           <div class="right">
-            <a href="#" class="link icon-only" onclick="showAddTriggerSheet()">
-              <i class="icon f7-icons">plus</i>
-            </a>
+            <a href="#" class="link" onclick="toggleEditMode()">Edit</a>
           </div>
           <div class="title-large">
             <div class="title-large-text">RemoteCompanion</div>
@@ -574,6 +576,13 @@ let config = {
 };
 let currentKey = null; // trigger being edited
 let dialogCallback = null; // pending dialog resolve
+let editMode = false;
+
+function toggleEditMode() {
+  editMode = !editMode;
+  document.querySelector('.navbar .right .link').textContent = editMode ? 'Done' : 'Edit';
+  renderAll();
+}
 
 // ── Trigger metadata ─────────────────────────────────────────────────────────
 const TRIGGER_SECTIONS = [
@@ -971,7 +980,7 @@ function renderTriggerRow(key, deletable) {
 
   li.innerHTML = `
     <div class="swipeout-content">
-      <a class="item-link item-content" onclick="openActionsPanel('${key}')">
+      <div class="item-content item-link" onclick="handleItemClick(event, '${key}')">
         <div class="item-media">
           <div class="rc-icon ${bg}"><i class="f7-icons">${icon}</i></div>
         </div>
@@ -980,10 +989,12 @@ function renderTriggerRow(key, deletable) {
             <div class="item-title">${name}</div>
             <span class="rc-badge ${data.enabled ? 'badge-on':'badge-off'}">${data.enabled?'ON':'OFF'}</span>
           </div>
-          <div class="item-subtitle">${escHtml(subtitle)}</div>
+          <div class="item-subtitle" style="max-width:280px">${escHtml(subtitle)}</div>
         </div>
-        <div class="item-after"><i class="f7-icons" style="color:#555;font-size:14px">chevron_right</i></div>
-      </a>
+        <div class="item-after">
+          ${editMode ? `<i class="f7-icons" style="color:#ff3b30;font-size:20px">minus_circle_fill</i>` : `<i class="f7-icons" style="color:#555;font-size:14px">chevron_right</i>`}
+        </div>
+      </div>
     </div>
     <div class="swipeout-actions-right">
       <a class="bg-star" onclick="toggleFavorite('${key}');swipeoutClose(this)" style="color:#fff">
@@ -995,6 +1006,18 @@ function renderTriggerRow(key, deletable) {
       ${deletable ? `<a class="bg-delete swipeout-delete" onclick="deleteTrigger('${key}')" style="color:#fff"><i class="f7-icons">trash_fill</i></a>` : ''}
     </div>`;
   return li;
+}
+
+function handleItemClick(e, key) {
+  // Prevent click if swipeout is moving or opened
+  const li = e.currentTarget.closest('li.swipeout');
+  if (li.classList.contains('swipeout-opened') || li.querySelector('.swipeout-content').style.transform !== '') {
+    return;
+  }
+  // Prevent click if we tap on an action button (though they aren't here, it's good practice)
+  if (e.target.closest('a')) return;
+  
+  openActionsPanel(key);
 }
 
 function swipeoutClose(el) {
@@ -1074,7 +1097,6 @@ function renderActionList() {
 
   let indent = 0;
   actions.forEach((action, idx) => {
-    const { icon, bg } = iconForCmd(action);
     let displayName = nameForCmd(action);
     const isControl = typeof action === 'object';
     const type = isControl ? (action.type||'').toLowerCase() : null;
@@ -1082,23 +1104,32 @@ function renderActionList() {
     const isElse  = type === 'else';
     const isIf    = type === 'if';
 
-    let rowIndent = Math.max(0, indent);
-    if (isEnd || isElse) rowIndent = Math.max(0, indent - 1);
-
+    const rowIndent = indent;
     const li = document.createElement('li');
     li.className = 'swipeout';
     li.dataset.idx = idx;
-    li.draggable = true;
+    
+    // Icon Logic for Action List
+    let icon = 'bolt_fill';
+    let iconBg = 'icon-bg-darkgray';
+    if (isIf || isElse || isEnd) { icon = 'arrow_triangle_branch'; iconBg = 'icon-bg-gray'; }
+    else if (action.includes('wifi')) { icon = 'wifi'; iconBg = 'icon-bg-blue'; }
+    else if (action.includes('bluetooth')) { icon = 'bluetooth'; iconBg = 'icon-bg-blue'; }
+    else if (action.includes('volume')) { icon = 'speaker_3_fill'; iconBg = 'icon-bg-blue'; }
+    else if (action.includes('delay')) { icon = 'timer'; iconBg = 'icon-bg-orange'; }
+
     li.innerHTML = `
-      <div class="swipeout-content item-content action-indent-${rowIndent}${isControl?' action-control-row':''}">
+      <div class="swipeout-content item-content" style="padding-left: ${16 + (rowIndent*20)}px">
         <div class="item-media">
-          <div class="rc-icon ${bg}"><i class="f7-icons">${icon}</i></div>
+          <div class="rc-icon ${iconBg}" style="width:24px;height:24px;border-radius:6px">
+            <i class="f7-icons" style="font-size:14px">${icon}</i>
+          </div>
         </div>
         <div class="item-inner">
-          <div class="item-title">${escHtml(String(displayName))}</div>
-        </div>
-        <div class="drag-handle" title="Drag to reorder">
-          <i class="f7-icons" style="font-size:18px;color:#555">line_horizontal_3</i>
+          <div class="item-title" style="font-size:16px;font-weight:400">${escHtml(String(displayName))}</div>
+          <div class="item-after" style="margin-right: -4px">
+            <i class="f7-icons" style="font-size:18px;color:#3a3a3c">bars</i>
+          </div>
         </div>
       </div>
       <div class="swipeout-actions-right">
