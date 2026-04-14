@@ -172,7 +172,7 @@
     .sa-del  { background: #ff3b30; }
 
     /* Row revealed state */
-    .trigger_row.swiped-open .trigger-row-inner {
+    .trigger-row.swiped-open .trigger-row-inner {
       transform: translateX(-240px); /* fallback, now dynamic in JS */
     }
     .trigger-row.swiped-open .swipe-action { width: 60px; }
@@ -525,6 +525,20 @@
     .settings-label { flex: 1; font-size: 17px; color: #fff; }
     .settings-btn { display: flex; align-items: center; }
     a { color: inherit; text-decoration: none; }
+
+    /* Day of week pill toggles */
+    .day-pill {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; cursor: pointer; user-select: none;
+    }
+    .day-pill input[type=checkbox] { display: none; }
+    .day-pill span {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 500; color: #8e8e93;
+      background: #3a3a3c; transition: background 0.15s, color 0.15s;
+    }
+    .day-pill input:checked + span { background: #007aff; color: #fff; }
   </style>
 </head>
 <body>
@@ -701,6 +715,50 @@
     <div class="dialog-btns">
       <button onclick="closeComplexDialog()">Cancel</button>
       <button id="complex-dialog-ok" onclick="complexDialogOk()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SCHEDULED TRIGGER DIALOG ════════════════════════════════════════ -->
+<div class="dialog-backdrop" id="sched-dialog-backdrop">
+  <div class="dialog-box" style="min-width:calc(100% - 48px);max-width:360px">
+    <div class="dialog-title">New Scheduled Trigger</div>
+    <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:10px">
+      <input class="dialog-input" id="sched-name" type="text" placeholder="Name (e.g. Morning)" autocorrect="off" autocapitalize="words" spellcheck="false" style="margin:0;width:100%">
+      <input class="dialog-input" id="sched-time" type="time" style="margin:0;width:100%;color:#fff;background:#2c2c2e">
+      <div style="background:#2c2c2e;border-radius:10px;padding:10px 12px">
+        <div style="font-size:13px;color:#8e8e93;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Repeat</div>
+        <div style="display:flex;justify-content:space-between;gap:4px" id="sched-days">
+          <label class="day-pill" data-day="1"><input type="checkbox" value="1"><span>Sun</span></label>
+          <label class="day-pill" data-day="2"><input type="checkbox" value="2"><span>Mon</span></label>
+          <label class="day-pill" data-day="3"><input type="checkbox" value="3"><span>Tue</span></label>
+          <label class="day-pill" data-day="4"><input type="checkbox" value="4"><span>Wed</span></label>
+          <label class="day-pill" data-day="5"><input type="checkbox" value="5"><span>Thu</span></label>
+          <label class="day-pill" data-day="6"><input type="checkbox" value="6"><span>Fri</span></label>
+          <label class="day-pill" data-day="7"><input type="checkbox" value="7"><span>Sat</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-btns">
+      <button onclick="closeSchedDialog()">Cancel</button>
+      <button id="sched-dialog-ok" onclick="schedDialogOk()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ NOTIFICATION TRIGGER DIALOG ══════════════════════════════════════ -->
+<div class="dialog-backdrop" id="notif-dialog-backdrop">
+  <div class="dialog-box" style="min-width:calc(100% - 48px);max-width:360px">
+    <div class="dialog-title">New Notification Trigger</div>
+    <div class="dialog-msg" style="text-align:left;padding:0 16px 4px">Fires when a notification arrives matching these criteria.</div>
+    <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:10px">
+      <input class="dialog-input" id="notif-name" type="text" placeholder="Display Name (e.g. Messages)" autocorrect="off" autocapitalize="words" spellcheck="false" style="margin:0;width:100%">
+      <input class="dialog-input" id="notif-bundle" type="text" placeholder="App Bundle ID (e.g. com.apple.MobileSMS)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
+      <input class="dialog-input" id="notif-text" type="text" placeholder="Text Match (optional — leave blank for any)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
+    </div>
+    <div class="dialog-btns">
+      <button onclick="closeNotifDialog()">Cancel</button>
+      <button id="notif-dialog-ok" onclick="notifDialogOk()">Create</button>
     </div>
   </div>
 </div>
@@ -1238,6 +1296,10 @@ function deleteTrigger(key) {
     { label: `Delete "${nameForKey(key)}"`, destructive: true, action() {
       delete config.triggers[key];
       config.favoriteTriggers = (config.favoriteTriggers||[]).filter(k => k !== key);
+      // Also remove from notificationTriggers array if applicable
+      if (key.startsWith('notif_') && config.notificationTriggers) {
+        config.notificationTriggers = config.notificationTriggers.filter(t => t.triggerKey !== key);
+      }
       saveConfig(); renderAll();
     }}
   ]);
@@ -1610,8 +1672,8 @@ function showAddTriggerSheet() {
     { label:'WiFi Network',      action:() => promptComplexTrigger('wifi') },
     { label:'Bluetooth Device',  action:() => promptComplexTrigger('bt') },
     { label:'App Launch',        action:() => promptNewTrigger('app_launch', 'Bundle ID (e.g. com.apple.Music)') },
-    { label:'Notification',      action:() => promptNewTrigger('notif',      'App bundle ID') },
-    { label:'Scheduled',         action:() => promptNewTrigger('sched',      'Trigger name (e.g. morning)') },
+    { label:'Notification',      action:() => promptNotifTrigger() },
+    { label:'Scheduled',         action:() => promptSchedTrigger() },
   ]);
 }
 
@@ -1622,6 +1684,82 @@ function promptNewTrigger(prefix, placeholder) {
     config.triggers[key] = { enabled: true, actions: [], name: val };
     saveConfig(); renderAll();
   });
+}
+
+// ── Scheduled Trigger Dialog ─────────────────────────────────────────────────
+function promptSchedTrigger() {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('sched-name').value = '';
+  document.getElementById('sched-time').value = `${hh}:${mm}`;
+  // Uncheck all day pills
+  document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb => cb.checked = false);
+  document.getElementById('sched-dialog-backdrop').classList.add('visible');
+  setTimeout(() => document.getElementById('sched-name').focus(), 100);
+}
+
+function closeSchedDialog() {
+  document.getElementById('sched-dialog-backdrop').classList.remove('visible');
+}
+
+function schedDialogOk() {
+  const name = document.getElementById('sched-name').value.trim();
+  const timeVal = document.getElementById('sched-time').value; // "HH:MM"
+  const checkedDays = Array.from(document.querySelectorAll('#sched-days input[type=checkbox]:checked'))
+                           .map(cb => parseInt(cb.value));
+  if (!name) { showToast('⚠ Name required'); return; }
+  if (!timeVal) { showToast('⚠ Time required'); return; }
+  if (checkedDays.length === 0) { showToast('⚠ Select at least one day'); return; }
+  const [hourStr, minStr] = timeVal.split(':');
+  const hour = parseInt(hourStr);
+  const minute = parseInt(minStr);
+  const key = `sched_${name.toLowerCase().replace(/[ \t\n\r]+/g,'_').replace(/[^a-z0-9_]/g,'')}`;
+  config.triggers[key] = {
+    enabled: true,
+    actions: [],
+    name: name,
+    schedule: { hour, minute, days: checkedDays }
+  };
+  closeSchedDialog();
+  saveConfig(); renderAll();
+  // Open the new trigger for editing
+  setTimeout(() => openActionsPanel(key), 400);
+}
+
+// ── Notification Trigger Dialog ────────────────────────────────────────────────
+function promptNotifTrigger() {
+  document.getElementById('notif-name').value = '';
+  document.getElementById('notif-bundle').value = '';
+  document.getElementById('notif-text').value = '';
+  document.getElementById('notif-dialog-backdrop').classList.add('visible');
+  setTimeout(() => document.getElementById('notif-name').focus(), 100);
+}
+
+function closeNotifDialog() {
+  document.getElementById('notif-dialog-backdrop').classList.remove('visible');
+}
+
+function notifDialogOk() {
+  const name     = document.getElementById('notif-name').value.trim();
+  const bundleId = document.getElementById('notif-bundle').value.trim();
+  const textMatch= document.getElementById('notif-text').value.trim();
+  if (!name)     { showToast('⚠ Name required');      return; }
+  if (!bundleId) { showToast('⚠ Bundle ID required'); return; }
+  const key = `notif_${name.toLowerCase().replace(/[ \t\n\r]+/g,'_').replace(/[^a-z0-9_]/g,'')}`;
+  // Create the trigger entry (holds actions)
+  config.triggers[key] = { enabled: true, actions: [], name };
+  // Add/update entry in notificationTriggers array (read by backend hook)
+  if (!config.notificationTriggers) config.notificationTriggers = [];
+  // Remove any existing entry for this key
+  config.notificationTriggers = config.notificationTriggers.filter(t => t.triggerKey !== key);
+  const entry = { triggerKey: key, bundleId, enabled: true };
+  if (textMatch) entry.textMatch = textMatch;
+  config.notificationTriggers.push(entry);
+  closeNotifDialog();
+  saveConfig(); renderAll();
+  // Open the new trigger for editing
+  setTimeout(() => openActionsPanel(key), 400);
 }
 
 // ── Complex Trigger (WiFi/BT) ────────────────────────────────────────────────
@@ -1737,7 +1875,12 @@ function showSheet(title, buttons) {
     const b = document.createElement('button');
     b.className = 'sheet-btn' + (btn.destructive ? ' destructive' : '');
     b.textContent = btn.label;
-    b.addEventListener('click', () => { closeSheet(); if (btn.action) btn.action(); });
+    b.addEventListener('click', () => {
+      closeSheet();
+      // Delay action until after the sheet close animation finishes,
+      // so no ghost-touch can dismiss a freshly-opened dialog on iOS.
+      if (btn.action) setTimeout(btn.action, 350);
+    });
     container.appendChild(b);
   });
   document.getElementById('sheet-backdrop').classList.add('visible');
