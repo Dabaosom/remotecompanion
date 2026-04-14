@@ -3778,6 +3778,26 @@ static NSString *handle_command(NSString *cmd) {
         dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC));
         return result ?: @"Error: Timeout connecting to AirPlay device\n";
 
+    } else if ([cleanCmd hasPrefix:@"webui "]) {
+        NSString *sub = [[cleanCmd substringFromIndex:6] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        load_trigger_config();
+        NSMutableDictionary *mConfig = [g_triggerConfig mutableCopy] ?: [NSMutableDictionary dictionary];
+        
+        if ([sub isEqualToString:@"on"] || [sub isEqualToString:@"enable"]) {
+            mConfig[@"webUIEnabled"] = @YES;
+            g_triggerConfig = [mConfig copy];
+            save_trigger_config();
+            return @"Web UI Enabled\n";
+        } else if ([sub isEqualToString:@"off"] || [sub isEqualToString:@"disable"]) {
+            mConfig[@"webUIEnabled"] = @NO;
+            g_triggerConfig = [mConfig copy];
+            save_trigger_config();
+            return @"Web UI Disabled\n";
+        } else if ([sub isEqualToString:@"status"]) {
+            BOOL enabled = [mConfig[@"webUIEnabled"] boolValue];
+            return [NSString stringWithFormat:@"Web UI is %@\n", enabled ? @"ENABLED" : @"DISABLED"];
+        }
+        return @"Usage: rc webui <on|off|status>\n";
     } else if ([cleanCmd isEqualToString:@"respring"]) {
         SRLog(@"Triggering Respring via killbackboardd");
         

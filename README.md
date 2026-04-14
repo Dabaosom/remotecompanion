@@ -8,7 +8,8 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 > - **Web UI**: Desktop-class automation hub with iOS aesthetics, featuring **live search-enabled pickers** for apps, WiFi, and Bluetooth devices, full workflow engineering, and **one-tap API URL copying**.
 > - **Scheduled Triggers**: Run action sequences at specific times and days of the week.
 > - **Notification Triggers**: Bind actions to incoming notifications from any app with precision title and message filtering and a searchable app picker.
-> - **Flashlight Intensity**: Fine-tuned control (`1-100`) via the new `rc flashlight <level>` command.
+> - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
+> - **Web UI CLI Control**: Manage the Web UI server status remotely via the new `rc webui [on|off|status]` command.
 
 
 
@@ -119,10 +120,8 @@ Combine status queries with actions for smart automation:
 - **Bluetooth/Wi-Fi State**: `If Wi-Fi is OFF` -> `Wi-Fi ON`.
 
 ### System & Diagnostics
-- `rc respring` - Restart SpringBoard.
-- `rc ldrestart` - Soft reboot the device.
-- `rc userspace-reboot` - Reboot userspace.
 - `rc uicache` - Refresh the icon cache.
+- `rc webui [on|off|status]` - Enable, disable, or check the status of the Web UI server.
 
 <details>
 <summary><h3>Lua Scripting & Objective-C Bridge</h3></summary>

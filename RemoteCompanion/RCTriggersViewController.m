@@ -261,12 +261,7 @@
     self.sections = sections;
     self.sectionTitles = titles;
 
-    // Show Edit button only when there are favorites
-    if (allFavorites.count > 0) {
-        self.navigationItem.leftBarButtonItem = self.editButtonItem;
-    } else {
-        self.navigationItem.leftBarButtonItem = nil;
-    }
+    self.navigationItem.leftBarButtonItem = nil;
 
     [self.tableView reloadData];
 }
