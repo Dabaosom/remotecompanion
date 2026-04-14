@@ -29,6 +29,8 @@ All notable changes to this project will be documented in this file.
 - **Clipboard Reliability**: Hardened the copy-to-clipboard logic to ensure it works consistently across all browser environments, including insecure IP-based connections.
 
 ### Fixed
+- **Configuration Lockout**: Resolved an edge case where the Web UI settings could not be saved or re-enabled from the browser if the Web UI flag was turned off.
+- **Persistence Reliability**: Hardened the configuration saving mechanism in the tweak with a POSIX fallback to ensure settings are correctly written to the shared filesystem regardless of sandbox restrictions.
 - Resolved race condition in button hook long-press detection.
 - Fixed layout issues on mobile Safari for large automation lists.
 

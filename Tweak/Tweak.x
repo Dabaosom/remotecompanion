@@ -1057,19 +1057,39 @@ static void config_changed_callback(CFNotificationCenterRef center, void *observ
 
 static void save_trigger_config() {
     if (!g_triggerConfig) return;
-    NSString *path = g_resolvedConfigPath;
-    if (!path) {
-        path = @"/var/mobile/Documents/rc_triggers.plist";
-    }
+    NSString *sharedPath = @"/var/mobile/Documents/rc_triggers.plist";
     NSError *error = nil;
     NSData *data = [NSPropertyListSerialization dataWithPropertyList:g_triggerConfig
                                                               format:NSPropertyListXMLFormat_v1_0
                                                              options:0
                                                                error:&error];
     if (data && !error) {
-        [data writeToFile:path atomically:YES];
-        notify_post("com.pizzaman.rc.configchanged");
-        SRLog(@"[WebUI] Saved config to %@", path);
+        // 1. Try atomic write to shared path
+        BOOL success = [data writeToFile:sharedPath atomically:YES];
+        if (!success) {
+            // 2. Fallback to POSIX open/write
+            int fd = open([sharedPath UTF8String], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd >= 0) {
+                write(fd, [data bytes], [data length]);
+                close(fd);
+                success = YES;
+                SRLog(@"[WebUI] Saved config to shared path via POSIX: %@", sharedPath);
+            } else {
+                SRLog(@"[WebUI] Failed to save to shared path (errno: %d)", errno);
+            }
+        } else {
+            SRLog(@"[WebUI] Saved config to shared path: %@", sharedPath);
+        }
+        
+        // 3. If we have a resolved container path, try saving there too
+        if (g_resolvedConfigPath && ![g_resolvedConfigPath isEqualToString:sharedPath]) {
+            [data writeToFile:g_resolvedConfigPath atomically:YES];
+            SRLog(@"[WebUI] Also saved to container path: %@", g_resolvedConfigPath);
+        }
+
+        if (success) {
+            notify_post("com.pizzaman.rc.configchanged");
+        }
     } else {
         SRLog(@"[WebUI] Failed to serialize config: %@", error);
     }
@@ -4008,20 +4028,34 @@ static void start_web_server() {
                                 }
                             } else if ([path isEqualToString:@"/api/config"]) {
                                 load_trigger_config();
-                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
-                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
-                                } else {
-                                    if ([method isEqualToString:@"GET"]) {
+                                // Allow GET/POST for config regardless of webUIEnabled to prevent lockout
+                                if ([method isEqualToString:@"GET"]) {
                                         NSData *jsonData = [NSJSONSerialization dataWithJSONObject:g_triggerConfig options:0 error:nil];
                                         if (jsonData) {
                                             NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
                                             responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)jsonData.length, jsonString];
                                         }
                                     } else if ([method isEqualToString:@"POST"]) {
+                                        NSRange clRange = [requestString rangeOfString:@"Content-Length: " options:NSCaseInsensitiveSearch];
+                                        int contentLength = 0;
+                                        if (clRange.location != NSNotFound) {
+                                            NSString *afterCl = [requestString substringFromIndex:clRange.location + clRange.length];
+                                            contentLength = [afterCl intValue];
+                                        }
+
                                         NSRange bodyRange = [requestString rangeOfString:@"\r\n\r\n"];
                                         if (bodyRange.location != NSNotFound) {
-                                            NSString *body = [requestString substringFromIndex:bodyRange.location + 4];
-                                            NSData *bodyData = [body dataUsingEncoding:NSUTF8StringEncoding];
+                                            NSString *bodyStr = [requestString substringFromIndex:bodyRange.location + 4];
+                                            NSMutableData *bodyData = [[bodyStr dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+                                            
+                                            // Ensure we read the complete body based on Content-Length
+                                            while (bodyData.length < contentLength) {
+                                                char chunk[4096];
+                                                ssize_t chunkRead = read(new_socket, chunk, sizeof(chunk));
+                                                if (chunkRead <= 0) break;
+                                                [bodyData appendBytes:chunk length:chunkRead];
+                                            }
+
                                             NSError *err;
                                             id jsonObj = [NSJSONSerialization JSONObjectWithData:bodyData options:NSJSONReadingMutableContainers error:&err];
                                             if (jsonObj && [jsonObj isKindOfClass:[NSDictionary class]]) {
@@ -4033,7 +4067,6 @@ static void start_web_server() {
                                             }
                                         }
                                     }
-                                }
                             } else if ([path isEqualToString:@"/api/triggers"] && [method isEqualToString:@"GET"]) {
                                 load_trigger_config();
                                 if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
@@ -4140,11 +4173,28 @@ static void start_web_server() {
                                             }
                                         }
                                     } else if ([method isEqualToString:@"POST"]) {
+                                        NSRange clRange = [requestString rangeOfString:@"Content-Length: " options:NSCaseInsensitiveSearch];
+                                        int contentLength = 0;
+                                        if (clRange.location != NSNotFound) {
+                                            NSString *afterCl = [requestString substringFromIndex:clRange.location + clRange.length];
+                                            contentLength = [afterCl intValue];
+                                        }
+
                                         NSRange bodyRange = [requestString rangeOfString:@"\r\n\r\n"];
                                         if (bodyRange.location != NSNotFound) {
-                                            NSString *body = [requestString substringFromIndex:bodyRange.location + 4];
+                                            NSString *bodyStr = [requestString substringFromIndex:bodyRange.location + 4];
+                                            NSMutableData *bodyData = [[bodyStr dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+                                            
+                                            // Ensure we read the complete body based on Content-Length
+                                            while (bodyData.length < contentLength) {
+                                                char chunk[4096];
+                                                ssize_t chunkRead = read(new_socket, chunk, sizeof(chunk));
+                                                if (chunkRead <= 0) break;
+                                                [bodyData appendBytes:chunk length:chunkRead];
+                                            }
+
+                                            NSString *body = [[NSString alloc] initWithData:bodyData encoding:NSUTF8StringEncoding];
                                             if ([body hasPrefix:@"{"]) {
-                                                NSData *bodyData = [body dataUsingEncoding:NSUTF8StringEncoding];
                                                 NSDictionary *json = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:nil];
                                                 if (json && json[@"command"]) command = json[@"command"];
                                             } else {
