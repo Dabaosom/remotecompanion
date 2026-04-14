@@ -51,19 +51,13 @@ RemoteCompanion v3.0 introduces a desktop-class Web UI designed to mirror the na
 
 ## What you can do
 
-<details>
-<summary><h3>Media & Volume</h3></summary>
-
+### Media & Volume
 - `rc play` / `rc pause` / `rc playpause` / `rc next` / `rc prev`
 - `rc volume 0-100` - Set volume level.
 - `rc mute [on|off|toggle|status]` - Control media mute state.
 - `rc anc [on|off|transparency]` - Control headphone ANC (requires Sonitus).
 
-</details>
-
-<details>
-<summary><h3>Device Control</h3></summary>
-
+### Device Control
 - `rc lock` / `rc lock toggle`
 - `rc unlock <pin>` - Wakes and unlocks the device.
 - `rc button [power|lock|home|volup|voldown|mute]` - Simulate physical buttons.
@@ -78,11 +72,7 @@ RemoteCompanion v3.0 introduces a desktop-class Web UI designed to mirror the na
 - `rc switcher` - Opens/toggles the App Switcher.
 - `rc vibration [silent-toggle|ring-toggle]` - System "Vibrate on Silent/Ring" settings.
 
-</details>
-
-<details>
-<summary><h3>Apps & Shortcuts</h3></summary>
-
+### Apps & Shortcuts
 - `rc open <alias|bundleID>` (e.g., `youtube`, `spotify`, `settings`, `messages`, `home`, `photos`, `camera`, `clock`, `maps`, `calendar`, `weather`, `notes`, `reminders`, `appstore`, `mail`, `music`, `phone`, `stocks`, `calculator`, `tv`, `wallet`, `facetime`, `files`).
 - `rc kill <alias|bundleID>` - Force close an app.
 - `rc shortcut -r "Name" [-p "Input"]` - Run any Shortcut (requires SpringCuts).
@@ -90,17 +80,11 @@ RemoteCompanion v3.0 introduces a desktop-class Web UI designed to mirror the na
 - `rc spotify <playlist|album|artist> <id>` - Play specific Spotify content.
 - `rc spotify play` - Resume Spotify playback.
 
-</details>
-
-<details>
-<summary><h3>Connectivity</h3></summary>
-
+### Connectivity
 - `rc wifi [on|off|toggle]` / `rc bluetooth [on|off|toggle]`
 - `rc bluetooth [connect|disconnect] <name>` - Manage paired devices.
 - `rc airplay list` - See speakers and their UIDs.
 - `rc airplay connect <UID|Name>` / `rc airplay disconnect`
-
-</details>
 
 <details>
 <summary><h3>Hardware Triggers (Tweak App)</h3></summary>
@@ -126,19 +110,13 @@ Configure these in the `RemoteCompanion` app for custom action sequences. Tip: *
 
 </details>
 
-<details>
-<summary><h3>Text & Notifications</h3></summary>
-
+### Text & Notifications
 - `rc type "Text"` - Type text (supports symbols).
 - `rc paste "Text"` - Paste into clipboard.
 - `rc key <hex>` - Specific keyboard keys (e.g., `0x04` for 'A', `0x28` for Enter).
 - `rc log` - View the RemoteCompanion server logs.
 
-</details>
-
-<details>
-<summary><h3>Status & Queries</h3></summary>
-
+### Status & Queries
 Get instant feedback from your device state.
 
 - `rc volume` - Returns current volume %.
@@ -156,8 +134,6 @@ Get instant feedback from your device state.
 - `rc wifi status` / `rc bt status` - Returns connectivity states.
 - `rc flashlight status` - Returns torch state.
 
-</details>
-
 <details>
 <summary><h3>Conditional Actions</h3></summary>
 
@@ -168,16 +144,12 @@ Combine status queries with actions for smart automation:
 
 </details>
 
-<details>
-<summary><h3>System & Diagnostics</h3></summary>
-
+### System & Diagnostics
 - `rc uicache` - Refresh the icon cache.
 - `rc respring` - Restart SpringBoard.
 - `rc ldrestart` - Soft-reboot the device.
 - `rc userspace-reboot` - Restart userspace.
 - `rc webui [on|off|status]` - Enable, disable, or check the status of the Web UI server.
-
-</details>
 
 
 <details>
@@ -269,8 +241,7 @@ Use the `rc blacklist` command to manage the list:
 
 </details>
 
-<details>
-<summary><h3>2. Installation Options</h3></summary>
+### 2. Installation Options
 
 #### Option 1: Repository (Recommended)
 Add `https://saihgupr.github.io/remotecompanion` to Sileo or Zebra
@@ -285,9 +256,9 @@ Download the `.deb` from [Releases](https://github.com/saihgupr/remotecompanion/
 #### Option 3: Build from Source
 `cd Tweak && make package install`.
 
-</details>
+<details>
+<summary><h3>3. Usage Options</h3></summary>
 
-### 3. Usage Options
 Choose the control method that best fits your needs:
 
 #### Option 1: CLI (Easiest)
@@ -475,6 +446,8 @@ service: shell_command.iphone_remote
 data:
   cmd: 'play'
 ```
+
+</details>
 
 </details>
 
