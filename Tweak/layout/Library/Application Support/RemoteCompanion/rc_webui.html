@@ -9,6 +9,7 @@
   <title>RemoteCompanion</title>
 
   <link rel="stylesheet" href="https://unpkg.com/framework7-icons@5.0.5/css/framework7-icons.css">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
   <style>
     /* ── Reset & Base ── */
@@ -1335,7 +1336,7 @@ function renderActionList() {
         <i class="f7-icons" style="font-size:13px">${icon}</i>
       </div>
       <div style="flex:1;min-width:0;font-size:16px;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(nameForCmd(action))}</div>
-      <i class="f7-icons" style="color:#3a3a3c;font-size:18px;flex-shrink:0;margin-left:8px">bars</i>
+      <i class="f7-icons drag-handle" style="color:#3a3a3c;font-size:18px;flex-shrink:0;margin-left:8px;cursor:grab;">bars</i>
     `;
     row.appendChild(inner);
 
@@ -1403,6 +1404,22 @@ function renderActionList() {
 
     if (isIf || isElse) indent++;
     if (isEnd || isElse) indent = Math.max(0, indent - 1);
+  });
+
+  if (window._actionSortable) {
+    window._actionSortable.destroy();
+  }
+  window._actionSortable = new Sortable(card, {
+    handle: '.drag-handle',
+    animation: 200,
+    onEnd: function (evt) {
+      if (evt.oldIndex === evt.newIndex) return;
+      const arr = triggerData(currentKey).actions;
+      const movedItem = arr.splice(evt.oldIndex, 1)[0];
+      arr.splice(evt.newIndex, 0, movedItem);
+      saveConfig();
+      renderActionList();
+    }
   });
 }
 
