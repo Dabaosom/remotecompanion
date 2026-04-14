@@ -1877,7 +1877,12 @@ static NSString *evaluate_lua_code(NSString *code) {
 }
 
 static NSString *handle_command(NSString *cmd) {
+    if (!cmd || ![cmd isKindOfClass:[NSString class]]) {
+        SRLog(@"ERROR: handle_command received nil or invalid command string");
+        return @"Error: Invalid command\n";
+    }
     NSString *cleanCmd = [cmd stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (cleanCmd.length == 0) return @"Error: Empty command\n";
     SRLog(@"Received command: %@", cleanCmd);
     
     // Debug hex dump of command
@@ -4150,29 +4155,26 @@ static void start_web_server() {
                                     responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
                                 } else {
                                     __block NSString *command = nil;
-                                    if ([method isEqualToString:@"GET"]) {
-                                        NSRange qRange = [path rangeOfString:@"?cmd="];
-                                        if (qRange.location != NSNotFound) {
-                                            NSString *after = [path substringFromIndex:qRange.location + 5];
-                                            NSRange nextAmp = [after rangeOfString:@"&"];
-                                            if (nextAmp.location != NSNotFound) {
-                                                command = [[after substringToIndex:nextAmp.location] stringByRemovingPercentEncoding];
-                                            } else {
-                                                command = [after stringByRemovingPercentEncoding];
-                                            }
-                                        } else {
-                                            qRange = [path rangeOfString:@"?command="];
-                                            if (qRange.location != NSNotFound) {
-                                                NSString *after = [path substringFromIndex:qRange.location + 9];
-                                                NSRange nextAmp = [after rangeOfString:@"&"];
-                                                if (nextAmp.location != NSNotFound) {
-                                                    command = [[after substringToIndex:nextAmp.location] stringByRemovingPercentEncoding];
-                                                } else {
-                                                    command = [after stringByRemovingPercentEncoding];
+                                    
+                                    // 1. Try Query Parameters (Allow for both GET and POST)
+                                    NSRange qMarkRange = [path rangeOfString:@"?"];
+                                    if (qMarkRange.location != NSNotFound) {
+                                        NSString *queryString = [path substringFromIndex:qMarkRange.location + 1];
+                                        NSArray *pairs = [queryString componentsSeparatedByString:@"&"];
+                                        for (NSString *pair in pairs) {
+                                            NSArray *kv = [pair componentsSeparatedByString:@"="];
+                                            if (kv.count == 2) {
+                                                NSString *key = [kv[0] lowercaseString];
+                                                if ([key isEqualToString:@"cmd"] || [key isEqualToString:@"command"]) {
+                                                    command = [kv[1] stringByRemovingPercentEncoding];
+                                                    break;
                                                 }
                                             }
                                         }
-                                    } else if ([method isEqualToString:@"POST"]) {
+                                    }
+
+                                    // 2. If no query param found, and it's a POST, check the body
+                                    if (!command && [method isEqualToString:@"POST"]) {
                                         NSRange clRange = [requestString rangeOfString:@"Content-Length: " options:NSCaseInsensitiveSearch];
                                         int contentLength = 0;
                                         if (clRange.location != NSNotFound) {
@@ -4180,12 +4182,11 @@ static void start_web_server() {
                                             contentLength = [afterCl intValue];
                                         }
 
-                                        NSRange bodyRange = [requestString rangeOfString:@"\r\n\r\n"];
-                                        if (bodyRange.location != NSNotFound) {
-                                            NSString *bodyStr = [requestString substringFromIndex:bodyRange.location + 4];
-                                            NSMutableData *bodyData = [[bodyStr dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+                                        NSRange separatorRange = [requestString rangeOfString:@"\r\n\r\n"];
+                                        if (separatorRange.location != NSNotFound) {
+                                            NSString *bodyStart = [requestString substringFromIndex:separatorRange.location + 4];
+                                            NSMutableData *bodyData = [[bodyStart dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
                                             
-                                            // Ensure we read the complete body based on Content-Length
                                             while (bodyData.length < contentLength) {
                                                 char chunk[4096];
                                                 ssize_t chunkRead = read(new_socket, chunk, sizeof(chunk));
@@ -4193,12 +4194,14 @@ static void start_web_server() {
                                                 [bodyData appendBytes:chunk length:chunkRead];
                                             }
 
-                                            NSString *body = [[NSString alloc] initWithData:bodyData encoding:NSUTF8StringEncoding];
-                                            if ([body hasPrefix:@"{"]) {
-                                                NSDictionary *json = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:nil];
-                                                if (json && json[@"command"]) command = json[@"command"];
-                                            } else {
-                                                command = [body stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                                            NSString *bodyText = [[NSString alloc] initWithData:bodyData encoding:NSUTF8StringEncoding];
+                                            if (bodyText.length > 0) {
+                                                if ([bodyText hasPrefix:@"{"]) {
+                                                    NSDictionary *json = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:nil];
+                                                    if (json && json[@"command"]) command = json[@"command"];
+                                                } else {
+                                                    command = [bodyText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                                                }
                                             }
                                         }
                                     }
