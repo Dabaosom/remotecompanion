@@ -4102,8 +4102,7 @@ static void start_web_server() {
 
                                     // Automations & Discovery
                                     @{@"command": @"shortcut \"Name\"", @"desc": @"Automation: Run a Siri Shortcut"},
-                                    @{@"command": @"trigger <ID>", @"desc": @"Automation: Fire a configured RemoteCompanion trigger"},
-                                    @{@"command": @"list-triggers", @"desc": @"Discovery: Returns a plain-text list of configured automations"}
+                                    @{@"command": @"trigger <ID>", @"desc": @"Automation: Fire a configured RemoteCompanion trigger"}
                                 ];
                                 NSDictionary *resp = @{@"ok": @YES, @"commands": commandList};
                                 NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:NSJSONWritingPrettyPrinted error:nil];
@@ -4154,24 +4153,14 @@ static void start_web_server() {
                                     }
 
                                     if (command && command.length > 0) {
-                                        NSString *cleanCmd = [command stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]].lowercaseString;
-                                        if ([cleanCmd isEqualToString:@"list-triggers"]) {
-                                            // Discovery commands are safe to run synchronously on background thread
-                                            NSString *output = handle_command(command) ?: @"No output";
-                                            NSDictionary *resp = @{@"ok": @YES, @"command": command, @"output": output};
-                                            NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
-                                            NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
-                                            responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)respData.length, jsonStr];
-                                        } else {
-                                            // Action commands use async to avoid SpringBoard deadlocks
-                                            dispatch_async(dispatch_get_main_queue(), ^{
-                                                handle_command(command);
-                                            });
-                                            NSDictionary *resp = @{@"ok": @YES, @"command": command, @"status": @"Acknowledged"};
-                                            NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
-                                            NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
-                                            responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)respData.length, jsonStr];
-                                        }
+                                        // Action commands use async to avoid SpringBoard deadlocks
+                                        dispatch_async(dispatch_get_main_queue(), ^{
+                                            handle_command(command);
+                                        });
+                                        NSDictionary *resp = @{@"ok": @YES, @"command": command, @"status": @"Acknowledged"};
+                                        NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                        NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                        responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)respData.length, jsonStr];
                                     } else {
                                         responseString = [NSString stringWithFormat:@"HTTP/1.1 400 Bad Request\r\n%@Content-Length: 15\r\n\r\nMissing command", cors];
                                     }
