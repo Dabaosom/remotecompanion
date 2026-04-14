@@ -5,37 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [3.0.0] - 2026-04-14
 
 ### Added
-- **Automations API**: Introduced structured discovery endpoints at `GET /api/triggers` and `GET /api/commands`. These return clean JSON for effortless integration with external services like Home Assistant or Node-RED.
-- **Web UI "Copy API Link"**: 
-  - Added a new **Copy** action to the trigger list (swipe) and the Actions Panel navbar.
-  - Instantly copy a trigger's direct execution URL (including device IP) for easy integration with Shortcuts, Home Assistant, or CLI scripts.
-  - Added an interactive **Green Checkmark** success indicator and tactile "push" animations when a URL is copied.
+- **Full Automation Management**: Creating, renaming, and deleting dynamic triggers is now fully supported from the browser.
+- **Automations API**: Introduced structured discovery endpoints at `GET /api/triggers` and `GET /api/commands`. These return clean JSON.
 - **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups, automated system checks, or time-based alerts.
 - **Notification Triggers**: Bind actions to incoming notifications from any app. Filter by bundle ID or specific text within the notification (title/subtitle/message).
 - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
-- **Motion Gestures**: Support for "Shake Device" handler.
-- **App Launch Trigger**: Fire actions when specific applications are opened.
-- **Wait Action**: Added "Delay" action to pause sequence execution.
-- **Native Shortcut Support**: High-performance execution of Siri Shortcuts via WorkflowKit.
-- **Premium Web UI**: A completely new, desktop-class automation hub matching the iOS app's "Inset Grouped" aesthetic. 
-  - **Premium Design**: Modern iOS-consistent look with glassmorphism on the navigation bar, SF Symbols-style iconography, and high-contrast dark mode.
-  - **Full Automation Management**: Creating, renaming, and deleting dynamic triggers is now fully supported from the browser.
-  - **Advanced Action Editor**: A powerful new sequence editor with reorderable actions, support for logic blocks (`If/Else/End`), and inline value editing.
-  - **Remote Execution**: Added "Execute" buttons to every trigger for instant remote testing and verification.
-
-### Changed
-- **Security First**: The Web UI toggle is now set to **OFF** by default for new installations to enhance device security.
-- **API Consistency**: The `/api/command` endpoint now supports query parameters (`?cmd=...`) for both GET and POST methods, improving compatibility with simple HTTP callers like curl.
-- **API Cleanliness**: Fixed JSON URL formatting in API responses to remove backslash escaping, resulting in clean, ready-to-use URL strings.
-- **Clipboard Reliability**: Hardened the copy-to-clipboard logic to ensure it works consistently across all browser environments, including insecure IP-based connections.
-
-### Fixed
-- **Stability Guard**: Added nil-safety to the core command handler to prevent SpringBoard crashes (Safe Mode) when receiving invalid or malformed API requests.
-- **Settings UI**: Re-engineered the Settings panel with a modern flexbox layout, ensuring the version footer is pinned to the absolute bottom of the viewport as intended.
-- **Configuration Lockout**: Resolved an edge case where the Web UI settings could not be saved or re-enabled from the browser if the Web UI flag was turned off.
-- **Persistence Reliability**: Hardened the configuration saving mechanism in the tweak with a POSIX fallback to ensure settings are correctly written to the shared filesystem regardless of sandbox restrictions.
-- Resolved race condition in button hook long-press detection.
-- Fixed layout issues on mobile Safari for large automation lists.
 
 
 ## [2.4.0~beta1] - 2026-03-23
