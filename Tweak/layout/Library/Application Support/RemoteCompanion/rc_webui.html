@@ -1206,28 +1206,25 @@ function renderTriggerRow(key, deletable) {
   `;
   row.appendChild(inner);
 
-  // ── Touch-based swipe handling ──
-  let startX = 0, startY = 0, dx = 0, isSwipe = false, didMove = false;
+  // ── Unified swipe handling (touch + mouse) ──
+  let startX = 0, startY = 0, dx = 0, isSwipe = false, didMove = false, isTracking = false;
   const ACTION_WIDTH = (deletable ? 4 : 3) * 60; // total px of actions (Fav, Copy, Play, [Del])
 
-  inner.addEventListener('touchstart', e => {
-    // Close other open row
+  function swipeStart(clientX, clientY) {
     if (_openRow && _openRow !== row) closeOpenRow();
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    dx = 0; isSwipe = false; didMove = false;
-  }, { passive: true });
+    startX = clientX; startY = clientY;
+    dx = 0; isSwipe = false; didMove = false; isTracking = true;
+  }
 
-  inner.addEventListener('touchmove', e => {
-    const curX = e.touches[0].clientX;
-    const curY = e.touches[0].clientY;
-    dx = curX - startX;
-    const dy = curY - startY;
-    if (!didMove && Math.abs(dy) > Math.abs(dx)) { isSwipe = false; return; }
+  function swipeMove(clientX, clientY, preventDefaultFn) {
+    if (!isTracking) return;
+    dx = clientX - startX;
+    const dy = clientY - startY;
+    if (!didMove && Math.abs(dy) > Math.abs(dx)) { isTracking = false; return; }
     didMove = true;
     if (!isSwipe && Math.abs(dx) > 5) isSwipe = true;
     if (!isSwipe) return;
-    e.preventDefault();
+    if (preventDefaultFn) preventDefaultFn();
     const isOpen = row.classList.contains('swiped-open');
     let offset = isOpen ? -ACTION_WIDTH + dx : dx;
     offset = Math.max(-ACTION_WIDTH, Math.min(0, offset));
@@ -1239,11 +1236,17 @@ function renderTriggerRow(key, deletable) {
       el.style.transition = 'none';
       el.style.width = `${ratio * (ACTION_WIDTH / actionsEl.children.length)}px`;
     });
-  }, { passive: false });
+  }
 
-  inner.addEventListener('touchend', () => {
+  function swipeEnd() {
+    if (!isTracking) return;
+    isTracking = false;
     inner.style.transition = '';
-    actionsEl.querySelectorAll('.swipe-action').forEach(el => { el.style.transition = ''; });
+    // Clear inline width so CSS class (.swiped-open .swipe-action) can animate correctly
+    actionsEl.querySelectorAll('.swipe-action').forEach(el => {
+      el.style.transition = '';
+      el.style.width = '';
+    });
     if (!isSwipe) return;
     const isOpen = row.classList.contains('swiped-open');
     const threshold = ACTION_WIDTH * 0.35;
@@ -1252,13 +1255,26 @@ function renderTriggerRow(key, deletable) {
       row.classList.add('swiped-open');
       inner.style.transform = '';
       _openRow = row;
-    } else {
-      // Snap closed
-      inner.style.transform = '';
+    } else if (isOpen && dx > threshold * 0.5) {
+      // Swipe right to close
       row.classList.remove('swiped-open');
+      inner.style.transform = '';
       if (_openRow === row) _openRow = null;
+    } else {
+      // Snap back to current state
+      inner.style.transform = '';
     }
-  });
+  }
+
+  // Touch events
+  inner.addEventListener('touchstart', e => swipeStart(e.touches[0].clientX, e.touches[0].clientY), { passive: true });
+  inner.addEventListener('touchmove',  e => swipeMove(e.touches[0].clientX, e.touches[0].clientY, () => e.preventDefault()), { passive: false });
+  inner.addEventListener('touchend',   () => swipeEnd());
+
+  // Mouse events (desktop testing)
+  inner.addEventListener('mousedown', e => swipeStart(e.clientX, e.clientY));
+  window.addEventListener('mousemove', e => { if (isTracking) swipeMove(e.clientX, e.clientY, null); });
+  window.addEventListener('mouseup',   () => { if (isTracking) swipeEnd(); });
 
   // ── Click to open edit panel (only if not swiped) ──
   inner.addEventListener('click', e => {
