@@ -9,7 +9,6 @@ All notable changes to this project will be documented in this file.
 - **Automations API**: Introduced structured discovery endpoints at `GET /api/triggers` and `GET /api/commands`. These return clean JSON.
 - **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups, automated system checks, or time-based alerts.
 - **Notification Triggers**: Bind actions to incoming notifications from any app. Filter by bundle ID or specific text within the notification (title/subtitle/message).
-- **Interactive Trigger Context**: Creating Wi-Fi or Bluetooth Triggers via the Web UI will now query your device using a new `/api/devices` endpoint, producing a native dropdown to pick known SSIDs and paired devices, and choose between "Connect" and "Disconnect" conditions.
 - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
 
 

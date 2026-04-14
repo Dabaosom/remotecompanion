@@ -503,6 +503,44 @@
     }
     .dialog-btns button:first-child { border-right: 0.5px solid rgba(255,255,255,0.1); color: #8e8e93; }
 
+    /* ── App Launch Picker ── */
+    .app-launch-dialog {
+      max-height: 80vh; max-height: 80dvh;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .app-launch-dialog > div:nth-child(3) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .app-picker-search-wrap {
+      display: flex; align-items: center; gap: 8px;
+      background: #2c2c2e; border-radius: 10px;
+      padding: 8px 12px; margin-bottom: 10px;
+    }
+    .app-picker-search {
+      flex: 1; background: none; border: none; color: #fff;
+      font-size: 16px; font-family: inherit; outline: none;
+    }
+    .app-picker-search::placeholder { color: #636366; }
+    .app-picker-list {
+      flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+      max-height: 42vh; max-height: 42dvh;
+      border-radius: 10px; background: #2c2c2e;
+    }
+    .app-picker-loading {
+      text-align: center; color: #636366;
+      font-size: 15px; padding: 28px 16px;
+    }
+    .app-picker-row {
+      display: flex; align-items: center;
+      padding: 10px 14px;
+      border-bottom: 0.5px solid rgba(255,255,255,0.07);
+      cursor: pointer; transition: background 0.12s; gap: 8px;
+    }
+    .app-picker-row:last-child { border-bottom: none; }
+    .app-picker-row:active { background: rgba(255,255,255,0.08); }
+    .app-picker-row-inner { flex: 1; min-width: 0; }
+    .app-picker-name { font-size: 16px; color: #fff; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .app-picker-bid { font-size: 12px; color: #636366; font-family: "SF Mono", Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+
     /* ── Toast ── */
     .toast {
       position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
@@ -674,6 +712,10 @@
   </div>
 </div>
 
+<datalist id="app-datalist"></datalist>
+<datalist id="bt-datalist"></datalist>
+<datalist id="wifi-datalist"></datalist>
+
 <!-- ══ BOTTOM SHEET ══════════════════════════════════════════════════════ -->
 <div class="sheet-backdrop" id="sheet-backdrop" onclick="closeSheet()"></div>
 <div class="sheet" id="sheet">
@@ -753,12 +795,32 @@
     <div class="dialog-msg" style="text-align:center;padding:0 16px 4px">Fires when a notification arrives matching these criteria.</div>
     <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:10px">
       <input class="dialog-input" id="notif-name" type="text" placeholder="Display Name (e.g. Messages)" autocorrect="off" autocapitalize="words" spellcheck="false" style="margin:0;width:100%">
-      <input class="dialog-input" id="notif-bundle" type="text" placeholder="App Bundle ID (e.g. com.apple.MobileSMS)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
+      <input list="app-datalist" class="dialog-input" id="notif-bundle" type="text" placeholder="App Bundle ID (e.g. com.apple.MobileSMS)" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
       <input class="dialog-input" id="notif-text" type="text" placeholder="Text Match (optional)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
     </div>
     <div class="dialog-btns">
       <button onclick="closeNotifDialog()">Cancel</button>
       <button id="notif-dialog-ok" onclick="notifDialogOk()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ APP LAUNCH TRIGGER DIALOG ═════════════════════════════════════════ -->
+<div class="dialog-backdrop" id="app-launch-dialog-backdrop">
+  <div class="dialog-box app-launch-dialog">
+    <div class="dialog-title">New App Launch Trigger</div>
+    <div class="dialog-msg" style="text-align:center;padding:0 16px 6px">Fires when an app is opened on the device.</div>
+    <div style="padding:0 14px 10px">
+      <div class="app-picker-search-wrap">
+        <i class="f7-icons" style="font-size:16px;color:#8e8e93;flex-shrink:0">search</i>
+        <input class="app-picker-search" id="app-picker-search" type="text" placeholder="Search apps…" autocorrect="off" autocapitalize="none" spellcheck="false" oninput="filterAppPickerList()">
+      </div>
+      <div class="app-picker-list" id="app-picker-list">
+        <div class="app-picker-loading" id="app-picker-loading">Loading apps…</div>
+      </div>
+    </div>
+    <div class="dialog-btns">
+      <button onclick="closeAppLaunchDialog()">Cancel</button>
     </div>
   </div>
 </div>
@@ -1643,10 +1705,17 @@ async function selectAction(action) {
 
   if (needsText[cmd]) {
     const d = needsText[cmd];
+    let listId = null;
+    if (cmd === '__OPEN_APP__') listId = 'app-datalist';
+    if (cmd === '__BT_CONNECT__' || cmd === '__BT_DISCONNECT__') listId = 'bt-datalist';
+    
+    // Ensure lists are fresh if we might use one
+    if (listId) refreshDatalists();
+
     showDialog(d.title, d.msg, d.def, 'Add', val => {
       if (!val) return;
       addAction(d.build(val));
-    }, d.type);
+    }, d.type, listId);
     return;
   }
 
@@ -1706,7 +1775,7 @@ function showAddTriggerSheet() {
     { label:'NFC Tag',           action:() => promptNewTrigger('nfc',        'NFC tag ID or name') },
     { label:'WiFi Network',      action:() => promptComplexTrigger('wifi') },
     { label:'Bluetooth Device',  action:() => promptComplexTrigger('bt') },
-    { label:'App Launch',        action:() => promptNewTrigger('app_launch', 'Bundle ID (e.g. com.apple.Music)') },
+    { label:'App Launch',        action:() => promptAppLaunchTrigger() },
     { label:'Notification',      action:() => promptNotifTrigger() },
     { label:'Scheduled',         action:() => promptSchedTrigger() },
   ]);
@@ -1718,6 +1787,69 @@ function promptNewTrigger(prefix, placeholder) {
     const key = `${prefix}_${val.toLowerCase().replace(/[ \t\n\r]+/g,'_').replace(/[^a-z0-9_]/g,'')}`;
     config.triggers[key] = { enabled: true, actions: [], name: val };
     saveConfig(); renderAll();
+  });
+}
+
+// ── App Launch Trigger Dialog ────────────────────────────────────────────────
+let _appPickerData = []; // Cached full list for filtering
+
+async function promptAppLaunchTrigger() {
+  document.getElementById('app-picker-search').value = '';
+  const listEl = document.getElementById('app-picker-list');
+  listEl.innerHTML = '<div class="app-picker-loading" id="app-picker-loading">Loading apps…</div>';
+  document.getElementById('app-launch-dialog-backdrop').classList.add('visible');
+  setTimeout(() => document.getElementById('app-picker-search').focus(), 150);
+
+  try {
+    const data = await fetchDevices();
+    _appPickerData = (data && data.apps) ? data.apps : [];
+    renderAppPickerList(_appPickerData);
+  } catch(e) {
+    listEl.innerHTML = '<div class="app-picker-loading">Could not load apps from device.</div>';
+  }
+}
+
+function closeAppLaunchDialog() {
+  document.getElementById('app-launch-dialog-backdrop').classList.remove('visible');
+  _appPickerData = [];
+}
+
+function filterAppPickerList() {
+  const q = (document.getElementById('app-picker-search').value || '').toLowerCase().trim();
+  const filtered = q
+    ? _appPickerData.filter(a => a.name.toLowerCase().includes(q) || a.bundleId.toLowerCase().includes(q))
+    : _appPickerData;
+  renderAppPickerList(filtered);
+}
+
+function renderAppPickerList(apps) {
+  const listEl = document.getElementById('app-picker-list');
+  if (!apps || apps.length === 0) {
+    listEl.innerHTML = '<div class="app-picker-loading">No apps found.</div>';
+    return;
+  }
+  listEl.innerHTML = '';
+  apps.forEach(app => {
+    const row = document.createElement('div');
+    row.className = 'app-picker-row';
+    row.innerHTML = `
+      <div class="app-picker-row-inner">
+        <div class="app-picker-name">${escHtml(app.name)}</div>
+        <div class="app-picker-bid">${escHtml(app.bundleId)}</div>
+      </div>
+      <i class="f7-icons" style="color:#3a3a3c;font-size:14px;flex-shrink:0">chevron_right</i>
+    `;
+    row.addEventListener('click', () => {
+      closeAppLaunchDialog();
+      // Use app name as display name, bundle ID as key suffix
+      const name = app.name;
+      const safeSuffix = app.bundleId; // keep full bundle ID as suffix for exact match in trigger hook
+      const key = `app_launch_${safeSuffix}`;
+      config.triggers[key] = { enabled: true, actions: [], name };
+      saveConfig(); renderAll();
+      setTimeout(() => openActionsPanel(key), 400);
+    });
+    listEl.appendChild(row);
   });
 }
 
@@ -1768,6 +1900,8 @@ function promptNotifTrigger() {
   document.getElementById('notif-bundle').value = '';
   document.getElementById('notif-text').value = '';
   document.getElementById('notif-dialog-backdrop').classList.add('visible');
+  
+  refreshDatalists();
   setTimeout(() => document.getElementById('notif-name').focus(), 100);
 }
 
@@ -1804,10 +1938,58 @@ let complexTriggerSegment = 'connect';
 async function fetchDevices() {
   try {
     const res = await fetch('/api/devices');
-    return await res.json();
+    const data = await res.json();
+    console.log('API: fetchDevices returned:', data);
+    return data;
   } catch (e) {
-    return { wifi: [], bluetooth: [] };
+    console.error('API: fetchDevices FAILED:', e);
+    return { wifi: [], bluetooth: [], apps: [] };
   }
+}
+
+async function refreshDatalists() {
+  console.log('UI: refreshing datalists...');
+  const data = await refreshDatalistsInternal();
+  return data;
+}
+
+async function refreshDatalistsInternal() {
+  const data = await fetchDevices();
+  if (!data) return null;
+
+  const appList = document.getElementById('app-datalist');
+  if (appList && data.apps) {
+    appList.innerHTML = '';
+    console.log(`UI: Populating app-datalist with ${data.apps.length} items`);
+    data.apps.forEach(app => {
+      const opt = document.createElement('option');
+      opt.value = app.bundleId;
+      opt.label = app.name; // Use label for better browser support
+      opt.textContent = app.name;
+      appList.appendChild(opt);
+    });
+  }
+
+  const btList = document.getElementById('bt-datalist');
+  if (btList && data.bluetooth) {
+    btList.innerHTML = '';
+    data.bluetooth.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      btList.appendChild(opt);
+    });
+  }
+
+  const wifiList = document.getElementById('wifi-datalist');
+  if (wifiList && data.wifi) {
+    wifiList.innerHTML = '';
+    data.wifi.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      wifiList.appendChild(opt);
+    });
+  }
+  return data;
 }
 
 function setComplexSegment(seg) {
@@ -1828,9 +2010,9 @@ async function promptComplexTrigger(type) {
   datalist.innerHTML = '';
   document.getElementById('complex-dialog-backdrop').classList.add('visible');
 
-  // Fetch API
-  const devices = await fetchDevices();
-  const list = type === 'wifi' ? devices.wifi : devices.bluetooth;
+  // Refresh and use data
+  const data = await refreshDatalists();
+  const list = type === 'wifi' ? (data ? data.wifi : []) : (data ? data.bluetooth : []);
   if (list && list.length) {
     list.forEach(name => {
       const opt = document.createElement('option');
@@ -1927,11 +2109,13 @@ function closeSheet() {
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
-function showDialog(title, msg, defaultVal, okLabel, callback, inputType='text') {
+function showDialog(title, msg, defaultVal, okLabel, callback, inputType='text', listId=null) {
   document.getElementById('dialog-title').textContent = title;
   document.getElementById('dialog-msg').textContent = msg;
   const input = document.getElementById('dialog-input');
   input.type = inputType === 'number' ? 'number' : 'text';
+  if (listId) input.setAttribute('list', listId);
+  else input.removeAttribute('list');
   input.value = defaultVal || '';
   document.getElementById('dialog-ok').textContent = okLabel || 'OK';
   dialogCallback = callback;

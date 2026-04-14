@@ -80,9 +80,15 @@ static void (*_IOHIDEventSystemClientDispatchEvent)(IOHIDEventSystemClientRef cl
 static SBVoiceControlController *sharedVoiceControl = nil;
 static NSHashTable *siriInteractions = nil;
 
+@interface LSApplicationProxy : NSObject
+@property (nonatomic, readonly) NSString *applicationIdentifier;
+@property (nonatomic, readonly) NSString *localizedName;
+@end
+
 @interface LSApplicationWorkspace : NSObject
 + (id)defaultWorkspace;
 - (BOOL)openApplicationWithBundleID:(id)arg1;
+- (NSArray *)allInstalledApplications;
 @end
 
 @interface SBControlCenterController : NSObject
@@ -4138,11 +4144,46 @@ static void start_web_server() {
                                             [wifiNames addObject:ssid];
                                         }
                                     }
+
+                                    void *lsHandle = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_NOW);
+                                    if (!lsHandle) {
+                                        lsHandle = dlopen("/System/Library/PrivateFrameworks/MobileCoreServices.framework/MobileCoreServices", RTLD_NOW);
+                                    }
+
+                                    NSMutableArray *appList = [NSMutableArray array];
+                                    Class LSApplicationWorkspaceClass = objc_getClass("LSApplicationWorkspace");
+                                    if (LSApplicationWorkspaceClass) {
+                                        NSArray *apps = [[LSApplicationWorkspaceClass defaultWorkspace] allInstalledApplications];
+                                        SRLog(@"API: Found %lu installed applications", (unsigned long)apps.count);
+                                        for (LSApplicationProxy *proxy in apps) {
+                                            NSString *name = nil;
+                                            if ([proxy respondsToSelector:@selector(localizedName)]) {
+                                                name = [proxy localizedName];
+                                            }
+                                            NSString *bid = nil;
+                                            if ([proxy respondsToSelector:@selector(applicationIdentifier)]) {
+                                                bid = [proxy applicationIdentifier];
+                                            }
+                                            
+                                            if (name && bid) {
+                                                [appList addObject:@{@"name": name, @"bundleId": bid}];
+                                            }
+                                        }
+                                    } else {
+                                        SRLog(@"API: LSApplicationWorkspace class NOT FOUND after dlopen");
+                                    }
+
+                                    // Sort by name
+                                    [appList sortUsingComparator:^NSComparisonResult(id obj1, id obj2) {
+                                        return [obj1[@"name"] localizedCaseInsensitiveCompare:obj2[@"name"]];
+                                    }];
+                                    SRLog(@"API: returning %lu apps in device list", (unsigned long)appList.count);
                                     
                                     NSDictionary *resp = @{
                                         @"ok": @YES,
                                         @"bluetooth": btNames,
-                                        @"wifi": wifiNames
+                                        @"wifi": wifiNames,
+                                        @"apps": appList
                                     };
                                     NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
                                     NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
