@@ -4145,9 +4145,7 @@ static void start_web_server() {
                                     @{@"command": @"trigger <ID>", @"desc": @"Automation: Fire a configured RemoteCompanion trigger"},
                                     @{@"command": @"unlock <passcode>", @"desc": @"Security: Unlock device screen (INSECURE: Passcode sent in plain text!)"},
                                     @{@"command": @"is-locked", @"desc": @"System: Check if device screen is currently locked"},
-                                    @{@"command": @"list-triggers", @"desc": @"Discovery: Returns a plain-text list of configured automations"},
-                                    @{@"command": @"exec \"shell cmd\"", @"desc": @"Advanced: Execute a shell command as mobile user"},
-                                    @{@"command": @"root \"shell cmd\"", @"desc": @"Advanced: Execute a shell command as root (requires rc-root)"}
+                                    @{@"command": @"list-triggers", @"desc": @"Discovery: Returns a plain-text list of configured automations"}
                                 ];
                                 NSDictionary *resp = @{@"ok": @YES, @"commands": commandList};
                                 NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:NSJSONWritingPrettyPrinted error:nil];
