@@ -691,6 +691,7 @@
 
 // ── State ────────────────────────────────────────────────────────────────────
 let config = { masterEnabled: true, nfcEnabled: true, webUIEnabled: false, triggers: {}, favoriteTriggers: [] };
+let hasLoadedData = false;
 let currentKey = null;
 let dialogCallback = null;
 let editMode = false;
@@ -982,6 +983,7 @@ async function loadData() {
     if (!config.triggers) config.triggers = {};
     if (!config.favoriteTriggers) config.favoriteTriggers = [];
     document.getElementById('conn-banner').classList.remove('visible');
+    hasLoadedData = true;
     renderAll();
   } catch(e) {
     document.getElementById('conn-banner').classList.add('visible');
@@ -989,6 +991,11 @@ async function loadData() {
 }
 
 async function saveConfig() {
+  if (!hasLoadedData) {
+    console.warn("Attempted to save setting before configuration was loaded from server. Ignoring to prevent wipe.");
+    showToast('⚠ Cannot save while offline');
+    return;
+  }
   try {
     const res = await fetch('/api/config', {
       method: 'POST',

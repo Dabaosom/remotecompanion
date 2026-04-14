@@ -4048,10 +4048,15 @@ static void start_web_server() {
                                             contentLength = [afterCl intValue];
                                         }
 
-                                        NSRange bodyRange = [requestString rangeOfString:@"\r\n\r\n"];
-                                        if (bodyRange.location != NSNotFound) {
-                                            NSString *bodyStr = [requestString substringFromIndex:bodyRange.location + 4];
-                                            NSMutableData *bodyData = [[bodyStr dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+                                        const char *headersEnd = strnstr(buffer, "\r\n\r\n", valread);
+                                        if (headersEnd != NULL) {
+                                            size_t headerBytesOffset = (headersEnd - buffer) + 4;
+                                            size_t availableBodyLength = valread - headerBytesOffset;
+                                            
+                                            NSMutableData *bodyData = [NSMutableData data];
+                                            if (availableBodyLength > 0) {
+                                                [bodyData appendBytes:(buffer + headerBytesOffset) length:availableBodyLength];
+                                            }
                                             
                                             // Ensure we read the complete body based on Content-Length
                                             while (bodyData.length < contentLength) {
@@ -4182,11 +4187,17 @@ static void start_web_server() {
                                             contentLength = [afterCl intValue];
                                         }
 
-                                        NSRange separatorRange = [requestString rangeOfString:@"\r\n\r\n"];
-                                        if (separatorRange.location != NSNotFound) {
-                                            NSString *bodyStart = [requestString substringFromIndex:separatorRange.location + 4];
-                                            NSMutableData *bodyData = [[bodyStart dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+                                        const char *headersEnd = strnstr(buffer, "\r\n\r\n", valread);
+                                        if (headersEnd != NULL) {
+                                            size_t headerBytesOffset = (headersEnd - buffer) + 4;
+                                            size_t availableBodyLength = valread - headerBytesOffset;
                                             
+                                            NSMutableData *bodyData = [NSMutableData data];
+                                            if (availableBodyLength > 0) {
+                                                [bodyData appendBytes:(buffer + headerBytesOffset) length:availableBodyLength];
+                                            }
+                                            
+                                            // Ensure we read the complete body based on Content-Length
                                             while (bodyData.length < contentLength) {
                                                 char chunk[4096];
                                                 ssize_t chunkRead = read(new_socket, chunk, sizeof(chunk));
