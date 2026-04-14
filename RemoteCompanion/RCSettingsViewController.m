@@ -189,7 +189,7 @@
             cell.accessoryView = _nfcSwitch;
             cell.selectionStyle = UITableViewCellSelectionStyleNone;
         } else if (indexPath.row == 2) {
-            cell.textLabel.text = @"Web UI (Port 8080)";
+            cell.textLabel.text = @"Web UI";
             _webUISwitch = [[UISwitch alloc] init];
             _webUISwitch.on = [RCConfigManager sharedManager].webUIEnabled;
             [_webUISwitch addTarget:self action:@selector(webUIToggleChanged:) forControlEvents:UIControlEventValueChanged];

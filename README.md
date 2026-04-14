@@ -35,6 +35,20 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 - **Trigger Favorites**: Mark any trigger as a favorite for instant access at the top of the picker.
 - **True Multitasking**: Concurrent server handling powered by GCD—zero battery drain, zero blocking.
 
+## Web UI & Automations Hub
+
+RemoteCompanion v3.0 introduces a premium, desktop-class Web UI designed to mirror the native iOS experience while providing the speed and convenience of a desktop environment.
+
+- **Location**: Access it at `http://[DEVICE_IP]:8080` from any computer or tablet on your local network.
+- **Enable**: Toggle **Web UI** in the RemoteCompanion Settings (Gear icon) or use the command `rc webui on`.
+
+### Key Features
+- **Visual Workflow Editor**: Build complex action sequences with an intuitive drag-and-drop interface.
+- **Live Device Discovery**: Dynamically search and select installed Apps, nearby Bluetooth hardware, and Wi-Fi networks using integrated search bars.
+- **One-Tap API Integration**: Every trigger has a dedicated **Copy API Link** button that provides a pre-formatted URL to fire that trigger from third-party tools like **Home Assistant**, **Node-RED**, or custom scripts.
+- **Remote Testing**: Trigger actions and troubleshoot sequences directly from your browser with live execution buttons.
+- **Configuration Management**: Import and export your entire trigger database for easy backups and migration between devices.
+
 ## What you can do
 
 ### Media & Volume
