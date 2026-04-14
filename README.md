@@ -4,12 +4,11 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 
 > [!IMPORTANT]
 > **What's New in v3.0**
-> - **Automations API**: A new high-performance system for remote control via `/api/triggers` and `/api/commands`, returning clean JSON for easy third-party integration.
 > - **Web UI**: Desktop-class automation hub with iOS aesthetics, featuring **live search-enabled pickers** for apps, WiFi, and Bluetooth devices, full workflow engineering, and **one-tap API URL copying**.
+> - **Automations API**: A new high-performance system for remote control via `/api/triggers` and `/api/commands`, returning clean JSON for easy third-party integration.
 > - **Scheduled Triggers**: Run action sequences at specific times and days of the week.
 > - **Notification Triggers**: Bind actions to incoming notifications from any app with precision title and message filtering and a searchable app picker.
 > - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
-> - **Web UI CLI Control**: Manage the Web UI server status remotely via the new `rc webui [on|off|status]` command.
 
 
 
