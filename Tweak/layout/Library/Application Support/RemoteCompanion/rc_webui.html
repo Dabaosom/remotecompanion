@@ -482,7 +482,7 @@
     .dialog-backdrop.visible { display: flex; }
     .dialog-box {
       background: #1c1c1e; border-radius: 14px;
-      width: calc(100% - 48px); max-width: 360px;
+      width: calc(100% - 48px); max-width: 560px;
       overflow: hidden;
     }
     .dialog-title { font-size: 17px; font-weight: 600; color: #fff; text-align: center; padding: 20px 20px 4px; }
@@ -721,21 +721,21 @@
 
 <!-- ══ SCHEDULED TRIGGER DIALOG ════════════════════════════════════════ -->
 <div class="dialog-backdrop" id="sched-dialog-backdrop">
-  <div class="dialog-box" style="min-width:calc(100% - 48px);max-width:360px">
+  <div class="dialog-box">
     <div class="dialog-title">New Scheduled Trigger</div>
     <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:10px">
       <input class="dialog-input" id="sched-name" type="text" placeholder="Name (e.g. Morning)" autocorrect="off" autocapitalize="words" spellcheck="false" style="margin:0;width:100%">
       <input class="dialog-input" id="sched-time" type="time" style="margin:0;width:100%;color:#fff;background:#2c2c2e">
       <div style="background:#2c2c2e;border-radius:10px;padding:10px 12px">
-        <div style="font-size:13px;color:#8e8e93;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em">Repeat</div>
+        <div style="font-size:13px;color:#8e8e93;margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em font-weight: 500;">Repeat</div>
         <div style="display:flex;justify-content:space-between;gap:4px" id="sched-days">
-          <label class="day-pill" data-day="1"><input type="checkbox" value="1"><span>Sun</span></label>
-          <label class="day-pill" data-day="2"><input type="checkbox" value="2"><span>Mon</span></label>
-          <label class="day-pill" data-day="3"><input type="checkbox" value="3"><span>Tue</span></label>
-          <label class="day-pill" data-day="4"><input type="checkbox" value="4"><span>Wed</span></label>
-          <label class="day-pill" data-day="5"><input type="checkbox" value="5"><span>Thu</span></label>
-          <label class="day-pill" data-day="6"><input type="checkbox" value="6"><span>Fri</span></label>
-          <label class="day-pill" data-day="7"><input type="checkbox" value="7"><span>Sat</span></label>
+          <label class="day-pill" data-day="1"><input type="checkbox" value="1"><span>S</span></label>
+          <label class="day-pill" data-day="2"><input type="checkbox" value="2"><span>M</span></label>
+          <label class="day-pill" data-day="3"><input type="checkbox" value="3"><span>T</span></label>
+          <label class="day-pill" data-day="4"><input type="checkbox" value="4"><span>W</span></label>
+          <label class="day-pill" data-day="5"><input type="checkbox" value="5"><span>T</span></label>
+          <label class="day-pill" data-day="6"><input type="checkbox" value="6"><span>F</span></label>
+          <label class="day-pill" data-day="7"><input type="checkbox" value="7"><span>S</span></label>
         </div>
       </div>
     </div>
@@ -748,13 +748,13 @@
 
 <!-- ══ NOTIFICATION TRIGGER DIALOG ══════════════════════════════════════ -->
 <div class="dialog-backdrop" id="notif-dialog-backdrop">
-  <div class="dialog-box" style="min-width:calc(100% - 48px);max-width:360px">
+  <div class="dialog-box">
     <div class="dialog-title">New Notification Trigger</div>
-    <div class="dialog-msg" style="text-align:left;padding:0 16px 4px">Fires when a notification arrives matching these criteria.</div>
+    <div class="dialog-msg" style="text-align:center;padding:0 16px 4px">Fires when a notification arrives matching these criteria.</div>
     <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:10px">
       <input class="dialog-input" id="notif-name" type="text" placeholder="Display Name (e.g. Messages)" autocorrect="off" autocapitalize="words" spellcheck="false" style="margin:0;width:100%">
       <input class="dialog-input" id="notif-bundle" type="text" placeholder="App Bundle ID (e.g. com.apple.MobileSMS)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
-      <input class="dialog-input" id="notif-text" type="text" placeholder="Text Match (optional — leave blank for any)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
+      <input class="dialog-input" id="notif-text" type="text" placeholder="Text Match (optional)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
     </div>
     <div class="dialog-btns">
       <button onclick="closeNotifDialog()">Cancel</button>
@@ -1693,8 +1693,8 @@ function promptSchedTrigger() {
   const mm = String(now.getMinutes()).padStart(2,'0');
   document.getElementById('sched-name').value = '';
   document.getElementById('sched-time').value = `${hh}:${mm}`;
-  // Uncheck all day pills
-  document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb => cb.checked = false);
+  // Check all day pills by default
+  document.querySelectorAll('#sched-days input[type=checkbox]').forEach(cb => cb.checked = true);
   document.getElementById('sched-dialog-backdrop').classList.add('visible');
   setTimeout(() => document.getElementById('sched-name').focus(), 100);
 }
