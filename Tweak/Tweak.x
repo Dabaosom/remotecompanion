@@ -3986,6 +3986,61 @@ static void start_web_server() {
                                         }
                                     }
                                 }
+                            } else if ([path hasPrefix:@"/api/command"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    __block NSString *command = nil;
+                                    if ([method isEqualToString:@"GET"]) {
+                                        NSRange qRange = [path rangeOfString:@"?cmd="];
+                                        if (qRange.location != NSNotFound) {
+                                            NSString *after = [path substringFromIndex:qRange.location + 5];
+                                            NSRange nextAmp = [after rangeOfString:@"&"];
+                                            if (nextAmp.location != NSNotFound) {
+                                                command = [[after substringToIndex:nextAmp.location] stringByRemovingPercentEncoding];
+                                            } else {
+                                                command = [after stringByRemovingPercentEncoding];
+                                            }
+                                        } else {
+                                            qRange = [path rangeOfString:@"?command="];
+                                            if (qRange.location != NSNotFound) {
+                                                NSString *after = [path substringFromIndex:qRange.location + 9];
+                                                NSRange nextAmp = [after rangeOfString:@"&"];
+                                                if (nextAmp.location != NSNotFound) {
+                                                    command = [[after substringToIndex:nextAmp.location] stringByRemovingPercentEncoding];
+                                                } else {
+                                                    command = [after stringByRemovingPercentEncoding];
+                                                }
+                                            }
+                                        }
+                                    } else if ([method isEqualToString:@"POST"]) {
+                                        NSRange bodyRange = [requestString rangeOfString:@"\r\n\r\n"];
+                                        if (bodyRange.location != NSNotFound) {
+                                            NSString *body = [requestString substringFromIndex:bodyRange.location + 4];
+                                            if ([body hasPrefix:@"{"]) {
+                                                NSData *bodyData = [body dataUsingEncoding:NSUTF8StringEncoding];
+                                                NSDictionary *json = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:nil];
+                                                if (json && json[@"command"]) command = json[@"command"];
+                                            } else {
+                                                command = [body stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                                            }
+                                        }
+                                    }
+
+                                    if (command && command.length > 0) {
+                                        __block NSString *output = @"";
+                                        dispatch_sync(dispatch_get_main_queue(), ^{
+                                            output = handle_command(command) ?: @"Command executed";
+                                        });
+                                        NSDictionary *resp = @{@"ok": @YES, @"command": command, @"output": output};
+                                        NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                        NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                        responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)respData.length, jsonStr];
+                                    } else {
+                                        responseString = [NSString stringWithFormat:@"HTTP/1.1 400 Bad Request\r\n%@Content-Length: 15\r\n\r\nMissing command", cors];
+                                    }
+                                }
                             } else if ([path hasPrefix:@"/api/trigger/"] && [method isEqualToString:@"POST"]) {
                                 load_trigger_config();
                                 if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {

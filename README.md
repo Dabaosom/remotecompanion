@@ -283,7 +283,34 @@ If you have **Powercuts** installed, you can run `rc` commands directly via shel
    rc open Music
    rc volume 50
    ```
-   
+    
+#### Option 4: HTTP API (Network Triggers)
+Control your device from any network-connected hardware (like Home Assistant, physical ESP32 buttons, or browser scripts) via simple HTTP calls.
+
+1. Enable **Web UI** in the RemoteCompanion Settings (Gear icon).
+2. Send commands using `GET` or `POST`:
+
+**Using GET (easiest for browser/simple callers):**
+```bash
+http://[device_ip]:8080/api/command?cmd=play
+http://[device_ip]:8080/api/command?cmd=flashlight%20toggle
+```
+
+**Using POST (JSON):**
+```bash
+curl -X POST "http://[device_ip]:8080/api/command" \
+     -H "Content-Type: application/json" \
+     -d '{"command": "respring"}'
+```
+
+**Using POST (Raw Text):**
+```bash
+curl -X POST "http://[device_ip]:8080/api/command" -d "haptic"
+```
+
+> [!TIP]
+> This API is cross-platform and requires no special tools on the caller device, making it ideal for IoT integrations.
+
 <details>
 <summary><h3>Home Assistant Setup</h3></summary>
 
