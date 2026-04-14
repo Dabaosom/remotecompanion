@@ -5,7 +5,7 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 > [!IMPORTANT]
 > **What's New in v3.0**
 > - **Web UI**: Desktop-class automation hub with iOS aesthetics, featuring **live search-enabled pickers** for apps, WiFi, and Bluetooth devices, full workflow engineering, and **one-tap API URL copying**.
-> - **Automations API**: A new high-performance system for remote control via `/api/triggers` and `/api/commands`, returning clean JSON for easy third-party integration.
+> - **Automations API**: High-performance system for remote control—execute triggers and system commands via simple HTTP POST/GET requests.
 > - **Scheduled Triggers**: Run action sequences at specific times and days of the week.
 > - **Notification Triggers**: Bind actions to incoming notifications from any app with precision title and message filtering and a searchable app picker.
 > - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
@@ -21,9 +21,8 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 </p>
 
 ## Features
-- **Premium Web UI**: Desktop-class automation hub with iOS aesthetics, allowing full workflow engineering, remote testing, and **one-tap API URL copying**.
-- **Automations API v2**: Structured JSON discovery enables seamless integration with Home Assistant, Node-RED, or custom scripts.
-
+- **Web UI**: Desktop-class automation hub with iOS aesthetics, allowing full workflow engineering, remote testing, and **one-tap API URL copying**.
+- **Automations API**: Direct HTTP control over your device—fire custom triggers or system commands from any networked hardware via API requests.
 - **Hardware Triggers**: Bind actions to Power/Volume buttons, Home button, Touch ID (Tap/Hold), or the Ringer Switch.
 - **Visual Excellence**: Modern iOS aesthetics with Large Titles, SF Symbols, and a professional dark terminal editor.
 - **Universal Search**: Instantly find actions, shortcuts, and devices with integrated search bars in every picker.
@@ -44,7 +43,7 @@ RemoteCompanion v3.0 introduces a desktop-class Web UI designed to mirror the na
 ### Key Features
 - **Visual Workflow Editor**: Build complex action sequences with an intuitive drag-and-drop interface.
 - **Live Device Discovery**: Dynamically search and select installed Apps, nearby Bluetooth hardware, and Wi-Fi networks using integrated search bars.
-- **One-Tap API Integration**: Every trigger has a dedicated **Copy API Link** button that provides a pre-formatted URL to fire that trigger from third-party tools like **Home Assistant**, **Node-RED**, or custom scripts.
+- **One-Tap API Integration**: Every trigger has a dedicated **Copy API Link** button Providing a direct URL to fire that trigger from any network-connected hardware or custom scripts.
 - **Remote Testing**: Trigger actions and troubleshoot sequences directly from your browser with live execution buttons.
 - **Configuration Management**: Import and export your entire trigger database for easy backups and migration between devices.
 
