@@ -72,7 +72,7 @@
         target:self
         action:@selector(addNewItem)];
 
-    self.navigationItem.rightBarButtonItems = @[addItem, settingsItem];
+    self.navigationItem.rightBarButtonItems = @[settingsItem, addItem];
     
     self.tableView.rowHeight = 64;
     if (@available(iOS 15.0, *)) {
