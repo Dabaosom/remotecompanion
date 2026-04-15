@@ -169,10 +169,11 @@
       flex-shrink: 0;
     }
     .swipe-action i { pointer-events: none; }
-    .sa-fav  { background: #f2c350; }
-    .sa-play { background: #34c759; }
-    .sa-copy { background: #5ac8fa; }
-    .sa-del  { background: #ff3b30; }
+    .sa-fav   { background: #f2c350; }
+    .sa-unfav { background: #3a3a3c; }
+    .sa-play  { background: #34c759; }
+    .sa-copy  { background: #5ac8fa; }
+    .sa-del   { background: #ff3b30; }
 
     /* Row revealed state */
     .trigger-row.swiped-open .trigger-row-inner {
@@ -1237,8 +1238,8 @@ function renderTriggerRow(key, deletable) {
   actionsEl.className = 'trigger-row-actions';
 
   const favBtn = document.createElement('div');
-  favBtn.className = 'swipe-action sa-fav';
-  favBtn.innerHTML = `<i class="f7-icons">${isFav ? 'star_fill' : 'star'}</i>`;
+  favBtn.className = isFav ? 'swipe-action sa-unfav' : 'swipe-action sa-fav';
+  favBtn.innerHTML = `<i class="f7-icons">${isFav ? 'star_slash_fill' : 'star_fill'}</i>`;
   favBtn.addEventListener('click', e => { e.stopPropagation(); toggleFavorite(key); closeOpenRow(); });
 
   const playBtn = document.createElement('div');
