@@ -197,7 +197,7 @@ Download the `.deb` from [Releases](https://github.com/saihgupr/remotecompanion/
 `cd Tweak && make package install`.
 
 <details>
-<summary><h3>3. Usage Options</h3></summary>
+<summary><b>3. Usage Options</b></summary>
 
 Choose the control method that best fits your needs:
 
@@ -255,6 +255,9 @@ If you have **Powercuts** installed, you can run `rc` commands directly via shel
    rc open Music
    rc volume 50
    ```
+
+
+</details>
 
 </details>
 
