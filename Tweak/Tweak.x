@@ -1040,6 +1040,7 @@ static BOOL should_register_edge_gestures();
 static void register_edge_gestures();
 static void unregister_edge_gestures();
 static void update_edge_gestures();
+static void start_schedule_timer();
 
 static void config_changed_callback(CFNotificationCenterRef center, void *observer,
                                     CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -1054,7 +1055,9 @@ static void config_changed_callback(CFNotificationCenterRef center, void *observ
             update_simulation_observers();
             SRLog(@"Simulation observers updated. Updating edge gestures...");
             update_edge_gestures(); 
-            SRLog(@"Edge gestures updated. Config reload complete.");
+            SRLog(@"Edge gestures updated. Checking schedule timer...");
+            start_schedule_timer();
+            SRLog(@"Schedule timer check complete. Config reload complete.");
         } @catch (NSException *e) {
             SRLog(@"CRITICAL ERROR in config_changed_callback: %@\nStack: %@", e, e.callStackSymbols);
         }
@@ -1524,29 +1527,55 @@ static void check_scheduled_triggers() {
 }
 
 static void start_schedule_timer() {
-    SRLog(@"[Schedule] Starting background timer (Optimized)...");
-    static dispatch_source_t timer;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-        
-        // Calculate seconds to next minute boundary
-        time_t now = time(NULL);
-        struct tm *tm_now = localtime(&now);
-        int secondsToNextMinute = 60 - tm_now->tm_sec;
-        
-        SRLog(@"[Schedule] Next check in %d seconds", secondsToNextMinute);
-        
-        dispatch_time_t start = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(secondsToNextMinute * NSEC_PER_SEC));
-        uint64_t interval = 60 * NSEC_PER_SEC;
-        uint64_t leeway = 0.5 * NSEC_PER_SEC; // Allow 500ms leeway for battery efficiency (OS batching)
-        
-        dispatch_source_set_timer(timer, start, interval, leeway);
-        dispatch_source_set_event_handler(timer, ^{
-            check_scheduled_triggers();
-        });
-        dispatch_resume(timer);
+    static dispatch_source_t timer = nil;
+    
+    // Check if we already have a timer running
+    if (timer) return;
+
+    if (!g_triggerConfig) {
+        load_trigger_config();
+    }
+    
+    if (!g_triggerConfig) return;
+
+    // Check if any scheduled triggers actually exist before starting
+    BOOL hasSchedules = NO;
+    NSDictionary *triggers = g_triggerConfig[@"triggers"];
+    for (NSString *key in triggers) {
+        if ([key hasPrefix:@"sched_"]) {
+            NSDictionary *trigger = triggers[key];
+            if ([trigger[@"enabled"] boolValue]) {
+                hasSchedules = YES;
+                break;
+            }
+        }
+    }
+
+    if (!hasSchedules) {
+        // [Schedule] No active schedules found, skipping timer start to save battery
+        return;
+    }
+
+    SRLog(@"[Schedule] Active schedules found. Starting background timer (Optimized)...");
+    
+    timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    
+    // Calculate seconds to next minute boundary
+    time_t now = time(NULL);
+    struct tm *tm_now = localtime(&now);
+    int secondsToNextMinute = 60 - tm_now->tm_sec;
+    
+    SRLog(@"[Schedule] Next check in %d seconds", secondsToNextMinute);
+    
+    dispatch_time_t start = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(secondsToNextMinute * NSEC_PER_SEC));
+    uint64_t interval = 60 * NSEC_PER_SEC;
+    uint64_t leeway = 0.5 * NSEC_PER_SEC; // Allow 500ms leeway for battery efficiency (OS batching)
+    
+    dispatch_source_set_timer(timer, start, interval, leeway);
+    dispatch_source_set_event_handler(timer, ^{
+        check_scheduled_triggers();
     });
+    dispatch_resume(timer);
 }
 
 BOOL RCIsNFCEnabled() {
