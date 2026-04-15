@@ -21,8 +21,6 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 </p>
 
 ## Features
-- **Web UI**: Desktop-class automation hub with iOS aesthetics, allowing full workflow engineering, remote testing, and **one-tap API URL copying**.
-- **Automations API**: Direct HTTP control over your device—fire custom triggers or system commands from any networked hardware via API requests.
 - **Hardware Triggers**: Bind actions to Power/Volume buttons, Home button, Touch ID (Tap/Hold), or the Ringer Switch.
 - **Visual Excellence**: Modern iOS aesthetics with Large Titles, SF Symbols, and a professional dark terminal editor.
 - **Universal Search**: Instantly find actions, shortcuts, and devices with integrated search bars in every picker.
@@ -35,9 +33,7 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 
 ## Web UI & Automations Hub
 
-RemoteCompanion v3.0 introduces a desktop-class Web UI designed to mirror the native iOS experience while providing the speed and convenience of a desktop environment.
-
-- **Location**: Access it at `http://[DEVICE_IP]:8080` from any computer or tablet on your local network.
+Access the desktop-class automation hub at `http://[DEVICE_IP]:8080` from any computer or tablet on your local network.
 - **Enable**: Toggle **Web UI** in the RemoteCompanion Settings (Gear icon) or use the command `rc webui on`.
 
 ### Key Features
@@ -318,116 +314,31 @@ If you have **Powercuts** installed, you can run `rc` commands directly via shel
 </details>
 
 <details>
-<summary><h4>Option 4: HTTP API (Network Triggers)</h4></summary>
+<summary><h4>Option 4: HTTP API (Automations Hub)</h4></summary>
 
 Control your device from any network-connected hardware via simple HTTP calls.
 
-1. Enable **Web UI** in the RemoteCompanion Settings (Gear icon).
-2. Send commands using `GET` or `POST`:
+**1. Discover Commands & Triggers:**
+Get a list of all supported system commands or your custom automation triggers:
+- Commands: `http://[device_ip]:8080/api/commands`
+- Triggers: `http://[device_ip]:8080/api/triggers`
 
-**Using GET (easiest for browser/simple callers):**
-```bash
-http://[device_ip]:8080/api/command?cmd=play
-http://[device_ip]:8080/api/command?cmd=flashlight%20toggle
-```
+**2. Execute a System Command:**
+Send command strings via `GET` or `POST`. 
+- **Example (GET)**: `http://[device_ip]:8080/api/command?cmd=play`
+- **Example (POST)**: `curl -X POST "http://[device_ip]:8080/api/command" -d "haptic"`
 
-**Using POST (Query Parameters):**
-*Allows sending commands via POST without a request body.*
-```bash
-curl -X POST "http://[device_ip]:8080/api/command?cmd=lock%20toggle"
-```
-
-**Using POST (JSON):**
-```bash
-curl -X POST "http://[device_ip]:8080/api/command" \
-     -H "Content-Type: application/json" \
-     -d '{"command": "respring"}'
-```
-
-**Using POST (Raw Text):**
-```bash
-curl -X POST "http://[device_ip]:8080/api/command" -d "haptic"
-```
+**3. Fire an Automation Trigger:**
+Execution URLs for your specific triggers:
+- **Example**: `http://[device_ip]:8080/api/trigger/trigger_1`
 
 > [!TIP]
-> This API is cross-platform and requires no special tools on the caller device, making it ideal for IoT integrations.
+> In the Web UI, you can swipe any trigger and tap the **Copy** icon to instantly get the full API URL (including your device's IP).
 
-#### Performance & Security (API vs SSH)
-The RemoteCommand HTTP API is designed for speed and compatibility.
-
-*   **⚡ Speed**: Using the HTTP API is significantly faster than SSH (~0.1s faster per command). This is because it skips the heavy SSH handshake, public key exchange, and encryption overhead.
-*   **🔋 Efficiency (Web UI)**: The Web UI server uses a **blocking `accept()` loop** on a background thread. This means it consumes **zero CPU cycles** when idle, sitting in a dormant state until a request is received. Enabling the Web UI in Settings has no measurable impact on idle battery life.
-*   **📡 Efficiency (Schedules)**: Background scheduled triggers are optimized to wake the CPU only once per minute (aligned to the minute boundary), drastically reducing background drain compared to traditional polling.
-*   **⚠️ Security**: Unlike SSH, the HTTP API is **NOT SECURE**. All data, including device passcodes, is sent in **plain-text** over your local network. 
-
-> [!CAUTION]
-> **Use at your own risk.** It is highly recommended to only enable the Web UI/API on a trusted, isolated IoT network. **Never** send your passcode via the API over an untrusted or public WiFi network.
-
-</details>
-
-<details>
-<summary><h4>Remote Command API</h4></summary>
-
-You can control your device by sending commands directly to the Remote Command API.
-
-**1. Discover Available Commands:**
-Get a list of all supported commands and their descriptions via the discovery endpoint:
-```bash
-http://[device_ip]:8080/api/commands
-```
-
-**2. Execute a Command:**
-Send the command string via the `cmd` parameter. 
-
-```bash
-# Example: Unlock device (Warning: Passcode sent in plain-text!)
-http://[device_ip]:8080/api/command?cmd=unlock%201234
-
-# Example: Lock orientation
-http://[device_ip]:8080/api/command?cmd=rotate%20lock
-```
-
-</details>
-
-<details>
-<summary><h4>Running Automations via API</h4></summary>
-
-You can also fire any multi-action automation sequence you've built in the app directly via their dedicated URLs.
-
-**1. Discover your Automations:**
-Call the discovery endpoint to see all configured triggers and their direct execution URLs:
-```bash
-http://[device_ip]:8080/api/triggers
-```
-Example Output:
-```json
-{
-  "ok": true,
-  "triggers": [
-    {
-      "id": "trigger_1",
-      "name": "Good Night",
-      "url": "/api/trigger/trigger_1"
-    },
-    {
-      "id": "app_launch_com.apple.Music",
-      "name": "Launch Music",
-      "url": "/api/trigger/app_launch_com.apple.Music"
-    }
-  ]
-}
-```
-
-**2. Execute the Automation:**
-Simply perform a GET or POST request to the `url` provided in the discovery response:
-```bash
-# Example for trigger_1
-http://[device_ip]:8080/api/trigger/trigger_1
-```
-
-> [!TIP]
-> **Pro Tip:** In the Web UI, you can swipe any trigger or open the action editor and tap the **Copy** icon to instantly get the full URL (including your device's IP) for that specific trigger.
-
+#### Performance & Security
+*   **⚡ Speed**: The HTTP API is significantly faster than SSH (~0.1s faster) by skipping the heavy SSH handshake.
+*   **🔋 Efficiency**: The Web UI server sits in a dormant `accept()` loop, consuming **zero CPU cycles** when idle.
+*   **⚠️ Security**: The API is **NOT SECURE**. All data is sent in **plain-text**. Use only on trusted, isolated IoT networks.
 </details>
 
 <details>
