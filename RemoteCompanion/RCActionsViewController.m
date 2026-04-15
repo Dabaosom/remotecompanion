@@ -58,7 +58,7 @@ static id g_actionClipboard = nil;
 
     // Add Settings Button for configurable triggers
     UIBarButtonItem *settingsButton = [[UIBarButtonItem alloc] 
-        initWithImage:[UIImage systemImageNamed:@"gear"] 
+        initWithImage:[UIImage systemImageNamed:@"slider.horizontal.3"] 
         style:UIBarButtonItemStylePlain 
         target:self 
         action:@selector(editTriggerSettings)];
