@@ -798,8 +798,7 @@
     <div class="dialog-title">New Notification Trigger</div>
     <div class="dialog-msg" style="text-align:center;padding:0 16px 4px">Fires when a notification arrives matching these criteria.</div>
     <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:10px">
-      <input class="dialog-input" id="notif-name" type="text" placeholder="Display Name (e.g. Messages)" autocorrect="off" autocapitalize="words" spellcheck="false" style="margin:0;width:100%">
-      <input list="app-datalist" class="dialog-input" id="notif-bundle" type="text" placeholder="App Bundle ID (e.g. com.apple.MobileSMS)" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
+      <input list="app-datalist" class="dialog-input" id="notif-bundle" type="text" placeholder="App Bundle ID (Blank = All Apps)" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
       <input class="dialog-input" id="notif-text" type="text" placeholder="Text Match (optional)" autocorrect="off" autocapitalize="none" spellcheck="false" style="margin:0;width:100%">
     </div>
     <div class="dialog-btns">
@@ -841,6 +840,7 @@ let hasLoadedData = false;
 let currentKey = null;
 let dialogCallback = null;
 let editMode = false;
+let cachedApps = [];
 
 // ── Scroll-linked small title ─────────────────────────────────────────────────
 window.addEventListener('scroll', () => {
@@ -1968,9 +1968,24 @@ function schedDialogOk() {
 }
 
 // ── Notification Trigger Dialog ────────────────────────────────────────────────
+function generateNotifName(bundleId, textMatch) {
+  let appName = 'Any App';
+  if (bundleId) {
+    const app = cachedApps.find(a => a.bundleId === bundleId);
+    appName = app ? app.name : bundleId;
+  }
+  
+  if (bundleId) {
+    if (textMatch) return `Notification from ${appName} containing '${textMatch}'`;
+    return `Any Notification from ${appName}`;
+  } else {
+    if (textMatch) return `Any Notification containing '${textMatch}'`;
+    return 'Any Notification';
+  }
+}
+
 function promptNotifTrigger(existingKey) {
   editingTriggerKey = existingKey || null;
-  const data = editingTriggerKey ? config.triggers[editingTriggerKey] : null;
   let bundleId = '';
   let textMatch = '';
   
@@ -1982,14 +1997,13 @@ function promptNotifTrigger(existingKey) {
     }
   }
 
-  document.getElementById('notif-name').value = data ? data.name : '';
   document.getElementById('notif-bundle').value = bundleId;
   document.getElementById('notif-text').value = textMatch;
   document.getElementById('notif-dialog-ok').textContent = editingTriggerKey ? 'Save' : 'Create';
   document.getElementById('notif-dialog-backdrop').classList.add('visible');
   
   refreshDatalists();
-  if (!editingTriggerKey) setTimeout(() => document.getElementById('notif-name').focus(), 100);
+  if (!editingTriggerKey) setTimeout(() => document.getElementById('notif-bundle').focus(), 100);
 }
 
 function closeNotifDialog() {
@@ -1997,15 +2011,15 @@ function closeNotifDialog() {
 }
 
 function notifDialogOk() {
-  const name     = document.getElementById('notif-name').value.trim();
   const bundleId = document.getElementById('notif-bundle').value.trim();
-  const textMatch= document.getElementById('notif-text').value.trim();
-  if (!name)     { showToast('⚠ Name required');      return; }
-  if (!bundleId) { showToast('⚠ Bundle ID required'); return; }
+  const textMatch = document.getElementById('notif-text').value.trim();
+  const name = generateNotifName(bundleId, textMatch);
 
   let key = editingTriggerKey;
   if (!key) {
-    key = `notif_${name.toLowerCase().replace(/[ \t\n\r]+/g,'_').replace(/[^a-z0-9_]/g,'')}`;
+    // Generate unique random key (notif_ + 8 hex chars)
+    const rand = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, '0');
+    key = `notif_${rand}`;
     config.triggers[key] = { enabled: true, actions: [], name };
   } else {
     config.triggers[key].name = name;
@@ -2013,8 +2027,10 @@ function notifDialogOk() {
 
   // Add/update entry in notificationTriggers array (read by backend hook)
   if (!config.notificationTriggers) config.notificationTriggers = [];
+  
   // Remove any existing entry for this key
   config.notificationTriggers = config.notificationTriggers.filter(t => t.triggerKey !== key);
+  
   const entry = { triggerKey: key, bundleId, enabled: true };
   if (textMatch) entry.textMatch = textMatch;
   config.notificationTriggers.push(entry);
@@ -2024,7 +2040,7 @@ function notifDialogOk() {
   
   if (!editingTriggerKey) {
     // Open the new trigger for editing
-    setTimeout(() => openActionsPanel(key), 400);
+    setTimeout(() => openActionsPanel(key), 400); // Wait for dialog close animation
   }
 }
 
@@ -2056,6 +2072,7 @@ async function refreshDatalistsInternal() {
 
   const appList = document.getElementById('app-datalist');
   if (appList && data.apps) {
+    cachedApps = data.apps;
     appList.innerHTML = '';
     console.log(`UI: Populating app-datalist with ${data.apps.length} items`);
     data.apps.forEach(app => {
