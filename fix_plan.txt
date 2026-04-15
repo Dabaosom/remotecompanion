@@ -1,2 +1,0 @@
-1. WebUI fix: Do not allow saveConfig() if config was not successfully loaded from the server!
-2. Tweak.x fix: Read the entire payload as raw bytes WITHOUT converting the first 16384 bytes to an NSString!
