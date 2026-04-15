@@ -1480,6 +1480,15 @@ void RCExecuteTrigger(NSString *triggerKey) {
 
 // ============ SCHEDULING SYSTEM ============
 static NSInteger g_lastScheduledCheckMinute = -1;
+static dispatch_source_t g_scheduleTimer = nil;
+
+static void stop_schedule_timer() {
+    if (g_scheduleTimer) {
+        dispatch_source_cancel(g_scheduleTimer);
+        g_scheduleTimer = nil;
+        SRLog(@"[Schedule] Timer stopped (No active schedules)");
+    }
+}
 
 static void check_scheduled_triggers() {
     NSDate *now = [NSDate date];
@@ -1527,18 +1536,10 @@ static void check_scheduled_triggers() {
 }
 
 static void start_schedule_timer() {
-    static dispatch_source_t timer = nil;
-    
-    // Check if we already have a timer running
-    if (timer) return;
-
-    if (!g_triggerConfig) {
-        load_trigger_config();
-    }
-    
+    // Check if any scheduled triggers actually exist before starting
+    if (!g_triggerConfig) load_trigger_config();
     if (!g_triggerConfig) return;
 
-    // Check if any scheduled triggers actually exist before starting
     BOOL hasSchedules = NO;
     NSDictionary *triggers = g_triggerConfig[@"triggers"];
     for (NSString *key in triggers) {
@@ -1552,30 +1553,54 @@ static void start_schedule_timer() {
     }
 
     if (!hasSchedules) {
-        // [Schedule] No active schedules found, skipping timer start to save battery
+        stop_schedule_timer();
         return;
     }
 
-    SRLog(@"[Schedule] Active schedules found. Starting background timer (Optimized)...");
+    // If we already have a timer running, don't start a second one.
+    // The self-correcting nature of the existing timer will pick up any config changes
+    // on its next tick, or the manual reload will handle it.
+    if (g_scheduleTimer) return;
+
+    SRLog(@"[Schedule] Starting self-correcting background timer...");
     
-    timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    g_scheduleTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
     
-    // Calculate seconds to next minute boundary
-    time_t now = time(NULL);
-    struct tm *tm_now = localtime(&now);
-    int secondsToNextMinute = 60 - tm_now->tm_sec;
-    
-    SRLog(@"[Schedule] Next check in %d seconds", secondsToNextMinute);
-    
-    dispatch_time_t start = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(secondsToNextMinute * NSEC_PER_SEC));
-    uint64_t interval = 60 * NSEC_PER_SEC;
-    uint64_t leeway = 0.5 * NSEC_PER_SEC; // Allow 500ms leeway for battery efficiency (OS batching)
-    
-    dispatch_source_set_timer(timer, start, interval, leeway);
-    dispatch_source_set_event_handler(timer, ^{
+    // Define the scheduling logic
+    __block void (^scheduleNext)(void) = ^ {
+        if (!g_scheduleTimer) return;
+
+        NSDate *now = [NSDate date];
+        NSTimeInterval currentTime = [now timeIntervalSince1970];
+        
+        // Calculate the next minute boundary (e.g., if it's 1:00:10, target 1:01:00)
+        NSTimeInterval nextMinute = ceil(currentTime / 60.0) * 60.0;
+        
+        // If we are extremely close to the next minute (due to processing time), target the minute after
+        if (nextMinute - currentTime < 0.1) {
+            nextMinute += 60.0;
+        }
+        
+        // Add a tiny 100ms delay to ensure the system clock has definitely rolled over the minute
+        NSTimeInterval delay = (nextMinute - currentTime) + 0.1;
+        dispatch_time_t start = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC));
+        
+        SRLog(@"[Schedule] Next precision check in %.2f seconds", delay);
+        
+        // Use DISPATCH_TIME_FOREVER for interval to make it a one-shot
+        dispatch_source_set_timer(g_scheduleTimer, start, DISPATCH_TIME_FOREVER, 0.1 * NSEC_PER_SEC);
+    };
+
+    dispatch_source_set_event_handler(g_scheduleTimer, ^{
         check_scheduled_triggers();
+        
+        // Re-schedule itself for the next minute
+        scheduleNext();
     });
-    dispatch_resume(timer);
+    
+    // Initial schedule
+    scheduleNext();
+    dispatch_resume(g_scheduleTimer);
 }
 
 BOOL RCIsNFCEnabled() {
