@@ -618,6 +618,9 @@
       <i class="f7-icons">chevron_left</i> Triggers
     </button>
     <div class="panel-title" id="actions-panel-title"></div>
+    <button class="panel-action white" id="edit-trigger-nav-btn" onclick="onEditTriggerSettings()" title="Edit Settings" style="display: none;">
+      <i class="f7-icons">slider_horizontal_3</i>
+    </button>
     <button class="panel-action white" onclick="copyCurrentTriggerUrl(this)" title="Copy API Link" style="margin-right: -4px;">
       <i class="f7-icons">doc_on_doc</i>
     </button>
@@ -633,11 +636,6 @@
       <div class="toggle-row">
         <span class="toggle-label">Enabled</span>
         <input type="checkbox" class="ios-toggle" id="trigger-enabled-toggle" onchange="onTriggerEnabledChange()">
-      </div>
-      <div class="action-list-row" id="edit-trigger-settings-row" style="display:none; border-top: 0.5px solid rgba(255,255,255,0.08);" onclick="onEditTriggerSettings()">
-        <div class="action-row-icon icon-blue"><i class="f7-icons">gear_alt_fill</i></div>
-        <div class="action-row-text">Edit Trigger Settings</div>
-        <i class="f7-icons" style="color:#3a3a3c;font-size:14px;margin-left:8px">chevron_right</i>
       </div>
     </div>
 
@@ -1482,7 +1480,7 @@ function openActionsPanel(key) {
   document.getElementById('trigger-enabled-toggle').checked = !!data.enabled;
   
   // Show/Hide edit settings button based on trigger type
-  const editRow = document.getElementById('edit-trigger-settings-row');
+  const editBtn = document.getElementById('edit-trigger-nav-btn');
   const isSched = key.startsWith('sched_');
   const isNotif = key.startsWith('notif_');
   const isWiFi = key.startsWith('wifi_');
@@ -1490,9 +1488,9 @@ function openActionsPanel(key) {
   const isApp = key.startsWith('app_launch_');
   
   if (isSched || isNotif || isWiFi || isBT || isApp) {
-    editRow.style.display = 'flex';
+    editBtn.style.display = 'flex';
   } else {
-    editRow.style.display = 'none';
+    editBtn.style.display = 'none';
   }
 
   renderActionList();
