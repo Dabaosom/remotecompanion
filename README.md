@@ -3,12 +3,12 @@
 RemoteCompanion provides fast, scriptable system control for modern rootless jailbreaks. It lets you bind physical gestures and hardware buttons, or send commands remotely from your computer, to trigger system actions, control media playback, and run custom scripts.
 
 > [!IMPORTANT]
-> **What's New in v3.0**
-> - **Web UI**: Desktop-class automation hub with iOS aesthetics, featuring **live search-enabled pickers** for apps, WiFi, and Bluetooth devices, full workflow engineering, and **one-tap API URL copying**.
-> - **Automations API**: High-performance system for remote control—execute triggers and system commands via simple HTTP POST/GET requests.
-> - **Scheduled Triggers**: Run action sequences at specific times and days of the week.
-> - **Notification Triggers**: Bind actions to incoming notifications from any app with precision title and message filtering and a searchable app picker.
-> - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
+> **What’s New in v3.0**
+> - **Web UI**: A desktop-style automation hub with iOS-inspired design. Includes live search pickers for apps, WiFi, and Bluetooth devices, full workflow editing, and one-tap API URL copy.
+> - **Automations API**: Fast remote control system. Run triggers and system commands using simple HTTP GET or POST requests.
+> - **Scheduled Triggers**: Execute action sequences at specific times and days.
+> - **Notification Triggers**: Trigger actions from incoming app notifications with precise title and message filtering, plus a searchable app picker.
+> - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1 to 100 for adjustable torch brightness (example: `rc flashlight 50`).
 
 
 
@@ -19,6 +19,16 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
   <img src="images/IMG_1518.PNG" width="160" alt="Settings & Backup" />
   <img src="images/IMG_1516.PNG" width="160" alt="Trigger Config" />
 </p>
+
+## Table of Contents
+- [Features](#features)
+- [Web UI & Automations Hub](#web-ui--automations-hub)
+- [Command Reference](#what-you-can-do)
+- [Getting Started](#getting-started)
+- [Advanced Developer Tools](#advanced-developer-tools)
+- [Home Assistant Integration](#home-assistant-setup)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
 
 ## Features
 - **Hardware Triggers**: Bind actions to Power/Volume buttons, Home button, Touch ID (Tap/Hold), or the Ringer Switch.
@@ -43,12 +53,18 @@ Access the desktop-class automation hub at `http://[DEVICE_IP]:8080` from any co
 ### Key Features
 - **Visual Workflow Editor**: Build complex action sequences with an intuitive drag-and-drop interface.
 - **Live Device Discovery**: Dynamically search and select installed Apps, nearby Bluetooth hardware, and Wi-Fi networks using integrated search bars.
-- **One-Tap API Integration**: Every trigger has a dedicated **Copy API Link** button Providing a direct URL to fire that trigger from any network-connected hardware or custom scripts.
 - **Remote Testing**: Trigger actions and troubleshoot sequences directly from your browser with live execution buttons.
+- **One-Tap API Integration**: Every trigger has a dedicated **Copy API Link** button providing a direct URL to fire that trigger from any network-connected hardware or custom scripts.
+
+> [!TIP]
+> **API Link Copying**: In the Web UI, you can swipe any trigger and tap the **Copy** icon to instantly get the full API URL (including your device's IP). This makes it easy to integrate your automations into Home Assistant, Stream Decks, or external buttons.
 - **Negligible Battery Impact**: The Web UI server is extremely efficient, consuming zero CPU cycles when idle. It uses a background thread with a blocking `accept()` loop that sits dormant until a connection is made.
 - **Configuration Management**: Import and export your entire trigger database for easy backups and migration between devices.
 
 ## What you can do
+
+> [!TIP]
+> **Command Consistency**: Most commands support `on`, `off`, `toggle`, and `status` arguments. For example, `rc dnd toggle` or `rc wifi status`.
 
 ### Media & Volume
 - `rc play` / `rc pause` / `rc playpause` / `rc next` / `rc prev`
@@ -86,7 +102,7 @@ Access the desktop-class automation hub at `http://[DEVICE_IP]:8080` from any co
 - `rc airplay connect <UID|Name>` / `rc airplay disconnect`
 
 <details>
-<summary><h3>Hardware Triggers (Tweak App)</h3></summary>
+<summary><b>Hardware Triggers (Tweak App)</b></summary>
 
 Configure these in the `RemoteCompanion` app for custom action sequences. Tip: **Long-press** any trigger in the app to instantly test and run its assigned actions.
 
@@ -106,6 +122,21 @@ Configure these in the `RemoteCompanion` app for custom action sequences. Tip: *
   - **Scheduled**: Run actions at specific times (e.g., Daily at 4 PM).
   - **WiFi/Bluetooth**: Trigger actions on network or device connectivity.
   - **App Launch**: Fire actions when a specific app is opened.
+
+</details>
+
+<details>
+<summary><b>Blacklist (App Exclusion)</b></summary>
+
+RemoteCompanion includes a blacklist system to prevent hardware triggers and gestures from firing while specific apps are in the foreground. This is useful for avoiding conflicts with apps that use the same buttons or gestures (e.g. games, camera apps).
+
+### CLI Commands
+Use the `rc blacklist` command to manage the list:
+
+*   `rc blacklist list`: View currently blacklisted bundle IDs.
+*   `rc blacklist add <bundleID>`: Add an app to the blacklist (e.g. `rc blacklist add com.apple.camera`).
+*   `rc blacklist remove <bundleID>`: Remove an app from the blacklist.
+*   `rc blacklist reset`: Reset the blacklist to the factory defaults.
 
 </details>
 
@@ -134,7 +165,7 @@ Get instant feedback from your device state.
 - `rc flashlight status` - Returns torch state.
 
 <details>
-<summary><h3>Conditional Actions</h3></summary>
+<summary><b>Conditional Actions</b></summary>
 
 Combine status queries with actions for smart automation:
 
@@ -151,84 +182,7 @@ Combine status queries with actions for smart automation:
 - `rc webui [on|off|status]` - Enable, disable, or check the status of the Web UI server.
 
 
-<details>
-<summary><h3>Lua Scripting & Objective-C Bridge</h3></summary>
 
-RemoteCompanion introduces a powerful Lua bridge that allows you to execute arbitrary Lua scripts within the tweak's process. The exact same context is available whether you run a script file from the CLI or paste code into the "Lua Script" action in the app.
-
-### How to Run
-- **From CLI**: `rc lua /path/to/script.lua`
-- **From UI**: Add Action → System → **Custom Lua Script**. Paste your code directly into the prompt.
-
-### API Bindings
-
-| Function | Description |
-| :--- | :--- |
-| `log(msg)` | Writes to the system log (syslog). |
-| `delay(seconds)` | Pauses execution for `seconds`. |
-| `haptic()` | Triggers a standard haptic feedback. |
-| `openURL(url)` | Opens a URL scheme (e.g. `prefs:root=General`). |
-| `dlopen(path)` | Loads a dynamic library. Returns `true` on success. |
-| `objc_call(target, selector, args...)` | Calls an Objective-C method. `target` can be a class name string or an instance. |
-
-### Examples
-
-**Trigger Haptic and Log**
-```lua
-log("Starting haptic engine...")
-haptic()
-delay(0.2)
-haptic()
-log("Finished haptic feedback.")
-```
-
-**Call a Class Method (get a shared instance)**
-```lua
--- objc_call(className, selector) returns an instance
-local device = objc_call("UIDevice", "currentDevice")
-if device then
-    objc_call(device, "setBatteryMonitoringEnabled:", true)
-    local level = objc_call(device, "batteryLevel")
-    log("Battery: " .. tostring(level * 100) .. "%")
-end
-```
-
-**Load a Private Framework or Dylib**
-```lua
--- Load your dylib first, then call methods on it
-local ok = dlopen("/path/to/yourlibrary.dylib")
-if ok then
-    -- Use a shared accessor if the class provides one
-    local instance = objc_call("YourClass", "sharedInstance")
-    if instance then
-        objc_call(instance, "yourMethod")
-    else
-        -- Or allocate a new instance
-        local obj = objc_call(objc_call("YourClass", "alloc"), "init")
-        objc_call(obj, "yourMethod")
-    end
-end
-```
-
-> [!NOTE]
-> `objc_call` works like standard Objective-C messaging — it does not scan memory for existing instances. To call an instance method, you first need to obtain the instance via a class-level accessor (e.g. `sharedInstance`, `currentDevice`) or by allocating a new one with `alloc`/`init`.
-
-</details>
-
-<details>
-<summary><h3>Blacklist (App Exclusion)</h3></summary>
-
-RemoteCompanion includes a blacklist system to prevent hardware triggers and gestures from firing while specific apps are in the foreground. This is useful for avoiding conflicts with apps that use the same buttons or gestures (e.g. games, camera apps).
-
-### CLI Commands
-Use the `rc blacklist` command to manage the list:
-
-*   `rc blacklist list`: View currently blacklisted bundle IDs.
-*   `rc blacklist add <bundleID>`: Add an app to the blacklist (e.g. `rc blacklist add com.apple.camera`).
-*   `rc blacklist remove <bundleID>`: Remove an app from the blacklist.
-*   `rc blacklist reset`: Reset the blacklist to the factory defaults.
-
-</details>
 
 ## Getting Started
 
@@ -245,9 +199,9 @@ Use the `rc blacklist` command to manage the list:
 #### Option 1: Repository (Recommended)
 Add `https://saihgupr.github.io/remotecompanion` to Sileo or Zebra
 
-Add to Zebra -> zbra://sources/add/https://saihgupr.github.io/remotecompanion
+[Add to Zebra](zbra://sources/add/https://saihgupr.github.io/remotecompanion)
 
-Add to Sileo -> sileo://source/https://saihgupr.github.io/remotecompanion
+[Add to Sileo](sileo://source/https://saihgupr.github.io/remotecompanion)
 
 #### Option 2: Manual Install
 Download the `.deb` from [Releases](https://github.com/saihgupr/remotecompanion/releases).
@@ -317,8 +271,58 @@ If you have **Powercuts** installed, you can run `rc` commands directly via shel
 
 </details>
 
+
+## Advanced Developer Tools
+
 <details>
-<summary><h4>Option 4: HTTP API (Automations Hub)</h4></summary>
+<summary><b>Lua Scripting & Objective-C Bridge</b></summary>
+
+RemoteCompanion introduces a powerful Lua bridge that allows you to execute arbitrary Lua scripts within the tweak's process. The exact same context is available whether you run a script file from the CLI or paste code into the "Lua Script" action in the app.
+
+### How to Run
+- **From CLI**: `rc lua /path/to/script.lua`
+- **From UI**: Add Action → System → **Custom Lua Script**. Paste your code directly into the prompt.
+
+### API Bindings
+
+| Function | Description |
+| :--- | :--- |
+| `log(msg)` | Writes to the system log (syslog). |
+| `delay(seconds)` | Pauses execution for `seconds`. |
+| `haptic()` | Triggers a standard haptic feedback. |
+| `openURL(url)` | Opens a URL scheme (e.g. `prefs:root=General`). |
+| `dlopen(path)` | Loads a dynamic library. Returns `true` on success. |
+| `objc_call(target, selector, args...)` | Calls an Objective-C method. `target` can be a class name string or an instance. |
+
+### Examples
+
+**Trigger Haptic and Log**
+```lua
+log("Starting haptic engine...")
+haptic()
+delay(0.2)
+haptic()
+log("Finished haptic feedback.")
+```
+
+**Call a Class Method (get a shared instance)**
+```lua
+-- objc_call(className, selector) returns an instance
+local device = objc_call("UIDevice", "currentDevice")
+if device then
+    objc_call(device, "setBatteryMonitoringEnabled:", true)
+    local level = objc_call(device, "batteryLevel")
+    log("Battery: " .. tostring(level * 100) .. "%")
+end
+```
+
+> [!NOTE]
+> `objc_call` works like standard Objective-C messaging — it does not scan memory for existing instances. To call an instance method, you first need to obtain the instance via a class-level accessor (e.g. `sharedInstance`, `currentDevice`) or by allocating a new one with `alloc`/`init`.
+
+</details>
+
+<details>
+<summary><b>Automations API & HTTP Server</b></summary>
 
 Control your device from any network-connected hardware via simple HTTP calls.
 
@@ -336,17 +340,15 @@ Send command strings via `GET` or `POST`.
 Execution URLs for your specific triggers:
 - **Example**: `http://[device_ip]:8080/api/trigger/trigger_1`
 
-> [!TIP]
-> In the Web UI, you can swipe any trigger and tap the **Copy** icon to instantly get the full API URL (including your device's IP).
-
-#### Performance & Security
+#### Performance & Implementation
 *   **⚡ Speed**: The HTTP API is significantly faster than SSH (~0.1s faster) by skipping the heavy SSH handshake.
 *   **🔋 Efficiency**: The Web UI server sits in a dormant `accept()` loop, consuming **zero CPU cycles** when idle.
-*   **⚠️ Security**: The API is **NOT SECURE**. All data is sent in **plain-text**. Use only on trusted, isolated IoT networks.
 </details>
 
+## Home Assistant Setup
+
 <details>
-<summary><h3>Home Assistant Setup</h3></summary>
+<summary><b>Integration Guide</b></summary>
 
 The most reliable way to control your device from Home Assistant is via SSH.
 
@@ -371,7 +373,8 @@ data:
 
 RemoteCompanion implements several measures to ensure your device remains secure:
 
-- **Local Access**: Local apps and the `rc` CLI on the device communicate directly with the socket file, ensuring zero network exposure.
+- **Local Execution**: Local apps and the `rc` CLI communicate securely via a local UNIX socket file, ensuring zero network exposure.
+- **Web UI & Automations API**: When enabled, the Automations Hub server transmits data in **plain-text** over your local network. No authentication is required for API access. It is **highly recommended** to only enable the Web UI on trusted, private networks.
 
 <details>
 <summary><h2>Troubleshooting</h2></summary>
