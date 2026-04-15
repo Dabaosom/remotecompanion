@@ -316,6 +316,9 @@ end
 
 Control your device from any network-connected hardware via simple HTTP calls.
 
+> [!IMPORTANT]
+> The **Web UI** toggle must be enabled in the RemoteCompanion settings (or via `rc webui on`) for the HTTP server to be active.
+
 **1. Discover Commands & Triggers:**
 Get a list of all supported system commands or your custom automation triggers:
 - Commands: `http://[device_ip]:8080/api/commands`
