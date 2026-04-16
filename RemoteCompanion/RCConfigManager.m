@@ -61,6 +61,12 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         } else if (![_config[@"triggers"] isKindOfClass:[NSMutableDictionary class]]) {
             _config[@"triggers"] = [_config[@"triggers"] mutableCopy];
         }
+
+        if (!_config[@"notificationTriggers"]) {
+            _config[@"notificationTriggers"] = [NSMutableArray array];
+        } else if (![_config[@"notificationTriggers"] isKindOfClass:[NSMutableArray class]]) {
+            _config[@"notificationTriggers"] = [_config[@"notificationTriggers"] mutableCopy];
+        }
         
         // Auto-add any missing triggers (for upgrades)
         NSMutableDictionary *triggers = _config[@"triggers"];
@@ -111,12 +117,28 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             _config[@"hapticsEnabled"] = @YES;
             [self saveConfig];
         }
+
+        // Auto-add webUIEnabled (default to NO for new users/upgrades for security)
+        if (_config[@"webUIEnabled"] == nil) {
+            _config[@"webUIEnabled"] = @NO;
+            [self saveConfig];
+        }
+
+        // Cleanup deprecated watch triggers
+        BOOL didChange = NO;
+        if (triggers[@"watch_near"]) { [triggers removeObjectForKey:@"watch_near"]; didChange = YES; }
+        if (triggers[@"watch_far"]) { [triggers removeObjectForKey:@"watch_far"]; didChange = YES; }
+        if (didChange) {
+            _config[@"triggers"] = triggers;
+            [self saveConfig];
+        }
     } else {
         // Default config with all triggers
         NSLog(@"[RCConfigManager] Using default config");
         _config = [@{
             @"masterEnabled": @YES,
             @"tcpEnabled": @YES,
+            @"webUIEnabled": @NO,
             @"nfcEnabled": @YES,
             @"rootEnabled": @YES,
             @"triggers": [@{
@@ -176,6 +198,18 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     [self saveConfig];
 }
 
+- (BOOL)webUIEnabled {
+    if (!_config[@"webUIEnabled"]) {
+        return NO;
+    }
+    return [_config[@"webUIEnabled"] boolValue];
+}
+
+- (void)setWebUIEnabled:(BOOL)webUIEnabled {
+    _config[@"webUIEnabled"] = @(webUIEnabled);
+    [self saveConfig];
+}
+
 - (void)setNfcEnabled:(BOOL)nfcEnabled {
     _config[@"nfcEnabled"] = @(nfcEnabled);
     if (!nfcEnabled) {
@@ -214,7 +248,9 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     [self saveConfig];
 }
 
-
+- (NSDictionary *)triggerDataForKey:(NSString *)triggerKey {
+    return _config[@"triggers"][triggerKey];
+}
 
 - (void)updateTrigger:(NSString *)triggerKey withData:(NSDictionary *)data {
     NSMutableDictionary *triggers = _config[@"triggers"];
@@ -227,6 +263,20 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     if (triggers[triggerKey]) {
         [triggers removeObjectForKey:triggerKey];
     }
+    
+    // Also clean up from notificationTriggers metadata if it's a notification trigger
+    if ([triggerKey hasPrefix:@"notif_"]) {
+        NSMutableArray *notifTriggers = [[self notificationTriggers] mutableCopy];
+        for (NSInteger i = notifTriggers.count - 1; i >= 0; i--) {
+            NSDictionary *notif = notifTriggers[i];
+            if ([notif[@"key"] isEqualToString:triggerKey]) {
+                [notifTriggers removeObjectAtIndex:i];
+            }
+        }
+        [self setNotificationTriggers:notifTriggers];
+    }
+    
+    [self saveConfig];
 }
 
 - (void)renameTrigger:(NSString *)triggerKey toName:(NSString *)newName {
@@ -252,7 +302,16 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 }
 
 - (NSArray<NSString *> *)allTriggerKeys {
-    return @[@"volume_up_hold", @"volume_down_hold", @"volume_both_press", @"power_double_tap", @"power_long_press", @"power_triple_click", @"power_quadruple_click", @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click", @"touchid_tap", @"touchid_hold", @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down", @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle", @"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right", @"power_volume_up", @"power_volume_down"];
+    return @[@"volume_up_hold", @"volume_down_hold", @"volume_both_press", @"power_double_tap", @"power_long_press", @"power_triple_click", @"power_quadruple_click", @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click", @"touchid_tap", @"touchid_hold", @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down", @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle", @"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right", @"power_volume_up", @"power_volume_down", @"shake"];
+}
+
+- (NSArray<NSDictionary *> *)notificationTriggers {
+    return _config[@"notificationTriggers"] ?: @[];
+}
+
+- (void)setNotificationTriggers:(NSArray<NSDictionary *> *)triggers {
+    _config[@"notificationTriggers"] = [triggers mutableCopy];
+    [self saveConfig];
 }
 
 - (NSArray<NSString *> *)allConfiguredTriggerKeys {
@@ -298,7 +357,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         return customName ?: [NSString stringWithFormat:@"NFC Tag %@", [triggerKey substringFromIndex:4]];
     }
 
-    if ([triggerKey hasPrefix:@"wifi_"] || [triggerKey hasPrefix:@"bt_"] || [triggerKey hasPrefix:@"app_launch_"]) {
+    if ([triggerKey hasPrefix:@"wifi_"] || [triggerKey hasPrefix:@"bt_"] || [triggerKey hasPrefix:@"app_launch_"] || [triggerKey hasPrefix:@"notif_"] || [triggerKey hasPrefix:@"sched_"]) {
         return _config[@"triggers"][triggerKey][@"name"] ?: triggerKey;
     }
     
@@ -612,6 +671,10 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             result = [NSString stringWithFormat:@"Set Volume %@", [cmd substringFromIndex:8]];
         } else if ([cmd hasPrefix:@"brightness "]) {
             result = [NSString stringWithFormat:@"Set Brightness %@", [cmd substringFromIndex:11]];
+        } else if ([cmd hasPrefix:@"flashlight "] && ![[cmd lowercaseString] hasSuffix:@"on"] && ![[cmd lowercaseString] hasSuffix:@"off"] && ![[cmd lowercaseString] hasSuffix:@"toggle"]) {
+            result = [NSString stringWithFormat:@"Flashlight %@%%", [cmd substringFromIndex:11]];
+        } else if ([cmd hasPrefix:@"flash "] && ![[cmd lowercaseString] hasSuffix:@"on"] && ![[cmd lowercaseString] hasSuffix:@"off"] && ![[cmd lowercaseString] hasSuffix:@"toggle"]) {
+            result = [NSString stringWithFormat:@"Flashlight %@%%", [cmd substringFromIndex:6]];
         } else if ([cmd hasPrefix:@"shortcut:"]) {
             result = [NSString stringWithFormat:@"Run %@", [cmd substringFromIndex:9]];
         } else if ([cmd hasPrefix:@"Lua "] || [cmd hasPrefix:@"lua_eval "] || [cmd hasPrefix:@"lua-eval "] || [cmd hasPrefix:@"lua "]) {
@@ -650,6 +713,19 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     return result;
 }
 
+- (NSString *)nameForBundleId:(NSString *)bundleId {
+    if (!bundleId || bundleId.length == 0) return nil;
+    
+    Class LSProxy = NSClassFromString(@"LSApplicationProxy");
+    if (LSProxy) {
+        id app = [LSProxy performSelector:@selector(applicationProxyForIdentifier:) withObject:bundleId];
+        if (app) {
+            return [app performSelector:@selector(localizedName)];
+        }
+    }
+    return nil;
+}
+
 - (NSString *)iconForCommand:(id)cmdId {
     if ([cmdId isKindOfClass:[NSDictionary class]]) {
         NSDictionary *dict = (NSDictionary *)cmdId;
@@ -677,6 +753,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     if ([cmd hasPrefix:@"shortcut:"]) return @"command";
     if ([cmd hasPrefix:@"set-vol "]) return @"speaker.wave.3.fill";
     if ([cmd hasPrefix:@"brightness "]) return @"sun.max.fill";
+    if ([cmd hasPrefix:@"flashlight "] || [cmd hasPrefix:@"flash "]) return @"flashlight.on.fill";
     if ([cmd hasPrefix:@"Lua "] || [cmd hasPrefix:@"lua_eval "] || [cmd hasPrefix:@"lua-eval "] || [cmd hasPrefix:@"lua "]) return @"scroll.fill";
     if ([cmd hasPrefix:@"spotify "]) return @"music.note";
     if ([cmd isEqualToString:@"home"]) return @"house.fill";
@@ -749,7 +826,17 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"switcher": @"square.stack.3d.up.fill"
     };
     
-    return icons[cmd] ?: @"circle.fill";
+    NSString *result = icons[cmd];
+    
+    if (!result) {
+        if ([cmd hasPrefix:@"root "]) return @"command.square";
+        if ([cmd hasPrefix:@"delay "]) return @"timer";
+        if ([cmd hasPrefix:@"exec "]) return @"chevron.right.square";
+        if ([cmd hasPrefix:@"flashlight "] || [cmd hasPrefix:@"flash "]) return @"flashlight.on.fill";
+        if ([cmd hasPrefix:@"low power "]) return @"battery.100.bolt";
+    }
+    
+    return result ?: @"circle.fill";
 }
 
 @end

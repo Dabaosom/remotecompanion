@@ -7,17 +7,26 @@
 @property (nonatomic, strong) NSString *ssid;
 @property (nonatomic, assign) BOOL isDisconnectTrigger;
 @property (nonatomic, strong) UITextField *ssidField;
+@property (nonatomic, strong) NSString *triggerKey;
 @end
 
 @implementation RCWiFiTriggerViewController
 
+- (instancetype)initWithTriggerKey:(NSString *)triggerKey {
+    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    if (self) {
+        _triggerKey = triggerKey;
+    }
+    return self;
+}
+
 - (instancetype)init {
-    return [super initWithStyle:UITableViewStyleInsetGrouped];
+    return [self initWithTriggerKey:nil];
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"WiFi Trigger";
+    self.title = self.triggerKey ? @"Edit WiFi Trigger" : @"New WiFi Trigger";
     
     [[NSNotificationCenter defaultCenter] addObserver:self 
                                              selector:@selector(applyTweaks) 
@@ -26,10 +35,16 @@
     
     [self applyTweaks];
     
-    self.ssid = [self currentWiFiSSID] ?: @"";
-    self.isDisconnectTrigger = NO;
+    if (self.triggerKey) {
+        self.isDisconnectTrigger = [self.triggerKey hasPrefix:@"wifi_disconnect_"];
+        self.ssid = [self.triggerKey stringByReplacingOccurrencesOfString:@"wifi_connect_" withString:@""];
+        self.ssid = [self.ssid stringByReplacingOccurrencesOfString:@"wifi_disconnect_" withString:@""];
+    } else {
+        self.ssid = [self currentWiFiSSID] ?: @"";
+        self.isDisconnectTrigger = NO;
+    }
     
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Add" style:UIBarButtonItemStyleDone target:self action:@selector(saveTrigger)];
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:self.triggerKey ? @"Save" : @"Add" style:UIBarButtonItemStyleDone target:self action:@selector(saveTrigger)];
 }
 
 - (void)applyTweaks {
@@ -120,26 +135,50 @@
     NSString *prefix = self.isDisconnectTrigger ? @"wifi_disconnect_" : @"wifi_connect_";
     NSString *triggerKey = [prefix stringByAppendingString:finalSSID];
     
+    
     RCConfigManager *config = [RCConfigManager sharedManager];
     
     // Create friendly name
     NSString *subTitle = self.isDisconnectTrigger ? @"Disconnected from" : @"Connected to";
     NSString *friendlyName = [NSString stringWithFormat:@"%@ %@", subTitle, finalSSID];
     
-    NSDictionary *triggerData = @{
-        @"name": friendlyName,
-        @"enabled": @YES,
-        @"actions": @[]
-    };
-    
-    [config updateTrigger:triggerKey withData:triggerData];
-    
-    // Redirect to action picker for the new trigger
-    RCActionsViewController *vc = [[RCActionsViewController alloc] initWithTriggerKey:triggerKey];
-    NSMutableArray *vcs = [self.navigationController.viewControllers mutableCopy];
-    [vcs removeLastObject]; // Remove self
-    [vcs addObject:vc];
-    [self.navigationController setViewControllers:vcs animated:YES];
+    if (self.triggerKey) {
+        // Handle migration if key changed
+        if (![self.triggerKey isEqualToString:triggerKey]) {
+            NSDictionary *oldData = [config triggerDataForKey:self.triggerKey];
+            NSArray *actions = oldData[@"actions"] ?: @[];
+            
+            NSDictionary *newData = @{
+                @"name": friendlyName,
+                @"enabled": @YES,
+                @"actions": actions
+            };
+            [config updateTrigger:triggerKey withData:newData];
+            [config removeTrigger:self.triggerKey];
+        } else {
+            // Just update metadata
+            NSMutableDictionary *mutableData = [[config triggerDataForKey:triggerKey] mutableCopy];
+            mutableData[@"name"] = friendlyName;
+            [config updateTrigger:triggerKey withData:mutableData];
+        }
+        
+        [self.navigationController popViewControllerAnimated:YES];
+    } else {
+        // Create new
+        NSDictionary *triggerData = @{
+            @"name": friendlyName,
+            @"enabled": @YES,
+            @"actions": @[]
+        };
+        [config updateTrigger:triggerKey withData:triggerData];
+        
+        // Redirect to action picker for the new trigger
+        RCActionsViewController *vc = [[RCActionsViewController alloc] initWithTriggerKey:triggerKey];
+        NSMutableArray *vcs = [self.navigationController.viewControllers mutableCopy];
+        [vcs removeLastObject]; // Remove self
+        [vcs addObject:vc];
+        [self.navigationController setViewControllers:vcs animated:YES];
+    }
 }
 
 @end

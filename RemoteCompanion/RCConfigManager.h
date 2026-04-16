@@ -5,6 +5,7 @@
 
 @property (nonatomic, assign) BOOL masterEnabled;
 @property (nonatomic, assign) BOOL tcpEnabled;
+@property (nonatomic, assign) BOOL webUIEnabled;
 @property (nonatomic, assign) BOOL nfcEnabled;
 @property (nonatomic, assign) BOOL rootEnabled;
 
@@ -22,10 +23,13 @@
 - (void)setOrderedFavorites:(NSArray<NSString *> *)favorites;
 - (NSArray *)actionsForTrigger:(NSString *)triggerKey;
 - (void)setActions:(NSArray *)actions forTrigger:(NSString *)triggerKey;
+- (NSDictionary *)triggerDataForKey:(NSString *)triggerKey;
 - (void)updateTrigger:(NSString *)triggerKey withData:(NSDictionary *)data;
 - (void)removeTrigger:(NSString *)triggerKey;
 - (void)renameTrigger:(NSString *)triggerKey toName:(NSString *)newName;
 - (NSArray<NSString *> *)nfcTriggerKeys;
+- (NSArray<NSDictionary *> *)notificationTriggers;
+- (void)setNotificationTriggers:(NSArray<NSDictionary *> *)triggers;
 - (void)saveConfig;
 - (void)stopBackgroundNFC;
 
@@ -37,6 +41,7 @@
 
 // Command Helpers
 - (NSString *)nameForCommand:(id)cmd truncate:(BOOL)shouldTruncate;
+- (NSString *)nameForBundleId:(NSString *)bundleId;
 - (NSString *)iconForCommand:(id)cmd;
 
 // Backup/Restore

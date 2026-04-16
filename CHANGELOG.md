@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.0.0] - 2026-04-14
+
+### Added
+- **Full Automation Management**: Creating, renaming, and deleting dynamic triggers is now fully supported from the browser.
+- **Automations API**: Introduced structured discovery endpoints at `GET /api/triggers` and `GET /api/commands`. These return clean JSON.
+- **Scheduled Triggers**: Run action sequences at specific times of the day and on specific days of the week. Perfect for daily cleanups, automated system checks, or time-based alerts.
+- **Notification Triggers**: Bind actions to incoming notifications from any app. Filter by bundle ID or specific text within the notification (title/subtitle/message).
+- **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1-100 for fine-tuned intensity of the device torch (e.g., `rc flashlight 50`).
+- **Web UI CLI Control**: Manage the Web UI server status remotely via the new `rc webui [on|off|status]` command.
+- **UI Refinement**: Removed the "Edit" button from the main Triggers view for a cleaner, favorites-focused interface.
+
+
+
 ## [2.4.0~beta1] - 2026-03-23
 
 ### Added

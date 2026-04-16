@@ -80,9 +80,15 @@ static void (*_IOHIDEventSystemClientDispatchEvent)(IOHIDEventSystemClientRef cl
 static SBVoiceControlController *sharedVoiceControl = nil;
 static NSHashTable *siriInteractions = nil;
 
+@interface LSApplicationProxy : NSObject
+@property (nonatomic, readonly) NSString *applicationIdentifier;
+@property (nonatomic, readonly) NSString *localizedName;
+@end
+
 @interface LSApplicationWorkspace : NSObject
 + (id)defaultWorkspace;
 - (BOOL)openApplicationWithBundleID:(id)arg1;
+- (NSArray *)allInstalledApplications;
 @end
 
 @interface SBControlCenterController : NSObject
@@ -91,6 +97,21 @@ static NSHashTable *siriInteractions = nil;
 - (BOOL)isVisible;
 - (void)presentAnimated:(BOOL)animated;
 - (void)presentAnimated:(BOOL)animated completion:(id)completion;
+@end
+
+@interface NCNotificationContent : NSObject
+@property (nonatomic, copy, readonly) NSString *title;
+@property (nonatomic, copy, readonly) NSString *subtitle;
+@property (nonatomic, copy, readonly) NSString *message;
+@end
+
+@interface NCNotificationRequest : NSObject
+@property (nonatomic, copy, readonly) NSString *sectionIdentifier;
+@property (nonatomic, strong, readonly) NCNotificationContent *content;
+@end
+
+@interface NCNotificationDispatcher : NSObject
+- (void)postNotificationRequest:(id)arg1 forDestination:(id)arg2;
 @end
 
 %hook SBVoiceControlController
@@ -921,6 +942,70 @@ static BOOL RC_IsForegroundAppExcluded() {
     }
 }
 
+static NSString *get_human_name_for_trigger(NSString *key, NSDictionary *triggerData) {
+    if (!key) return @"Unknown";
+    
+    // 1. Check for custom user-defined name first
+    if ([triggerData isKindOfClass:[NSDictionary class]] && triggerData[@"name"]) {
+        return triggerData[@"name"];
+    }
+    if ([triggerData isKindOfClass:[NSDictionary class]] && triggerData[@"title"]) {
+        return triggerData[@"title"];
+    }
+    
+    // 2. Built-in mappings
+    static NSDictionary *builtInNames = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        builtInNames = @{
+            @"shake": @"Shake Device",
+            @"volume_up_hold": @"Volume Up Hold",
+            @"volume_down_hold": @"Volume Down Hold",
+            @"volume_both_press": @"Volume Up + Down (Both)",
+            @"power_double_tap": @"Power Double-Tap",
+            @"power_long_press": @"Power Long Press",
+            @"power_triple_click": @"Power Triple Click",
+            @"power_quadruple_click": @"Power Quadruple Click",
+            @"power_volume_up": @"Power + Volume Up",
+            @"power_volume_down": @"Power + Volume Down",
+            @"trigger_statusbar_left_hold": @"Status Bar Left Hold",
+            @"trigger_statusbar_center_hold": @"Status Bar Center Hold",
+            @"trigger_statusbar_right_hold": @"Status Bar Right Hold",
+            @"trigger_statusbar_swipe_left": @"Status Bar Swipe Left",
+            @"trigger_statusbar_swipe_right": @"Status Bar Swipe Right",
+            @"trigger_home_triple_click": @"Home Button (Triple Click)",
+            @"trigger_home_quadruple_click": @"Home Button (Quadruple Click)",
+            @"trigger_home_double_click": @"Home Button (Double Click)",
+            @"touchid_hold": @"Touch ID Hold (Rest Finger)",
+            @"touchid_tap": @"Touch ID Single Tap",
+            @"trigger_edge_left_swipe_up": @"Left Edge Swipe Up",
+            @"trigger_edge_left_swipe_down": @"Left Edge Swipe Down",
+            @"trigger_edge_right_swipe_up": @"Right Edge Swipe Up",
+            @"trigger_edge_right_swipe_down": @"Right Edge Swipe Down",
+            @"trigger_ringer_mute": @"Ringer Muted",
+            @"trigger_ringer_unmute": @"Ringer Unmuted",
+            @"trigger_ringer_toggle": @"Ringer Toggled",
+            @"trigger_bottombar_swipe_left": @"Bottom Bar Swipe Left",
+            @"trigger_bottombar_swipe_right": @"Bottom Bar Swipe Right"
+        };
+    });
+    
+    NSString *builtIn = builtInNames[key];
+    if (builtIn) return builtIn;
+    
+    // 3. Prefix-based fallback
+    if ([key hasPrefix:@"nfc_"]) return [NSString stringWithFormat:@"NFC Tag %@", [key substringFromIndex:4]];
+    if ([key hasPrefix:@"wifi_connect_"]) return [NSString stringWithFormat:@"WiFi Connected: %@", [key substringFromIndex:13]];
+    if ([key hasPrefix:@"wifi_disconnect_"]) return [NSString stringWithFormat:@"WiFi Disconnected: %@", [key substringFromIndex:16]];
+    if ([key hasPrefix:@"bt_connect_"]) return [NSString stringWithFormat:@"Bluetooth Connected: %@", [key substringFromIndex:11]];
+    if ([key hasPrefix:@"bt_disconnect_"]) return [NSString stringWithFormat:@"Bluetooth Disconnected: %@", [key substringFromIndex:14]];
+    if ([key hasPrefix:@"app_launch_"]) return [NSString stringWithFormat:@"App Launched: %@", [key substringFromIndex:11]];
+    if ([key hasPrefix:@"notif_"]) return @"Notification Trigger";
+    if ([key hasPrefix:@"sched_"]) return @"Scheduled Automation";
+    
+    return key;
+}
+
 static void load_trigger_config() {
     @autoreleasepool {
         // Find the config file
@@ -946,11 +1031,16 @@ static void load_trigger_config() {
 
 static void update_simulation_observers();
 
+static float get_flash_brightness() {
+    return 1.0f;
+}
+
 // Forward declarations for gesture management functions
 static BOOL should_register_edge_gestures();
 static void register_edge_gestures();
 static void unregister_edge_gestures();
 static void update_edge_gestures();
+static void start_schedule_timer();
 
 static void config_changed_callback(CFNotificationCenterRef center, void *observer,
                                     CFStringRef name, const void *object, CFDictionaryRef userInfo) {
@@ -965,14 +1055,56 @@ static void config_changed_callback(CFNotificationCenterRef center, void *observ
             update_simulation_observers();
             SRLog(@"Simulation observers updated. Updating edge gestures...");
             update_edge_gestures(); 
-            SRLog(@"Edge gestures updated. Config reload complete.");
+            SRLog(@"Edge gestures updated. Checking schedule timer...");
+            start_schedule_timer();
+            SRLog(@"Schedule timer check complete. Config reload complete.");
         } @catch (NSException *e) {
             SRLog(@"CRITICAL ERROR in config_changed_callback: %@\nStack: %@", e, e.callStackSymbols);
         }
     });
 }
 
-static void register_config_observer() {
+static void save_trigger_config() {
+    if (!g_triggerConfig) return;
+    NSString *sharedPath = @"/var/mobile/Documents/rc_triggers.plist";
+    NSError *error = nil;
+    NSData *data = [NSPropertyListSerialization dataWithPropertyList:g_triggerConfig
+                                                              format:NSPropertyListXMLFormat_v1_0
+                                                             options:0
+                                                               error:&error];
+    if (data && !error) {
+        // 1. Try atomic write to shared path
+        BOOL success = [data writeToFile:sharedPath atomically:YES];
+        if (!success) {
+            // 2. Fallback to POSIX open/write
+            int fd = open([sharedPath UTF8String], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            if (fd >= 0) {
+                write(fd, [data bytes], [data length]);
+                close(fd);
+                success = YES;
+                SRLog(@"[WebUI] Saved config to shared path via POSIX: %@", sharedPath);
+            } else {
+                SRLog(@"[WebUI] Failed to save to shared path (errno: %d)", errno);
+            }
+        } else {
+            SRLog(@"[WebUI] Saved config to shared path: %@", sharedPath);
+        }
+        
+        // 3. If we have a resolved container path, try saving there too
+        if (g_resolvedConfigPath && ![g_resolvedConfigPath isEqualToString:sharedPath]) {
+            [data writeToFile:g_resolvedConfigPath atomically:YES];
+            SRLog(@"[WebUI] Also saved to container path: %@", g_resolvedConfigPath);
+        }
+
+        if (success) {
+            notify_post("com.pizzaman.rc.configchanged");
+        }
+    } else {
+        SRLog(@"[WebUI] Failed to serialize config: %@", error);
+    }
+    }
+
+    static void register_config_observer() {
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         NULL,
@@ -1315,12 +1447,15 @@ void RCExecuteTrigger(NSString *triggerKey) {
         return;
     }
     
-    NSDictionary *triggers = g_triggerConfig[@"triggers"];
-    NSDictionary *trigger = triggers[triggerKey];
+    id triggers = g_triggerConfig[@"triggers"];
+    if (!triggers || ![triggers isKindOfClass:[NSDictionary class]]) {
+        SRLog(@"ERROR: Triggers dictionary is missing or invalid");
+        return;
+    }
     
-    if (!trigger) {
-        SRLog(@"TRIGGER NOT FOUND: '%@'", triggerKey);
-        // Special case: if it's an NFC tag not in config, maybe log UID?
+    id trigger = ((NSDictionary *)triggers)[triggerKey];
+    if (!trigger || ![trigger isKindOfClass:[NSDictionary class]]) {
+        SRLog(@"TRIGGER NOT FOUND or INVALID: '%@'", triggerKey);
         return;
     }
     
@@ -1341,6 +1476,131 @@ void RCExecuteTrigger(NSString *triggerKey) {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         rc_execute_action_sequence(actions, triggerKey, NO);
     });
+}
+
+// ============ SCHEDULING SYSTEM ============
+static NSInteger g_lastScheduledCheckMinute = -1;
+static dispatch_source_t g_scheduleTimer = nil;
+
+static void stop_schedule_timer() {
+    if (g_scheduleTimer) {
+        dispatch_source_cancel(g_scheduleTimer);
+        g_scheduleTimer = nil;
+        SRLog(@"[Schedule] Timer stopped (No active schedules)");
+    }
+}
+
+static void check_scheduled_triggers() {
+    NSDate *now = [NSDate date];
+    NSCalendar *calendar = [NSCalendar currentCalendar];
+    NSDateComponents *components = [calendar components:(NSCalendarUnitHour | NSCalendarUnitMinute | NSCalendarUnitWeekday) fromDate:now];
+    
+    NSInteger currentHour = components.hour;
+    NSInteger currentMinute = components.minute;
+    NSInteger currentWeekday = components.weekday;
+    
+    // Prevent double firing within the same minute
+    if (g_lastScheduledCheckMinute == currentMinute) {
+        return;
+    }
+    
+    if (!g_triggerConfig) {
+        load_trigger_config();
+    }
+    
+    if (!g_triggerConfig) return;
+    
+    NSDictionary *triggers = g_triggerConfig[@"triggers"];
+    for (NSString *key in triggers) {
+        if ([key hasPrefix:@"sched_"]) {
+            NSDictionary *trigger = triggers[key];
+            if (![trigger[@"enabled"] boolValue]) continue;
+            
+            NSDictionary *sched = trigger[@"schedule"];
+            if (!sched) continue;
+            
+            NSInteger schedHour = [sched[@"hour"] integerValue];
+            NSInteger schedMinute = [sched[@"minute"] integerValue];
+            NSArray *schedDays = sched[@"days"];
+            
+            if (schedHour == currentHour && schedMinute == currentMinute) {
+                if ([schedDays containsObject:@(currentWeekday)]) {
+                    SRLog(@"[Schedule] FIRE: %@", key);
+                    RCExecuteTrigger(key);
+                }
+            }
+        }
+    }
+    
+    g_lastScheduledCheckMinute = currentMinute;
+}
+
+static void start_schedule_timer() {
+    // Check if any scheduled triggers actually exist before starting
+    if (!g_triggerConfig) load_trigger_config();
+    if (!g_triggerConfig) return;
+
+    BOOL hasSchedules = NO;
+    NSDictionary *triggers = g_triggerConfig[@"triggers"];
+    for (NSString *key in triggers) {
+        if ([key hasPrefix:@"sched_"]) {
+            NSDictionary *trigger = triggers[key];
+            if ([trigger[@"enabled"] boolValue]) {
+                hasSchedules = YES;
+                break;
+            }
+        }
+    }
+
+    if (!hasSchedules) {
+        stop_schedule_timer();
+        return;
+    }
+
+    // If we already have a timer running, don't start a second one.
+    // The self-correcting nature of the existing timer will pick up any config changes
+    // on its next tick, or the manual reload will handle it.
+    if (g_scheduleTimer) return;
+
+    SRLog(@"[Schedule] Starting self-correcting background timer...");
+    
+    g_scheduleTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    
+    // Define the scheduling logic
+    __block void (^scheduleNext)(void) = ^ {
+        if (!g_scheduleTimer) return;
+
+        NSDate *now = [NSDate date];
+        NSTimeInterval currentTime = [now timeIntervalSince1970];
+        
+        // Calculate the next minute boundary (e.g., if it's 1:00:10, target 1:01:00)
+        NSTimeInterval nextMinute = ceil(currentTime / 60.0) * 60.0;
+        
+        // If we are extremely close to the next minute (due to processing time), target the minute after
+        if (nextMinute - currentTime < 0.1) {
+            nextMinute += 60.0;
+        }
+        
+        // Add a tiny 100ms delay to ensure the system clock has definitely rolled over the minute
+        NSTimeInterval delay = (nextMinute - currentTime) + 0.1;
+        dispatch_time_t start = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC));
+        
+        SRLog(@"[Schedule] Next precision check in %.2f seconds", delay);
+        
+        // Use DISPATCH_TIME_FOREVER for interval to make it a one-shot
+        dispatch_source_set_timer(g_scheduleTimer, start, DISPATCH_TIME_FOREVER, 0.1 * NSEC_PER_SEC);
+    };
+
+    dispatch_source_set_event_handler(g_scheduleTimer, ^{
+        check_scheduled_triggers();
+        
+        // Re-schedule itself for the next minute
+        scheduleNext();
+    });
+    
+    // Initial schedule
+    scheduleNext();
+    dispatch_resume(g_scheduleTimer);
 }
 
 BOOL RCIsNFCEnabled() {
@@ -1689,7 +1949,12 @@ static NSString *evaluate_lua_code(NSString *code) {
 }
 
 static NSString *handle_command(NSString *cmd) {
+    if (!cmd || ![cmd isKindOfClass:[NSString class]]) {
+        SRLog(@"ERROR: handle_command received nil or invalid command string");
+        return @"Error: Invalid command\n";
+    }
     NSString *cleanCmd = [cmd stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (cleanCmd.length == 0) return @"Error: Empty command\n";
     SRLog(@"Received command: %@", cleanCmd);
     
     // Debug hex dump of command
@@ -1813,7 +2078,7 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"prev"]) {
         MRMediaRemoteSendCommand(kMRPreviousTrack, nil);
         return @"Previous track\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight"] || [cleanCmd isEqualToString:@"torch"]) {
+    } else if ([cleanCmd isEqualToString:@"flashlight"] || [cleanCmd isEqualToString:@"torch"] || [cleanCmd isEqualToString:@"flashlight toggle"]) {
         SRLog(@"Toggling flashlight");
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
@@ -1821,31 +2086,53 @@ static NSString *handle_command(NSString *cmd) {
             if (device.torchMode == AVCaptureTorchModeOn) {
                 [device setTorchMode:AVCaptureTorchModeOff];
             } else {
-                [device setTorchMode:AVCaptureTorchModeOn];
+                float level = get_flash_brightness();
+                [device setTorchModeOnWithLevel:level error:nil];
             }
             [device unlockForConfiguration];
         }
         return @"Flashlight toggled\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight on"]) {
-        SRLog(@"Flashlight ON");
+    } else if ([cleanCmd hasPrefix:@"flashlight on"] || [cleanCmd hasPrefix:@"flash on"]) {
+        float level = get_flash_brightness();
+        NSArray *parts = [cleanCmd componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (parts.count >= 3) {
+            float customLevel = [parts[2] floatValue];
+            if (customLevel > 0) level = customLevel;
+            if (level > 1.0f) level /= 100.0f; // Handle percentage
+        }
+        
+        SRLog(@"Flashlight ON at level: %f", level);
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
-            [device setTorchMode:AVCaptureTorchModeOn];
+            if (level < 0.01f) level = 0.01f;
+            if (level > 1.0f) level = 1.0f;
+            [device setTorchModeOnWithLevel:level error:nil];
             [device unlockForConfiguration];
         }
-        return @"Flashlight ON\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight off"]) {
-        SRLog(@"Flashlight OFF");
+        return [NSString stringWithFormat:@"Flashlight ON (%.0f%%)\n", level * 100];
+    } else if ([cleanCmd hasPrefix:@"flashlight "] || [cleanCmd hasPrefix:@"flash "]) {
+        // Handle "flashlight 0.5" or "flashlight 50"
+        NSString *valStr = [cleanCmd substringFromIndex:([cleanCmd hasPrefix:@"flashlight "] ? 11 : 6)];
+        float level = [valStr floatValue];
+        if (level > 1.0f) level /= 100.0f;
+        
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch]) {
             [device lockForConfiguration:nil];
-            [device setTorchMode:AVCaptureTorchModeOff];
+            if (level <= 0) {
+                [device setTorchMode:AVCaptureTorchModeOff];
+                [device unlockForConfiguration];
+                return @"Flashlight OFF\n";
+            }
+            if (level < 0.01f) level = 0.01f;
+            if (level > 1.0f) level = 1.0f;
+            [device setTorchModeOnWithLevel:level error:nil];
             [device unlockForConfiguration];
+            return [NSString stringWithFormat:@"Flashlight set to %.0f%%\n", level * 100];
         }
-        return @"Flashlight OFF\n";
-    } else if ([cleanCmd isEqualToString:@"flashlight toggle"]) {
-        return handle_command(@"flashlight");
+        return @"Error: Flashlight not available\n";
+    } else if ([cleanCmd isEqualToString:@"flashlight off"] || [cleanCmd isEqualToString:@"torch off"]) {
     } else if ([cleanCmd hasPrefix:@"notify "]) {
         // notify "Title" "Body" [--urgent]
         // Parse: notify "Title" "Message" OR notify Title Message
@@ -2205,7 +2492,7 @@ static NSString *handle_command(NSString *cmd) {
                [cleanCmd isEqualToString:@"open-control-center"] ||
                [cleanCmd isEqualToString:@"control-center"]) {
         __block BOOL opened = NO;
-        dispatch_sync(dispatch_get_main_queue(), ^{
+        void (^ccBlock)(void) = ^{
             Class ccClass = objc_getClass("SBControlCenterController");
             if (!ccClass) {
                 SRLog(@"Control Center class unavailable");
@@ -2219,41 +2506,31 @@ static NSString *handle_command(NSString *cmd) {
                 controller = [ccClass performSelector:@selector(sharedInstanceIfExists)];
 #pragma clang diagnostic pop
             }
-            if (!controller && [ccClass respondsToSelector:@selector(sharedInstance)]) {
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-                controller = [ccClass performSelector:@selector(sharedInstance)];
-#pragma clang diagnostic pop
-            }
-            if (!controller) {
-                SRLog(@"Control Center controller unavailable");
-                return;
-            }
 
-            BOOL isVisible = NO;
-            if ([controller respondsToSelector:@selector(isVisible)]) {
-                isVisible = [controller isVisible];
+            if (controller && [controller respondsToSelector:@selector(isVisible)]) {
+                if ([controller isVisible]) {
+                    [controller dismissAnimated:YES];
+                    opened = YES;
+                } else {
+                    [controller presentAnimated:YES];
+                    opened = YES;
+                }
+            } else if (controller && [controller respondsToSelector:@selector(_presentControlCenterGestureBeganWithReason:)]) {
+                 [controller performSelector:@selector(_presentControlCenterGestureBeganWithReason:) withObject:@"RemoteCompanion"];
+                 opened = YES;
             }
-            if (isVisible) {
-                opened = YES;
-                return;
-            }
+        };
 
-            if ([controller respondsToSelector:@selector(presentAnimated:completion:)]) {
-                [controller presentAnimated:YES completion:nil];
-                opened = YES;
-            } else if ([controller respondsToSelector:@selector(presentAnimated:)]) {
-                [controller presentAnimated:YES];
-                opened = YES;
-            } else {
-                SRLog(@"No supported Control Center present selector");
-            }
-        });
+        if ([NSThread isMainThread]) {
+            ccBlock();
+        } else {
+            dispatch_sync(dispatch_get_main_queue(), ccBlock);
+        }
         return opened ? @"Control Center opened\n" : @"Failed to open Control Center\n";
     } else if ([cleanCmd isEqualToString:@"switcher"] || [cleanCmd isEqualToString:@"app switcher"]) {
         __block BOOL success = NO;
         SRLog(@"Attempting to toggle App Switcher...");
-        dispatch_sync(dispatch_get_main_queue(), ^{
+        void (^switcherBlock)(void) = ^{
             Class SBClass = objc_getClass("SpringBoard");
             id sb = [SBClass sharedApplication];
             
@@ -2264,59 +2541,56 @@ static NSString *handle_command(NSString *cmd) {
                 if ([viewCtrlClass respondsToSelector:@selector(sharedInstance)]) {
                     switcher = [viewCtrlClass sharedInstance];
                 }
-                if (switcher) {
-                    if ([switcher respondsToSelector:@selector(toggleMainSwitcherNoninteractivelyWithSource:animated:)]) {
-                        SRLog(@"Using Method 1c: toggleMainSwitcherNoninteractivelyWithSource:animated:");
-                        ((void (*)(id, SEL, long long, BOOL))objc_msgSend)(switcher, @selector(toggleMainSwitcherNoninteractivelyWithSource:animated:), 1, YES);
-                        success = YES;
-                    } else if ([switcher respondsToSelector:@selector(activateMainSwitcherNoninteractivelyWithSource:animated:)]) {
-                        SRLog(@"Using Method 1d: activateMainSwitcherNoninteractivelyWithSource:animated:");
-                        ((void (*)(id, SEL, long long, BOOL))objc_msgSend)(switcher, @selector(activateMainSwitcherNoninteractivelyWithSource:animated:), 1, YES);
-                        success = YES;
-                    } else if ([switcher respondsToSelector:@selector(toggleSwitcherNoninteractively)]) {
-                        SRLog(@"Using Method 1a: toggleSwitcherNoninteractively");
-                        [switcher performSelector:@selector(toggleSwitcherNoninteractively)];
-                        success = YES;
-                    }
-                }
-            }
-            
-            // Method 2: SBUIController handleHomeButtonDoublePressDown
-            if (!success) {
-                id uiCtrl = [objc_getClass("SBUIController") sharedInstance];
-                if ([uiCtrl respondsToSelector:@selector(handleHomeButtonDoublePressDown)]) {
-                    SRLog(@"Using Method 2: SBUIController handleHomeButtonDoublePressDown");
-                    [uiCtrl performSelector:@selector(handleHomeButtonDoublePressDown)];
+                if (switcher && [switcher respondsToSelector:@selector(toggleSwitcher)]) {
+                    [switcher performSelector:@selector(toggleSwitcher)];
                     success = YES;
                 }
             }
+            
+            // Method 2: SBLockScreenManager (if on lockscreen)
+            if (!success) {
+                Class LSMClass = objc_getClass("SBLockScreenManager");
+                if (LSMClass) {
+                    id manager = [LSMClass sharedInstance];
+                    if (manager && [manager respondsToSelector:@selector(isUILocked)] && [manager isUILocked]) {
+                        SRLog(@"Device locked, cannot toggle switcher");
+                    }
+                }
+            }
 
-            // Method 3: Accessibility
+            // Method 3: Standard springboard toggle if available
+            if (!success && [sb respondsToSelector:@selector(_toggleAppSwitcher)]) {
+                [sb performSelector:@selector(_toggleAppSwitcher)];
+                success = YES;
+            }
+            
+            // Method 4: Accessibility
             if (!success && [sb respondsToSelector:@selector(_accessibilityHandleAppSwitcherEvent)]) {
-                SRLog(@"Using Method 3: _accessibilityHandleAppSwitcherEvent");
+                SRLog(@"Using Method 4: _accessibilityHandleAppSwitcherEvent");
                 [sb _accessibilityHandleAppSwitcherEvent];
                 success = YES;
             }
-        });
+        };
+
+        if ([NSThread isMainThread]) {
+            switcherBlock();
+        } else {
+            dispatch_sync(dispatch_get_main_queue(), switcherBlock);
+        }
         SRLog(@"App Switcher toggle final success: %d", success);
         return success ? @"Switcher toggled\n" : @"Failed to toggle switcher\n";
-    } else if ([cleanCmd isEqualToString:@"is-locked"]) {
-        // Query lock state
-        // Use dispatch_sync to wait for result from main thread
-        __block NSString *result = @"error";
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-            SBLockScreenManager *manager = nil;
-            if (SBLockScreenManagerClass) {
-                manager = [SBLockScreenManagerClass sharedInstance];
-            }
-            
-            if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
-                 BOOL locked = [manager isUILocked];
-                 result = locked ? @"locked" : @"unlocked";
+    } else if ([cleanCmd hasPrefix:@"unlock "]) {
+        NSString *passcode = [[cleanCmd substringFromIndex:7] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            SBLockScreenManager *manager = [objc_getClass("SBLockScreenManager") sharedInstance];
+            if (manager && [manager isUILocked]) {
+                simulate_home_press(); // Wake device
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                    [manager attemptUnlockWithPasscode:passcode];
+                });
             }
         });
-        return [NSString stringWithFormat:@"%@\n", result];
+        return [NSString stringWithFormat:@"Attempting unlock with passcode: %@\n", passcode];
     } else if ([cleanCmd hasPrefix:@"debug-class "]) {
         NSString *className = [[cleanCmd substringFromIndex:12] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
         SRLog(@"Debugging class: %@", className);
@@ -2388,46 +2662,6 @@ static NSString *handle_command(NSString *cmd) {
             }
         }
         return @"Call initiated. Check logs.\n";
-    } else if ([cleanCmd isEqualToString:@"lock status"]) {
-        __block NSString *result = @"error";
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-            SBLockScreenManager *manager = nil;
-            if (SBLockScreenManagerClass) {
-                manager = [SBLockScreenManagerClass sharedInstance];
-            }
-            if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
-                 BOOL locked = [manager isUILocked];
-                 result = locked ? @"locked" : @"unlocked";
-            }
-        });
-        return [NSString stringWithFormat:@"%@\n", result];
-    } else if ([cleanCmd isEqualToString:@"orientation"] || [cleanCmd isEqualToString:@"orientation status"]) {
-        __block NSString *res = @"UNKNOWN";
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
-            UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
-            if ([sb respondsToSelector:@selector(activeInterfaceOrientation)]) {
-                orientation = [sb activeInterfaceOrientation];
-            } else {
-                #pragma clang diagnostic push
-                #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-                UIWindow *window = sb.keyWindow ?: [[UIApplication sharedApplication].windows firstObject];
-                if (window && window.windowScene) {
-                    orientation = window.windowScene.interfaceOrientation;
-                } else {
-                    orientation = sb.statusBarOrientation;
-                }
-                #pragma clang diagnostic pop
-            }
-
-            if (UIInterfaceOrientationIsPortrait(orientation)) {
-                res = @"Portrait";
-            } else if (UIInterfaceOrientationIsLandscape(orientation)) {
-                res = @"Landscape";
-            }
-        });
-        return [NSString stringWithFormat:@"%@\n", res];
     } else if ([cleanCmd isEqualToString:@"lock"]) {
         // Smart lock: Only lock if currently unlocked
         // ensure we run on main thread for UI/SB checks
@@ -2461,52 +2695,45 @@ static NSString *handle_command(NSString *cmd) {
         
         SRLog(@"[SmartUnlock] Checking lock state before unlocking...");
         
-        __block BOOL isLocked = NO;
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-            SBLockScreenManager *manager = nil;
-            if (SBLockScreenManagerClass) {
-                manager = [SBLockScreenManagerClass sharedInstance];
-            }
-            if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
-                 isLocked = [manager isUILocked];
-            }
-        });
-
-        if (!isLocked) {
-             SRLog(@"[SmartUnlock] Device already unlocked. Doing nothing.");
-             return @"already_unlocked\n";
-        }
-        
-        SRLog(@"[SmartUnlock] Device is locked. Proceeding with unlock sequence...");
-
-        // Default PIN is 2569, can be overridden with: unlock 1234
         NSString *pin = @"2569";
         if ([cleanCmd hasPrefix:@"unlock "]) {
             pin = [[cleanCmd substringFromIndex:7] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         }
         
-        // Ensure screen is on (wake)
-        inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
-        
-        // Wait for screen to wake/process (0.3s delay - increased for reliability)
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            // Get lock screen manager
+        dispatch_async(dispatch_get_main_queue(), ^{
             Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-            if (!SBLockScreenManagerClass) return;
-            
-            SBLockScreenManager *manager = [SBLockScreenManagerClass sharedInstance];
-            if (!manager) return;
-            
-            // Try the direct unlock method
-            if ([manager respondsToSelector:@selector(attemptUnlockWithPasscode:)]) {
-                SRLog(@"Trying attemptUnlockWithPasscode...");
-                [manager attemptUnlockWithPasscode:pin];
-                SRLog(@"attemptUnlockWithPasscode called");
-            } else if ([manager respondsToSelector:@selector(unlockUIFromSource:withOptions:)]) {
-                 SRLog(@"Using fallback unlockUIFromSource...");
-                 [manager unlockUIFromSource:0 withOptions:nil];
+            SBLockScreenManager *manager = nil;
+            if (SBLockScreenManagerClass) {
+                manager = [SBLockScreenManagerClass sharedInstance];
             }
+            BOOL isLocked = NO;
+            if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
+                 isLocked = [manager isUILocked];
+            }
+            
+            if (!isLocked) {
+                 SRLog(@"[SmartUnlock] Device already unlocked. Doing nothing.");
+                 return;
+            }
+            
+            SRLog(@"[SmartUnlock] Device is locked. Proceeding with unlock sequence...");
+
+            // Ensure screen is on (wake)
+            inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
+            
+            // Wait for screen to wake/process (0.3s delay - increased for reliability)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (!manager) return;
+                // Try the direct unlock method
+                if ([manager respondsToSelector:@selector(attemptUnlockWithPasscode:)]) {
+                    SRLog(@"Trying attemptUnlockWithPasscode...");
+                    [manager attemptUnlockWithPasscode:pin];
+                    SRLog(@"attemptUnlockWithPasscode called");
+                } else if ([manager respondsToSelector:@selector(unlockUIFromSource:withOptions:)]) {
+                     SRLog(@"Using fallback unlockUIFromSource...");
+                     [manager unlockUIFromSource:0 withOptions:nil];
+                }
+            });
         });
         return @"unlocking_started\n";
     }
@@ -2532,78 +2759,74 @@ static NSString *handle_command(NSString *cmd) {
 
     } else if ([cleanCmd isEqualToString:@"lock-toggle"] || [cleanCmd isEqualToString:@"lock toggle"]) {
         // Toggle Lock State
-        __block BOOL isLocked = NO;
-        dispatch_sync(dispatch_get_main_queue(), ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
             Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
             SBLockScreenManager *manager = nil;
             if (SBLockScreenManagerClass) {
                 manager = [SBLockScreenManagerClass sharedInstance];
             }
+            BOOL isLocked = NO;
             if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
                 isLocked = [manager isUILocked];
             }
+            
+            SRLog(@"[LockToggle] Current State: %@", isLocked ? @"Locked" : @"Unlocked");
+            
+            if (isLocked) {
+                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                     handle_command(@"unlock");
+                 });
+            } else {
+                 dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                     handle_command(@"lock");
+                 });
+            }
         });
         
-        SRLog(@"[LockToggle] Current State: %@", isLocked ? @"Locked" : @"Unlocked");
-        
-        if (isLocked) {
-             // Unlock Logic
-             return handle_command(@"unlock");
-        } else {
-             // Lock Logic
-             return handle_command(@"lock");
-        }
+        return @"lock_toggle_initiated\n";
 
     } else if ([cleanCmd hasPrefix:@"url "]) {
         NSString *urlString = [cleanCmd substringFromIndex:4];
         urlString = [urlString stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         
-        __block BOOL isLocked = NO;
-        dispatch_sync(dispatch_get_main_queue(), ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
             Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
             SBLockScreenManager *manager = nil;
             if (SBLockScreenManagerClass) {
                 manager = [SBLockScreenManagerClass sharedInstance];
             }
+            BOOL isLocked = NO;
             if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
                 isLocked = [manager isUILocked];
             }
-        });
-        
-        if (isLocked) {
-             SRLog(@"[SmartURL] Device locked. Initiating unlock sequence for URL...");
-             
-             // 1. Wake Screen
-             inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
-             
-             // 2. Wait 0.5s then Unlock AND Open URL
-             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                 Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-                 if (SBLockScreenManagerClass) {
-                     SBLockScreenManager *manager = [SBLockScreenManagerClass sharedInstance];
+            
+            if (isLocked) {
+                 SRLog(@"[SmartURL] Device locked. Initiating unlock sequence for URL...");
+                 
+                 // 1. Wake Screen
+                 inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
+                 
+                 // 2. Wait 0.5s then Unlock AND Open URL
+                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                      if (manager && [manager respondsToSelector:@selector(attemptUnlockWithPasscode:)]) {
                          [manager attemptUnlockWithPasscode:@"2569"];
                      }
-                 }
-                 
-                 // Open URL immediately after unlock attempt
+                     
+                     // Open URL immediately after unlock attempt
+                     NSURL *url = [NSURL URLWithString:urlString];
+                     if (url) {
+                         [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+                     }
+                 });
+            } else {
+                 // Device unlocked, open immediately
                  NSURL *url = [NSURL URLWithString:urlString];
                  if (url) {
                      [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
                  }
-             });
-             
-             return @"unlocking_and_opening_url\n";
-        } else {
-             // Device unlocked, open immediately
-             dispatch_async(dispatch_get_main_queue(), ^{
-                 NSURL *url = [NSURL URLWithString:urlString];
-                 if (url) {
-                     [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
-                 }
-             });
-             return @"opening_url\n";
-        }
+            }
+        });
+        return @"url_opening_initiated\n";
     } else if ([cleanCmd hasPrefix:@"spotify playlist "] || 
                [cleanCmd hasPrefix:@"spotify album "] || 
                [cleanCmd hasPrefix:@"spotify artist "] || 
@@ -3270,8 +3493,9 @@ static NSString *handle_command(NSString *cmd) {
                 [device setTorchMode:AVCaptureTorchModeOff];
                 NSLog(@"[RemoteCommand] Flashlight toggled OFF");
             } else {
-                [device setTorchMode:AVCaptureTorchModeOn];
-                NSLog(@"[RemoteCommand] Flashlight toggled ON");
+                float level = get_flash_brightness();
+                [device setTorchModeOnWithLevel:level error:nil];
+                NSLog(@"[RemoteCommand] Flashlight toggled ON at level %f", level);
             }
             [device unlockForConfiguration];
         }
@@ -3279,7 +3503,8 @@ static NSString *handle_command(NSString *cmd) {
         AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
         if ([device hasTorch] && [device isTorchAvailable]) {
             [device lockForConfiguration:nil];
-            [device setTorchMode:AVCaptureTorchModeOn];
+            float level = get_flash_brightness();
+            [device setTorchModeOnWithLevel:level error:nil];
             [device unlockForConfiguration];
         }
     } else if ([cleanCmd isEqualToString:@"flashlight off"]) {
@@ -3619,6 +3844,26 @@ static NSString *handle_command(NSString *cmd) {
         dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 6 * NSEC_PER_SEC));
         return result ?: @"Error: Timeout connecting to AirPlay device\n";
 
+    } else if ([cleanCmd hasPrefix:@"webui "]) {
+        NSString *sub = [[cleanCmd substringFromIndex:6] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        load_trigger_config();
+        NSMutableDictionary *mConfig = [g_triggerConfig mutableCopy] ?: [NSMutableDictionary dictionary];
+        
+        if ([sub isEqualToString:@"on"] || [sub isEqualToString:@"enable"]) {
+            mConfig[@"webUIEnabled"] = @YES;
+            g_triggerConfig = [mConfig copy];
+            save_trigger_config();
+            return @"Web UI Enabled\n";
+        } else if ([sub isEqualToString:@"off"] || [sub isEqualToString:@"disable"]) {
+            mConfig[@"webUIEnabled"] = @NO;
+            g_triggerConfig = [mConfig copy];
+            save_trigger_config();
+            return @"Web UI Disabled\n";
+        } else if ([sub isEqualToString:@"status"]) {
+            BOOL enabled = [mConfig[@"webUIEnabled"] boolValue];
+            return [NSString stringWithFormat:@"Web UI is %@\n", enabled ? @"ENABLED" : @"DISABLED"];
+        }
+        return @"Usage: rc webui <on|off|status>\n";
     } else if ([cleanCmd isEqualToString:@"respring"]) {
         SRLog(@"Triggering Respring via killbackboardd");
         
@@ -3748,10 +3993,441 @@ static NSString *handle_command(NSString *cmd) {
         });
         
         return [NSString stringWithFormat:@"Triggered shortcut: %@\n", shortcutName];
+    } else if ([cleanCmd isEqualToString:@"list-triggers"]) {
+        load_trigger_config();
+        if (!g_triggerConfig) return @"Error: No trigger config found\n";
+        id triggers = g_triggerConfig[@"triggers"];
+        if (!triggers || ![triggers isKindOfClass:[NSDictionary class]]) return @"Error: No triggers configured\n";
+        
+        NSMutableString *list = [NSMutableString stringWithString:@"Configured Automations:\n"];
+        NSArray *allKeys = [(NSDictionary *)triggers allKeys];
+        for (NSString *key in [allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+            NSDictionary *trigger = triggers[key];
+            if ([trigger isKindOfClass:[NSDictionary class]]) {
+                // Skip watch triggers as they are deprecated/non-functional
+                if ([key hasPrefix:@"watch_"]) continue;
+                
+                NSString *title = get_human_name_for_trigger(key, trigger);
+                [list appendFormat:@"- %@: %@\n", key, title];
+            }
+        }
+        return list;
+    } else if ([cleanCmd hasPrefix:@"trigger "]) {
+        NSString *key = [[cleanCmd substringFromIndex:8] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            RCExecuteTrigger(key);
+        });
+        return [NSString stringWithFormat:@"Executing trigger: %@\n", key];
     }
     return nil;
 }
 
+
+static void start_web_server() {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        int server_fd, new_socket;
+        struct sockaddr_in address;
+        int opt = 1;
+        int addrlen = sizeof(address);
+        
+        if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+            SRLog(@"[WebUI] socket failed");
+            return;
+        }
+        
+        if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+            SRLog(@"[WebUI] setsockopt failed");
+            return;
+        }
+        
+        address.sin_family = AF_INET;
+        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_port = htons(8080);
+        
+        if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+            SRLog(@"[WebUI] bind failed");
+            close(server_fd);
+            return;
+        }
+        
+        if (listen(server_fd, 5) < 0) {
+            SRLog(@"[WebUI] listen failed");
+            close(server_fd);
+            return;
+        }
+
+        SRLog(@"[WebUI] Server listening on port 8080");
+
+        while (1) {
+            if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
+                continue;
+            }
+            
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                struct timeval tv;
+                tv.tv_sec = 2;
+                tv.tv_usec = 0;
+                setsockopt(new_socket, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
+                char buffer[16384] = {0};
+                ssize_t valread = read(new_socket, buffer, 16384 - 1);
+                if (valread > 0) {
+                    NSString *requestString = [[NSString alloc] initWithBytes:buffer length:valread encoding:NSUTF8StringEncoding];
+                    NSArray *lines = [requestString componentsSeparatedByString:@"\r\n"];
+                    if (lines.count > 0) {
+                        NSArray *requestLine = [lines[0] componentsSeparatedByString:@" "];
+                        if (requestLine.count >= 2) {
+                            NSString *method = requestLine[0];
+                            NSString *path = requestLine[1];
+                            
+                            // CORS headers
+                            NSString *cors = @"Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n";
+                            NSString *responseString = [NSString stringWithFormat:@"HTTP/1.1 404 Not Found\r\n%@Content-Length: 9\r\n\r\nNot Found", cors];
+                            
+                            if ([method isEqualToString:@"OPTIONS"]) {
+                                responseString = [NSString stringWithFormat:@"HTTP/1.1 204 No Content\r\n%@Content-Length: 0\r\n\r\n", cors];
+                            } else if ([path isEqualToString:@"/"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    NSString *htmlPath = @"/Library/Application Support/RemoteCompanion/rc_webui.html";
+                                    NSString *html = [NSString stringWithContentsOfFile:htmlPath encoding:NSUTF8StringEncoding error:nil];
+                                    if (!html) {
+                                        NSString *rootlessPath = @"/var/jb/Library/Application Support/RemoteCompanion/rc_webui.html";
+                                        html = [NSString stringWithContentsOfFile:rootlessPath encoding:NSUTF8StringEncoding error:nil];
+                                    }
+                                    if (!html) {
+                                        html = @"<html><body><h1>RemoteCompanion WebUI</h1><p>rc_webui.html not found. Please reinstall the tweak.</p></body></html>";
+                                    }
+                                    NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: text/html\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)htmlData.length, html];
+                                }
+                            } else if ([path isEqualToString:@"/favicon.ico"] || [path isEqualToString:@"/apple-touch-icon.png"] || [path hasPrefix:@"/favicon-"] || [path hasPrefix:@"/android-chrome-"] || [path isEqualToString:@"/site.webmanifest"]) {
+                                NSString *filename = [path lastPathComponent];
+                                NSString *assetPath = [NSString stringWithFormat:@"/Library/Application Support/RemoteCompanion/%@", filename];
+                                NSData *assetData = [NSData dataWithContentsOfFile:assetPath];
+                                if (!assetData) {
+                                    assetPath = [NSString stringWithFormat:@"/var/jb/Library/Application Support/RemoteCompanion/%@", filename];
+                                    assetData = [NSData dataWithContentsOfFile:assetPath];
+                                }
+                                
+                                if (assetData) {
+                                    NSString *contentType = @"application/octet-stream";
+                                    if ([path hasSuffix:@".ico"]) contentType = @"image/x-icon";
+                                    else if ([path hasSuffix:@".png"]) contentType = @"image/png";
+                                    else if ([path hasSuffix:@".webmanifest"] || [path hasSuffix:@".json"]) contentType = @"application/manifest+json";
+                                    
+                                    NSString *header = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: %@\r\nContent-Length: %lu\r\n\r\n", cors, contentType, (unsigned long)assetData.length];
+                                    write(new_socket, [header UTF8String], [header lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+                                    write(new_socket, [assetData bytes], [assetData length]);
+                                    responseString = nil; // Skip default write
+                                }
+                            } else if ([path isEqualToString:@"/api/config"]) {
+                                load_trigger_config();
+                                // Allow GET/POST for config regardless of webUIEnabled to prevent lockout
+                                if ([method isEqualToString:@"GET"]) {
+                                        NSData *jsonData = [NSJSONSerialization dataWithJSONObject:g_triggerConfig options:0 error:nil];
+                                        if (jsonData) {
+                                            NSString *jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+                                            responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)jsonData.length, jsonString];
+                                        }
+                                    } else if ([method isEqualToString:@"POST"]) {
+                                        NSRange clRange = [requestString rangeOfString:@"Content-Length: " options:NSCaseInsensitiveSearch];
+                                        int contentLength = 0;
+                                        if (clRange.location != NSNotFound) {
+                                            NSString *afterCl = [requestString substringFromIndex:clRange.location + clRange.length];
+                                            contentLength = [afterCl intValue];
+                                        }
+
+                                        const char *headersEnd = strnstr(buffer, "\r\n\r\n", valread);
+                                        if (headersEnd != NULL) {
+                                            size_t headerBytesOffset = (headersEnd - buffer) + 4;
+                                            size_t availableBodyLength = valread - headerBytesOffset;
+                                            
+                                            NSMutableData *bodyData = [NSMutableData data];
+                                            if (availableBodyLength > 0) {
+                                                [bodyData appendBytes:(buffer + headerBytesOffset) length:availableBodyLength];
+                                            }
+                                            
+                                            // Ensure we read the complete body based on Content-Length
+                                            while (bodyData.length < contentLength) {
+                                                char chunk[4096];
+                                                ssize_t chunkRead = read(new_socket, chunk, sizeof(chunk));
+                                                if (chunkRead <= 0) break;
+                                                [bodyData appendBytes:chunk length:chunkRead];
+                                            }
+
+                                            NSError *err;
+                                            id jsonObj = [NSJSONSerialization JSONObjectWithData:bodyData options:NSJSONReadingMutableContainers error:&err];
+                                            if (jsonObj && [jsonObj isKindOfClass:[NSDictionary class]]) {
+                                                g_triggerConfig = [jsonObj mutableCopy];
+                                                save_trigger_config();
+                                                responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: 12\r\n\r\n{\"ok\": true}", cors];
+                                            } else {
+                                                responseString = [NSString stringWithFormat:@"HTTP/1.1 400 Bad Request\r\n%@Content-Type: application/json\r\nContent-Length: 17\r\n\r\n{\"error\":\"JSON\"}", cors];
+                                            }
+                                        }
+                                    }
+                            } else if ([path isEqualToString:@"/api/triggers"] && [method isEqualToString:@"GET"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    id triggers = g_triggerConfig[@"triggers"];
+                                    NSMutableArray *triggerList = [NSMutableArray array];
+                                    if (triggers && [triggers isKindOfClass:[NSDictionary class]]) {
+                                        NSArray *allKeys = [(NSDictionary *)triggers allKeys];
+                                        for (NSString *key in [allKeys sortedArrayUsingSelector:@selector(compare:)]) {
+                                            NSDictionary *trigger = triggers[key];
+                                            if ([trigger isKindOfClass:[NSDictionary class]]) {
+                                                if ([key hasPrefix:@"watch_"]) continue;
+                                                NSString *title = get_human_name_for_trigger(key, trigger);
+                                                NSString *encodedKey = [key stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLPathAllowedCharacterSet]];
+                                                [triggerList addObject:@{
+                                                    @"id": key,
+                                                    @"name": title,
+                                                    @"url": [NSString stringWithFormat:@"/api/trigger/%@", encodedKey]
+                                                }];
+                                            }
+                                        }
+                                    }
+                                    NSDictionary *resp = @{@"ok": @YES, @"triggers": triggerList};
+                                    NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:NSJSONWritingPrettyPrinted error:nil];
+                                    NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                    // Remove backslash escaping for forward slashes
+                                    jsonStr = [jsonStr stringByReplacingOccurrencesOfString:@"\\/" withString:@"/"];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
+                                }
+                            } else if ([path isEqualToString:@"/api/devices"] && [method isEqualToString:@"GET"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    NSMutableArray *btNames = [NSMutableArray array];
+                                    void *btHandle = dlopen("/System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager", RTLD_NOW);
+                                    if (btHandle) {
+                                        Class BluetoothManagerClass = objc_getClass("BluetoothManager");
+                                        if (BluetoothManagerClass) {
+                                            BluetoothManager *btManager = [BluetoothManagerClass sharedInstance];
+                                            NSArray *devices = [btManager pairedDevices];
+                                            for (id device in devices) {
+                                                if ([device respondsToSelector:@selector(name)]) {
+                                                    NSString *name = [device name];
+                                                    if (name && name.length > 0) {
+                                                        [btNames addObject:name];
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    NSMutableArray *wifiNames = [NSMutableArray array];
+                                    SBWiFiManager *manager = [objc_getClass("SBWiFiManager") sharedInstance];
+                                    if ([manager respondsToSelector:@selector(currentNetworkName)]) {
+                                        NSString *ssid = [manager currentNetworkName];
+                                        if (ssid && ssid.length > 0) {
+                                            [wifiNames addObject:ssid];
+                                        }
+                                    }
+
+                                    void *lsHandle = dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices", RTLD_NOW);
+                                    if (!lsHandle) {
+                                        lsHandle = dlopen("/System/Library/PrivateFrameworks/MobileCoreServices.framework/MobileCoreServices", RTLD_NOW);
+                                    }
+
+                                    NSMutableArray *appList = [NSMutableArray array];
+                                    Class LSApplicationWorkspaceClass = objc_getClass("LSApplicationWorkspace");
+                                    if (LSApplicationWorkspaceClass) {
+                                        NSArray *apps = [[LSApplicationWorkspaceClass defaultWorkspace] allInstalledApplications];
+                                        SRLog(@"API: Found %lu installed applications", (unsigned long)apps.count);
+                                        for (LSApplicationProxy *proxy in apps) {
+                                            NSString *name = nil;
+                                            if ([proxy respondsToSelector:@selector(localizedName)]) {
+                                                name = [proxy localizedName];
+                                            }
+                                            NSString *bid = nil;
+                                            if ([proxy respondsToSelector:@selector(applicationIdentifier)]) {
+                                                bid = [proxy applicationIdentifier];
+                                            }
+                                            
+                                            if (name && bid) {
+                                                [appList addObject:@{@"name": name, @"bundleId": bid}];
+                                            }
+                                        }
+                                    } else {
+                                        SRLog(@"API: LSApplicationWorkspace class NOT FOUND after dlopen");
+                                    }
+
+                                    // Sort by name
+                                    [appList sortUsingComparator:^NSComparisonResult(id obj1, id obj2) {
+                                        return [obj1[@"name"] localizedCaseInsensitiveCompare:obj2[@"name"]];
+                                    }];
+                                    SRLog(@"API: returning %lu apps in device list", (unsigned long)appList.count);
+                                    
+                                    NSDictionary *resp = @{
+                                        @"ok": @YES,
+                                        @"bluetooth": btNames,
+                                        @"wifi": wifiNames,
+                                        @"apps": appList
+                                    };
+                                    NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                    NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
+                                }
+                            } else if ([path isEqualToString:@"/api/commands"] && [method isEqualToString:@"GET"]) {
+                                NSArray *commandList = @[
+                                    // System Controls
+                                    @{@"command": @"lock", @"desc": @"System: Lock the device screen"},
+                                    @{@"command": @"unlock <passcode>", @"desc": @"Security: Unlock device screen (INSECURE: Passcode sent in plain text!)"},
+                                    @{@"command": @"home", @"desc": @"System: Simulate a Home Button press"},
+                                    @{@"command": @"screenshot", @"desc": @"System: Take a screenshot"},
+                                    @{@"command": @"open control center", @"desc": @"System: Open Control Center"},
+                                    @{@"command": @"app switcher", @"desc": @"System: Open App Switcher"},
+                                    @{@"command": @"open <bundleId>", @"desc": @"System: Launch an application by bundle identifier"},
+                                    @{@"command": @"kill <bundleId>", @"desc": @"System: Force-close an application"},
+                                    @{@"command": @"respring", @"desc": @"System: Restart SpringBoard"},
+                                    @{@"command": @"ldrestart", @"desc": @"System: Soft-reboot the device"},
+
+                                    // Media & Volume
+                                    @{@"command": @"play", @"desc": @"Media: Start playback"},
+                                    @{@"command": @"pause", @"desc": @"Media: Pause playback"},
+                                    @{@"command": @"next", @"desc": @"Media: Skip to next track"},
+                                    @{@"command": @"prev", @"desc": @"Media: Skip to previous track"},
+                                    @{@"command": @"toggle", @"desc": @"Media: Toggle play/pause"},
+                                    @{@"command": @"vol up", @"desc": @"Media: Increase volume"},
+                                    @{@"command": @"vol down", @"desc": @"Media: Decrease volume"},
+                                    @{@"command": @"volume <0-100>", @"desc": @"Media: Set volume to specific percentage"},
+
+                                    // Hardware Toggles
+                                    @{@"command": @"flashlight toggle", @"desc": @"Toggles: Toggle flashlight state"},
+                                    @{@"command": @"flashlight <1-100>", @"desc": @"Toggles: Set flashlight brightness intensity"},
+                                    @{@"command": @"brightness <0-100>", @"desc": @"Toggles: Set screen brightness percentage"},
+                                    @{@"command": @"bt on/off", @"desc": @"Toggles: Bluetooth power"},
+                                    @{@"command": @"wifi on/off", @"desc": @"Toggles: WiFi power"},
+                                    @{@"command": @"airplane on/off", @"desc": @"Toggles: Airplane Mode power"},
+                                    @{@"command": @"dnd on/off", @"desc": @"Toggles: Do Not Disturb Mode"},
+                                    @{@"command": @"low power on/off", @"desc": @"Toggles: Low Power Mode"},
+                                    @{@"command": @"mute", @"desc": @"Toggles: System mute/silent mode"},
+                                    @{@"command": @"rotate lock/unlock", @"desc": @"Toggles: Orientation lock state"},
+                                    @{@"command": @"haptic", @"desc": @"System: Play a subtle haptic feedback vibe"},
+
+                                    // Automations & Discovery
+                                    @{@"command": @"shortcut \"Name\"", @"desc": @"Automation: Run a Siri Shortcut"},
+                                    @{@"command": @"trigger <ID>", @"desc": @"Automation: Fire a configured RemoteCompanion trigger"}
+                                ];
+                                NSDictionary *resp = @{@"ok": @YES, @"commands": commandList};
+                                NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:NSJSONWritingPrettyPrinted error:nil];
+                                NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                // Remove backslash escaping for forward slashes
+                                jsonStr = [jsonStr stringByReplacingOccurrencesOfString:@"\\/" withString:@"/"];
+                                responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
+                            } else if ([path hasPrefix:@"/api/command"]) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    __block NSString *command = nil;
+                                    
+                                    // 1. Try Query Parameters (Allow for both GET and POST)
+                                    NSRange qMarkRange = [path rangeOfString:@"?"];
+                                    if (qMarkRange.location != NSNotFound) {
+                                        NSString *queryString = [path substringFromIndex:qMarkRange.location + 1];
+                                        NSArray *pairs = [queryString componentsSeparatedByString:@"&"];
+                                        for (NSString *pair in pairs) {
+                                            NSArray *kv = [pair componentsSeparatedByString:@"="];
+                                            if (kv.count == 2) {
+                                                NSString *key = [kv[0] lowercaseString];
+                                                if ([key isEqualToString:@"cmd"] || [key isEqualToString:@"command"]) {
+                                                    command = [kv[1] stringByRemovingPercentEncoding];
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 2. If no query param found, and it's a POST, check the body
+                                    if (!command && [method isEqualToString:@"POST"]) {
+                                        NSRange clRange = [requestString rangeOfString:@"Content-Length: " options:NSCaseInsensitiveSearch];
+                                        int contentLength = 0;
+                                        if (clRange.location != NSNotFound) {
+                                            NSString *afterCl = [requestString substringFromIndex:clRange.location + clRange.length];
+                                            contentLength = [afterCl intValue];
+                                        }
+
+                                        const char *headersEnd = strnstr(buffer, "\r\n\r\n", valread);
+                                        if (headersEnd != NULL) {
+                                            size_t headerBytesOffset = (headersEnd - buffer) + 4;
+                                            size_t availableBodyLength = valread - headerBytesOffset;
+                                            
+                                            NSMutableData *bodyData = [NSMutableData data];
+                                            if (availableBodyLength > 0) {
+                                                [bodyData appendBytes:(buffer + headerBytesOffset) length:availableBodyLength];
+                                            }
+                                            
+                                            // Ensure we read the complete body based on Content-Length
+                                            while (bodyData.length < contentLength) {
+                                                char chunk[4096];
+                                                ssize_t chunkRead = read(new_socket, chunk, sizeof(chunk));
+                                                if (chunkRead <= 0) break;
+                                                [bodyData appendBytes:chunk length:chunkRead];
+                                            }
+
+                                            NSString *bodyText = [[NSString alloc] initWithData:bodyData encoding:NSUTF8StringEncoding];
+                                            if (bodyText.length > 0) {
+                                                if ([bodyText hasPrefix:@"{"]) {
+                                                    NSDictionary *json = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:nil];
+                                                    if (json && json[@"command"]) command = json[@"command"];
+                                                } else {
+                                                    command = [bodyText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (command && command.length > 0) {
+                                        // Action commands use async to avoid SpringBoard deadlocks
+                                        dispatch_async(dispatch_get_main_queue(), ^{
+                                            handle_command(command);
+                                        });
+                                        NSDictionary *resp = @{@"ok": @YES, @"command": command, @"status": @"Acknowledged"};
+                                        NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                        NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                        responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)respData.length, jsonStr];
+                                    } else {
+                                        responseString = [NSString stringWithFormat:@"HTTP/1.1 400 Bad Request\r\n%@Content-Length: 15\r\n\r\nMissing command", cors];
+                                    }
+                                }
+                            } else if ([path hasPrefix:@"/api/trigger/"] && ([method isEqualToString:@"POST"] || [method isEqualToString:@"GET"])) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    NSString *triggerKey = [path substringFromIndex:@"/api/trigger/".length];
+                                    NSRange qRange = [triggerKey rangeOfString:@"?"];
+                                    if (qRange.location != NSNotFound) {
+                                        triggerKey = [triggerKey substringToIndex:qRange.location];
+                                    }
+                                    triggerKey = [triggerKey stringByRemovingPercentEncoding];
+                                    
+                                    dispatch_async(dispatch_get_main_queue(), ^{
+                                        RCExecuteTrigger(triggerKey);
+                                    });
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: 12\r\n\r\n{\"ok\": true}", cors];
+                                }
+                            }
+                            
+                            if (responseString) {
+                                write(new_socket, [responseString UTF8String], [responseString lengthOfBytesUsingEncoding:NSUTF8StringEncoding]);
+                            }
+                        }
+                    }
+                }
+                close(new_socket);
+            });
+        }
+    });
+}
 
 static void start_server() {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
@@ -5309,6 +5985,8 @@ static void update_edge_gestures() {
             register_simulation_observers();
             register_system_event_observers(); // WiFi/BT Triggers
             start_server();
+            start_web_server();
+            start_schedule_timer();
             
             // Conditionally register edge gestures based on config
             update_edge_gestures();
@@ -5319,3 +5997,37 @@ static void update_edge_gestures() {
         SRLog(@"Tweak Loaded in %@ - Skipping Full Initialization (Choicy Visibility Only)", bundleID);
     }
 }
+%hook BBServer
+- (void)publishBulletin:(id)bulletin destinations:(NSUInteger)destinations {
+    %orig;
+    if (!bulletin) return;
+    if (!g_triggerConfig) return;
+    
+    NSString *bundleId = [bulletin performSelector:@selector(sectionID)];
+    NSString *title = [bulletin performSelector:@selector(title)] ?: @"";
+    NSString *subtitle = [bulletin performSelector:@selector(subtitle)] ?: @"";
+    NSString *message = [bulletin performSelector:@selector(message)] ?: @"";
+    
+    NSArray *triggers = g_triggerConfig[@"notificationTriggers"];
+    for (NSDictionary *trigger in triggers) {
+        if (![trigger[@"enabled"] boolValue]) continue;
+        
+        NSString *matchBundleId = trigger[@"bundleId"];
+        if (matchBundleId && matchBundleId.length > 0 && ![matchBundleId isEqualToString:bundleId]) continue;
+        
+        NSString *textMatch = trigger[@"textMatch"];
+        if (textMatch && textMatch.length > 0) {
+            BOOL found = ([title rangeOfString:textMatch options:NSCaseInsensitiveSearch].location != NSNotFound) ||
+                         ([subtitle rangeOfString:textMatch options:NSCaseInsensitiveSearch].location != NSNotFound) ||
+                         ([message rangeOfString:textMatch options:NSCaseInsensitiveSearch].location != NSNotFound);
+            if (!found) continue;
+        }
+        
+        NSString *triggerKey = trigger[@"triggerKey"];
+        if (triggerKey) {
+            SRLog(@"[RCNotif] Triggering %@ for notification from %@", triggerKey, bundleId);
+            RCExecuteTrigger(triggerKey);
+        }
+    }
+}
+%end

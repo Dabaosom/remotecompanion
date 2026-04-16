@@ -5,6 +5,11 @@
 #import "RCAppPickerViewController.h"
 #import "RCTextInputViewController.h"
 #import "RCServerClient.h"
+#import "RCScheduledTriggerViewController.h"
+#import "RCNotificationTriggerViewController.h"
+#import "RCWiFiTriggerViewController.h"
+#import "RCBluetoothTriggerViewController.h"
+#import "RCNFCTriggerViewController.h"
 
 @interface UIImage (Private)
 + (UIImage *)_applicationIconImageForBundleIdentifier:(NSString *)bundleIdentifier format:(int)format scale:(CGFloat)scale;
@@ -51,6 +56,15 @@ static id g_actionClipboard = nil;
         
     self.navigationItem.rightBarButtonItem = addButton;
 
+    // Add Settings Button for configurable triggers
+    UIBarButtonItem *settingsButton = [[UIBarButtonItem alloc] 
+        initWithImage:[UIImage systemImageNamed:@"slider.horizontal.3"] 
+        style:UIBarButtonItemStylePlain 
+        target:self 
+        action:@selector(editTriggerSettings)];
+    
+    self.navigationItem.rightBarButtonItems = @[addButton, settingsButton];
+
     // Add tap gesture to title if it's an NFC trigger
     if ([_triggerKey hasPrefix:@"nfc_"]) {
         UITapGestureRecognizer *titleTap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(renameTrigger)];
@@ -92,7 +106,7 @@ static id g_actionClipboard = nil;
     
     // Deletion is handled via swipe actions (trailingSwipeActionsConfigurationForRowAtIndexPath)
     
-    self.navigationItem.rightBarButtonItems = @[addButton];
+    // rightBarButtonItems set above
 
     [self.tableView registerClass:[UITableViewCell class] forCellReuseIdentifier:@"ActionCell"];
     self.tableView.rowHeight = 70; // Fixed height as in V2.1.2
@@ -108,6 +122,57 @@ static id g_actionClipboard = nil;
     self.navigationController.navigationBar.backgroundColor = [cm tweakColorForKey:@"navBar" defaultVal:0.09];
     self.tableView.separatorColor = [cm tweakColorForKey:@"separators" defaultVal:0.30];
     [self.tableView reloadData];
+}
+
+- (void)editTriggerSettings {
+    UIViewController *vc = nil;
+    
+    if ([_triggerKey hasPrefix:@"sched_"]) {
+        vc = [[RCScheduledTriggerViewController alloc] initWithTriggerKey:_triggerKey];
+    } else if ([_triggerKey hasPrefix:@"notif_"]) {
+        vc = [[RCNotificationTriggerViewController alloc] initWithTriggerKey:_triggerKey];
+    } else if ([_triggerKey hasPrefix:@"wifi_"]) {
+        vc = [[RCWiFiTriggerViewController alloc] initWithTriggerKey:_triggerKey];
+    } else if ([_triggerKey hasPrefix:@"bt_"]) {
+        vc = [[RCBluetoothTriggerViewController alloc] initWithTriggerKey:_triggerKey];
+    } else if ([_triggerKey hasPrefix:@"app_launch_"]) {
+        RCAppPickerViewController *appVC = [[RCAppPickerViewController alloc] init];
+        appVC.onAppSelected = ^(NSString *appName, NSString *bundleId) {
+            NSString *newKey = [NSString stringWithFormat:@"app_launch_%@", bundleId];
+            NSString *friendlyName = [NSString stringWithFormat:@"Launch %@", appName];
+            
+            RCConfigManager *config = [RCConfigManager sharedManager];
+            if (![self.triggerKey isEqualToString:newKey]) {
+                // Migrate
+                NSDictionary *oldData = [config triggerDataForKey:self.triggerKey];
+                NSArray *actions = oldData[@"actions"] ?: @[];
+                
+                NSDictionary *newData = @{
+                    @"name": friendlyName,
+                    @"enabled": @YES,
+                    @"actions": actions
+                };
+                [config updateTrigger:newKey withData:newData];
+                [config removeTrigger:self.triggerKey];
+                
+                // Update our own key for the current view if needed, 
+                // but we are popping/reloading so it's better to just go back.
+            } else {
+                NSMutableDictionary *mutableData = [[config triggerDataForKey:newKey] mutableCopy];
+                mutableData[@"name"] = friendlyName;
+                [config updateTrigger:newKey withData:mutableData];
+            }
+            [self.navigationController popViewControllerAnimated:YES];
+        };
+        vc = appVC;
+    } else if ([_triggerKey hasPrefix:@"nfc_"]) {
+        [self renameTrigger];
+        return;
+    }
+    
+    if (vc) {
+        [self.navigationController pushViewController:vc animated:YES];
+    }
 }
 
 - (void)renameTrigger {

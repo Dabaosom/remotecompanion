@@ -268,7 +268,7 @@
     
 
 
-    if ([command isEqualToString:@"__SET_VOLUME__"] || [command isEqualToString:@"__SET_BRIGHTNESS__"]) {
+    if ([command isEqualToString:@"__SET_VOLUME__"] || [command isEqualToString:@"__SET_BRIGHTNESS__"] || [command isEqualToString:@"__SET_FLASHLIGHT__"]) {
         [self handleValueInputForCommand:command];
         return; // Don't dismiss yet
     }
@@ -306,11 +306,10 @@
 }
 
 - (void)handleValueInputForCommand:(NSString *)commandPlaceholder {
-    NSString *title = [commandPlaceholder isEqualToString:@"__SET_VOLUME__"] ? @"Set Volume" : @"Set Brightness";
-    NSString *prefix = [commandPlaceholder isEqualToString:@"__SET_VOLUME__"] ? @"set-vol" : @"brightness";
-    
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title 
-                                                                   message:@"Enter a value (0-100)" 
+    NSString *title = [commandPlaceholder isEqualToString:@"__SET_VOLUME__"] ? @"Set Volume" : ([commandPlaceholder isEqualToString:@"__SET_BRIGHTNESS__"] ? @"Set Brightness" : @"Set Flashlight");
+    NSString *prefix = [commandPlaceholder isEqualToString:@"__SET_VOLUME__"] ? @"set-vol" : ([commandPlaceholder isEqualToString:@"__SET_BRIGHTNESS__"] ? @"brightness" : @"flashlight");
+
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title                                                                   message:@"Enter a value (0-100)" 
                                                             preferredStyle:UIAlertControllerStyleAlert];
     
     [alert addTextFieldWithConfigurationHandler:^(UITextField * _Nonnull textField) {

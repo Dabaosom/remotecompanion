@@ -7,6 +7,8 @@
 #import "RCWiFiTriggerViewController.h"
 #import "RCBluetoothTriggerViewController.h"
 #import "RCAppPickerViewController.h"
+#import "RCNotificationTriggerViewController.h"
+#import "RCScheduledTriggerViewController.h"
 
 #define kSimulateNotificationPrefix "com.pizzaman.rc.simulate."
 
@@ -37,6 +39,8 @@
     if ([triggerKey hasPrefix:@"wifi_"]) return @"wifi";
     if ([triggerKey hasPrefix:@"bt_"]) return @"bolt.horizontal.fill";
     if ([triggerKey hasPrefix:@"app_launch_"]) return @"app.badge";
+    if ([triggerKey hasPrefix:@"notif_"]) return @"bell.badge.fill";
+    if ([triggerKey hasPrefix:@"sched_"]) return @"clock.fill";
     if ([triggerKey isEqualToString:@"shake"]) return @"waveform.path.ecg";
     return @"hand.tap"; // Default
 }
@@ -68,7 +72,7 @@
         target:self
         action:@selector(addNewItem)];
 
-    self.navigationItem.rightBarButtonItems = @[addItem, settingsItem];
+    self.navigationItem.rightBarButtonItems = @[settingsItem, addItem];
     
     self.tableView.rowHeight = 64;
     if (@available(iOS 15.0, *)) {
@@ -233,6 +237,13 @@
     }
     addSection(btKeys, @"Bluetooth Device Triggers", YES);
 
+    // Notification Triggers Section
+    NSMutableArray *notifKeys = [NSMutableArray array];
+    for (NSString *key in [[RCConfigManager sharedManager] allConfiguredTriggerKeys]) {
+        if ([key hasPrefix:@"notif_"]) [notifKeys addObject:key];
+    }
+    addSection(notifKeys, @"Notification Triggers", YES);
+
     // App Launch Section
     NSMutableArray *appKeys = [NSMutableArray array];
     for (NSString *key in [[RCConfigManager sharedManager] allConfiguredTriggerKeys]) {
@@ -240,15 +251,17 @@
     }
     addSection(appKeys, @"App Launch Triggers", YES);
 
+    // Scheduled Triggers Section
+    NSMutableArray *schedKeys = [NSMutableArray array];
+    for (NSString *key in [[RCConfigManager sharedManager] allConfiguredTriggerKeys]) {
+        if ([key hasPrefix:@"sched_"]) [schedKeys addObject:key];
+    }
+    addSection(schedKeys, @"Scheduled Triggers", YES);
+
     self.sections = sections;
     self.sectionTitles = titles;
 
-    // Show Edit button only when there are favorites
-    if (allFavorites.count > 0) {
-        self.navigationItem.leftBarButtonItem = self.editButtonItem;
-    } else {
-        self.navigationItem.leftBarButtonItem = nil;
-    }
+    self.navigationItem.leftBarButtonItem = nil;
 
     [self.tableView reloadData];
 }
@@ -305,6 +318,16 @@
                 [self.navigationController pushViewController:actionsVC animated:YES];
             });
         };
+        [self.navigationController pushViewController:vc animated:YES];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"Notification" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        RCNotificationTriggerViewController *vc = [[RCNotificationTriggerViewController alloc] init];
+        [self.navigationController pushViewController:vc animated:YES];
+    }]];
+
+    [alert addAction:[UIAlertAction actionWithTitle:@"Scheduled Trigger" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        RCScheduledTriggerViewController *vc = [[RCScheduledTriggerViewController alloc] init];
         [self.navigationController pushViewController:vc animated:YES];
     }]];
     
@@ -618,8 +641,8 @@
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
     NSString *triggerKey = _sections[indexPath.section][indexPath.row];
 
-    // Only allow delete for NFC, WiFi, BT, App triggers
-    if (![triggerKey hasPrefix:@"nfc_"] && ![triggerKey hasPrefix:@"wifi_"] && ![triggerKey hasPrefix:@"bt_"] && ![triggerKey hasPrefix:@"app_launch_"]) {
+    // Only allow delete for NFC, WiFi, BT, App, Notif, Sched triggers
+    if (![triggerKey hasPrefix:@"nfc_"] && ![triggerKey hasPrefix:@"wifi_"] && ![triggerKey hasPrefix:@"bt_"] && ![triggerKey hasPrefix:@"app_launch_"] && ![triggerKey hasPrefix:@"notif_"] && ![triggerKey hasPrefix:@"sched_"]) {
         return [UISwipeActionsConfiguration configurationWithActions:@[]];
     }
 

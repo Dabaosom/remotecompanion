@@ -19,17 +19,26 @@
 @property (nonatomic, strong) NSArray *deviceNames;
 @property (nonatomic, assign) BOOL isDisconnectTrigger;
 @property (nonatomic, assign) BOOL isLoading;
+@property (nonatomic, strong) NSString *triggerKey;
 @end
 
 @implementation RCBluetoothTriggerViewController
 
+- (instancetype)initWithTriggerKey:(NSString *)triggerKey {
+    self = [super initWithStyle:UITableViewStyleInsetGrouped];
+    if (self) {
+        _triggerKey = triggerKey;
+    }
+    return self;
+}
+
 - (instancetype)init {
-    return [super initWithStyle:UITableViewStyleInsetGrouped];
+    return [self initWithTriggerKey:nil];
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Bluetooth Trigger";
+    self.title = self.triggerKey ? @"Edit Bluetooth" : @"New Bluetooth";
     
     [[NSNotificationCenter defaultCenter] addObserver:self 
                                              selector:@selector(applyTweaks) 
@@ -37,7 +46,11 @@
                                                object:nil];
     
     [self applyTweaks];
-    self.isDisconnectTrigger = NO;
+    if (self.triggerKey) {
+        self.isDisconnectTrigger = [self.triggerKey hasPrefix:@"bt_disconnect_"];
+    } else {
+        self.isDisconnectTrigger = NO;
+    }
     self.isLoading = YES;
     
     [self loadBluetoothDevices];
@@ -153,7 +166,6 @@
         [self saveTriggerForDeviceName:deviceName];
     }
 }
-
 - (void)saveTriggerForDeviceName:(NSString *)name {
     if (!name || name.length == 0) return;
     
@@ -166,20 +178,43 @@
     NSString *subTitle = self.isDisconnectTrigger ? @"Disconnected from" : @"Connected to";
     NSString *friendlyName = [NSString stringWithFormat:@"%@ %@", subTitle, name];
     
-    NSDictionary *triggerData = @{
-        @"name": friendlyName,
-        @"enabled": @YES,
-        @"actions": @[]
-    };
-    
-    [config updateTrigger:triggerKey withData:triggerData];
-    
-    // Redirect to action picker
-    RCActionsViewController *vc = [[RCActionsViewController alloc] initWithTriggerKey:triggerKey];
-    NSMutableArray *vcs = [self.navigationController.viewControllers mutableCopy];
-    [vcs removeLastObject]; // Remove self
-    [vcs addObject:vc];
-    [self.navigationController setViewControllers:vcs animated:YES];
+    if (self.triggerKey) {
+        // Handle migration if key changed
+        if (![self.triggerKey isEqualToString:triggerKey]) {
+            NSDictionary *oldData = [config triggerDataForKey:self.triggerKey];
+            NSArray *actions = oldData[@"actions"] ?: @[];
+            
+            NSDictionary *newData = @{
+                @"name": friendlyName,
+                @"enabled": @YES,
+                @"actions": actions
+            };
+            [config updateTrigger:triggerKey withData:newData];
+            [config removeTrigger:self.triggerKey];
+        } else {
+            // Just update metadata
+            NSMutableDictionary *mutableData = [[config triggerDataForKey:triggerKey] mutableCopy];
+            mutableData[@"name"] = friendlyName;
+            [config updateTrigger:triggerKey withData:mutableData];
+        }
+        
+        [self.navigationController popViewControllerAnimated:YES];
+    } else {
+        // Create new
+        NSDictionary *triggerData = @{
+            @"name": friendlyName,
+            @"enabled": @YES,
+            @"actions": @[]
+        };
+        [config updateTrigger:triggerKey withData:triggerData];
+        
+        // Redirect to action picker
+        RCActionsViewController *vc = [[RCActionsViewController alloc] initWithTriggerKey:triggerKey];
+        NSMutableArray *vcs = [self.navigationController.viewControllers mutableCopy];
+        [vcs removeLastObject]; // Remove self
+        [vcs addObject:vc];
+        [self.navigationController setViewControllers:vcs animated:YES];
+    }
 }
 
 @end

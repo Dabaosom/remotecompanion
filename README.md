@@ -3,29 +3,24 @@
 RemoteCompanion provides fast, scriptable system control for modern rootless jailbreaks. It lets you bind physical gestures and hardware buttons, or send commands remotely from your computer, to trigger system actions, control media playback, and run custom scripts.
 
 > [!IMPORTANT]
-> **What's New in v2.4**
-> - **Shake Trigger**: New "Motion Gestures" section with "Shake Device" trigger support. Assign any action sequence to fire when the device is physically shaken.
-> - **Action Copy-Paste**: Long-press any action entry to copy it to a global clipboard. Once copied, long-press any row to "Paste Above" or "Paste Below", or long-press empty space to paste at the end of the sequence.
-> - **App Launch Trigger**: Added a new trigger type that fires when a specific application is opened. Features a built-in search-enabled app picker.
-> - **Conditional Actions ("Else" Branch)**: "If" actions now support an optional "Else" branch. Long-press any "If" action in the sequence list to toggle the Else branch on or off.
-> - **Conditional Actions ("Front Application")**: Added a new condition type to check the currently active foreground application. Integrated the native app picker for easy configuration.
-> - **Edit Condition**: Added a native "Edit Condition" option to the long-press menu for "If" actions, allowing you to swap conditions or values without deleting the entire block.
-> - **Trigger Workflow**: Creating a new trigger (App Launch, NFC, etc.) now automatically redirects you to the action sequence configuration immediately for a faster setup process.
+> **What’s New in v3.0**
+> - **Web UI**: A desktop-style automation hub with iOS-inspired design. Includes live search pickers for apps, WiFi, and Bluetooth devices, full workflow editing, and one-tap API URL copy.
+> - **Automations API**: Fast remote control system. Run triggers and system commands using simple HTTP GET or POST requests.
+> - **Scheduled Triggers**: Execute action sequences at specific times and days.
+> - **Notification Triggers**: Trigger actions from incoming app notifications with precise title and message filtering, plus a searchable app picker.
+> - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1 to 100 for adjustable torch brightness (example: `rc flashlight 50`).
 
 
 <p align="center">
-  <img src="images/1.1-2.3.0.png" width="160" alt="Main Interface" />
-  <img src="images/2.1-2.3.0.png" width="160" alt="Action Picker" />
-  <img src="images/3.1-2.3.0.png" width="160" alt="Trigger Config" />
-  <img src="images/4.1-2.3.0.png" width="160" alt="Design Engine" />
-  <img src="images/5.1-2.3.0.png" width="160" alt="Settings & Backup" />
+  <img src="images/IMG_1514.PNG" width="160" alt="Main Interface" />
+  <img src="images/IMG_1515.PNG" width="160" alt="Action Picker" />
+  <img src="images/IMG_1517.PNG" width="160" alt="Design Engine" />
+  <img src="images/IMG_1518.PNG" width="160" alt="Settings & Backup" />
+  <img src="images/IMG_1516.PNG" width="160" alt="Trigger Config" />
 </p>
 
 ## Features
-- **Instant Response**: High-speed command execution (~0.2s) using optimized SSH-tunneled UNIX domain sockets.
-- **Smart Control**: Run multi-step action sequences, edit existing actions inline, or control settings remotely.
 - **Hardware Triggers**: Bind actions to Power/Volume buttons, Home button, Touch ID (Tap/Hold), or the Ringer Switch.
-- **Visual Excellence**: Modern iOS aesthetics with Large Titles, SF Symbols, and a professional dark terminal editor.
 - **Universal Search**: Instantly find actions, shortcuts, and devices with integrated search bars in every picker.
 - **Cross-Version Support**: Full compatibility for iOS 14 through iOS 16+, supporting both Rootless and Rootful environments.
 - **Advanced Automation**: Full support for NFC tags, custom Lua scripts (with `objc_call` support), and native Siri integration.
@@ -33,6 +28,26 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 - **Live Discovery**: Discovery-based live lists for nearby AirPlay and Bluetooth hardware.
 - **Trigger Favorites**: Mark any trigger as a favorite for instant access at the top of the picker.
 - **True Multitasking**: Concurrent server handling powered by GCD—zero battery drain, zero blocking.
+
+## Web UI & Automations Hub
+
+Access the desktop-class automation hub at `http://[DEVICE_IP]:8080` from any computer or tablet on your local network.
+
+<p align="center">
+  <img src="images/webui.png" width="600" alt="Web UI Interface" />
+</p>
+
+> [!TIP]
+> **To Enable**: Toggle **Web UI** in the RemoteCompanion Settings (Gear icon) or use the command `rc webui on`.
+
+### Key Features
+- **Visual Workflow Editor**: Build complex action sequences with an intuitive drag-and-drop interface.
+- **Live Device Discovery**: Dynamically search and select installed Apps, nearby Bluetooth hardware, and Wi-Fi networks using integrated search bars.
+- **Remote Testing**: Trigger actions and troubleshoot sequences directly from your browser with live execution buttons.
+- **One-Tap API Integration**: Every trigger has a dedicated **Copy API Link** button providing a direct URL to fire that trigger from any network-connected hardware or custom scripts.
+- **API Link Copying**: In the Web UI, you can swipe any trigger and tap the **Copy** icon to instantly get the full API URL (including your device's IP).
+- **Negligible Battery Impact**: The Web UI server is extremely efficient, consuming zero CPU cycles when idle. It uses a background thread with a blocking `accept()` loop that sits dormant until a connection is made.
+- **Configuration Management**: Import and export your entire trigger database for easy backups and migration between devices.
 
 ## What you can do
 
@@ -71,8 +86,11 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 - `rc airplay list` - See speakers and their UIDs.
 - `rc airplay connect <UID|Name>` / `rc airplay disconnect`
 
-### Hardware Triggers (Tweak App)
+<details>
+<summary><b>Hardware Triggers (Tweak App)</b></summary>
+
 Configure these in the `RemoteCompanion` app for custom action sequences. Tip: **Long-press** any trigger in the app to instantly test and run its assigned actions.
+
 - **Hardware Buttons**:
   - **Power**: Double-tap, Long-press, **Triple/Quadruple click**, or **Power + Volume Up/Down** combos.
   - **Volume**: Long hold Up/Down (0.3s) or **Volume Up + Down** combo.
@@ -85,6 +103,27 @@ Configure these in the `RemoteCompanion` app for custom action sequences. Tip: *
   - **Edge Gestures**: Vertical swipe on left/right edges.
 - **Motion Gestures**:
   - **Shake**: Fire actions when the device is physically shaken.
+- **System Events**:
+  - **Scheduled**: Run actions at specific times (e.g., Daily at 4 PM).
+  - **WiFi/Bluetooth**: Trigger actions on network or device connectivity.
+  - **App Launch**: Fire actions when a specific app is opened.
+
+</details>
+
+<details>
+<summary><b>Blacklist (App Exclusion)</b></summary>
+
+RemoteCompanion includes a blacklist system to prevent hardware triggers and gestures from firing while specific apps are in the foreground. This is useful for avoiding conflicts with apps that use the same buttons or gestures (e.g. games, camera apps).
+
+### CLI Commands
+Use the `rc blacklist` command to manage the list:
+
+*   `rc blacklist list`: View currently blacklisted bundle IDs.
+*   `rc blacklist add <bundleID>`: Add an app to the blacklist (e.g. `rc blacklist add com.apple.camera`).
+*   `rc blacklist remove <bundleID>`: Remove an app from the blacklist.
+*   `rc blacklist reset`: Reset the blacklist to the factory defaults.
+
+</details>
 
 ### Text & Notifications
 - `rc type "Text"` - Type text (supports symbols).
@@ -94,6 +133,7 @@ Configure these in the `RemoteCompanion` app for custom action sequences. Tip: *
 
 ### Status & Queries
 Get instant feedback from your device state.
+
 - `rc volume` - Returns current volume %.
 - `rc app` - Returns foreground app bundle ID.
 - `rc is-locked` / `rc lock status` - Returns `locked` or `unlocked`.
@@ -109,19 +149,122 @@ Get instant feedback from your device state.
 - `rc wifi status` / `rc bt status` - Returns connectivity states.
 - `rc flashlight status` - Returns torch state.
 
-### Conditional Actions
+<details>
+<summary><b>Conditional Actions</b></summary>
+
 Combine status queries with actions for smart automation:
+
 - **Orientation-Awareness**: `If Orientation is Landscape` -> `Flashlight Toggle`.
 - **Bluetooth/Wi-Fi State**: `If Wi-Fi is OFF` -> `Wi-Fi ON`.
 
+</details>
+
 ### System & Diagnostics
-- `rc respring` - Restart SpringBoard.
-- `rc ldrestart` - Soft reboot the device.
-- `rc userspace-reboot` - Reboot userspace.
 - `rc uicache` - Refresh the icon cache.
+- `rc respring` - Restart SpringBoard.
+- `rc ldrestart` - Soft-reboot the device.
+- `rc userspace-reboot` - Restart userspace.
+- `rc webui [on|off|status]` - Enable, disable, or check the status of the Web UI server.
+
+
+
+
+## Getting Started
 
 <details>
-<summary><h3>Lua Scripting & Objective-C Bridge</h3></summary>
+<summary><h3>1. Requirements</h3></summary>
+
+- A **Jailbroken Device** (iOS 14+). Supports both Rootless (iOS 15+) and Rootful (iOS 14) environments.
+- The `RemoteCompanion` tweak installed.
+
+</details>
+
+### 2. Installation Options
+
+#### Option 1: Repository (Recommended)
+Add `https://saihgupr.github.io/remotecompanion` to Sileo or Zebra
+
+Add to Zebra -> zbra://sources/add/https://saihgupr.github.io/remotecompanion
+
+Add to Sileo -> sileo://source/https://saihgupr.github.io/remotecompanion
+
+#### Option 2: Manual Install
+Download the `.deb` from [Releases](https://github.com/saihgupr/remotecompanion/releases).
+
+#### Option 3: Build from Source
+`cd Tweak && make package install`.
+
+<details>
+<summary><b>3. Usage Options</b></summary>
+
+Choose the control method that best fits your needs:
+
+#### Option 1: CLI (Easiest)
+Control your iPhone from your computer terminal using the `rc` script. It uses SSH to securely tunnel commands into a local UNIX socket on the device.
+
+1. Copy the script to your path:
+   ```bash
+   chmod +x rc
+   sudo cp rc /usr/local/bin/rc
+   ```
+2. Set your iPhone's IP (add this to your `~/.zshrc`):
+   ```bash
+   export RC_IPHONE_IP=iphone.local
+   ```
+3. Run the command:
+   ```bash
+   rc play
+   ```
+
+#### Option 2: SSH Direct (Secure)
+Control the device directly via SSH using the `rc` command installed on the iPhone.
+This method works even if the external "TCP Server" is disabled in settings.
+
+```bash
+ssh mobile@iphone.local "rc lock"
+ssh mobile@iphone.local "rc volume 50"
+ssh mobile@iphone.local "rc respring"
+```
+
+<details>
+<summary><h4>Option 3: Shortcuts (External Triggers)</h4></summary>
+
+Control your device using iOS Shortcuts. There are two primary ways:
+
+**A. Using Native SSH (Localhost)**
+The most reliable method without extra tweaks. Requires **OpenSSH**.
+1. Add the **Run script over SSH** action.
+2. Configure host settings:
+   - **Host**: `localhost`
+   - **Port**: `22`
+   - **User**: `mobile` (or `root`)
+   - **Password**: Your SSH password (default is `alpine`)
+3. Enter your command:
+   ```bash
+   rc flashlight toggle
+   rc dnd on
+   ```
+
+**B. Using Powercuts (Shell)**
+If you have **Powercuts** installed, you can run `rc` commands directly via shell.
+1. Add the **Run shell command** action.
+2. Enter your command:
+   ```bash
+   rc open Music
+   rc volume 50
+   ```
+
+
+</details>
+
+</details>
+
+
+## Advanced Developer Tools
+
+<details>
+<summary><b>Lua Scripting & Objective-C Bridge</b></summary>
+
 
 RemoteCompanion introduces a powerful Lua bridge that allows you to execute arbitrary Lua scripts within the tweak's process. The exact same context is available whether you run a script file from the CLI or paste code into the "Lua Script" action in the app.
 
@@ -162,122 +305,40 @@ if device then
 end
 ```
 
-**Load a Private Framework or Dylib**
-```lua
--- Load your dylib first, then call methods on it
-local ok = dlopen("/path/to/yourlibrary.dylib")
-if ok then
-    -- Use a shared accessor if the class provides one
-    local instance = objc_call("YourClass", "sharedInstance")
-    if instance then
-        objc_call(instance, "yourMethod")
-    else
-        -- Or allocate a new instance
-        local obj = objc_call(objc_call("YourClass", "alloc"), "init")
-        objc_call(obj, "yourMethod")
-    end
-end
-```
-
 > [!NOTE]
 > `objc_call` works like standard Objective-C messaging — it does not scan memory for existing instances. To call an instance method, you first need to obtain the instance via a class-level accessor (e.g. `sharedInstance`, `currentDevice`) or by allocating a new one with `alloc`/`init`.
 
 </details>
 
 <details>
-<summary><h3>Blacklist (App Exclusion)</h3></summary>
+<summary><b>Automations API & HTTP Server</b></summary>
 
-RemoteCompanion includes a blacklist system to prevent hardware triggers and gestures from firing while specific apps are in the foreground. This is useful for avoiding conflicts with apps that use the same buttons or gestures (e.g. games, camera apps).
+Control your device from any network-connected hardware via simple HTTP calls.
 
-### CLI Commands
-Use the `rc blacklist` command to manage the list:
+> [!IMPORTANT]
+> The **Web UI** toggle must be enabled in the RemoteCompanion settings (or via `rc webui on`) for the HTTP server to be active.
 
-*   `rc blacklist list`: View currently blacklisted bundle IDs.
-*   `rc blacklist add <bundleID>`: Add an app to the blacklist (e.g. `rc blacklist add com.apple.camera`).
-*   `rc blacklist remove <bundleID>`: Remove an app from the blacklist.
-*   `rc blacklist reset`: Reset the blacklist to the factory defaults.
+**1. Discover Commands & Triggers:**
+Get a list of all supported system commands or your custom automation triggers:
+- Commands: `http://[device_ip]:8080/api/commands`
+- Triggers: `http://[device_ip]:8080/api/triggers`
 
+**2. Execute a System Command:**
+Send command strings via `GET` or `POST`. 
+- **Example (GET)**: `http://[device_ip]:8080/api/command?cmd=play`
+- **Example (POST)**: `curl -X POST "http://[device_ip]:8080/api/command" -d "haptic"`
+
+**3. Fire an Automation Trigger:**
+Execution URLs for your specific triggers:
+- **Example**: `http://[device_ip]:8080/api/trigger/trigger_1`
+
+#### Performance & Implementation
+*   **⚡ Speed**: The HTTP API is significantly faster than SSH (~0.1s faster) by skipping the heavy SSH handshake.
+*   **🔋 Efficiency**: The Web UI server sits in a dormant `accept()` loop, consuming **zero CPU cycles** when idle.
 </details>
 
-## Getting Started
-
-### 1. Requirements
-- A **Jailbroken Device** (iOS 14+). Supports both Rootless (iOS 15+) and Rootful (iOS 14) environments.
-- The `RemoteCompanion` tweak installed.
-
-### 2. Installation Options
-
-#### Option 1: Repository (Recommended)
-Add `https://saihgupr.github.io/remotecompanion` to Sileo or Zebra
-
-Add to Zebra -> zbra://sources/add/https://saihgupr.github.io/remotecompanion
-
-Add to Sileo -> sileo://source/https://saihgupr.github.io/remotecompanion
-
-#### Option 2: Manual Install
-Download the `.deb` from [Releases](https://github.com/saihgupr/remotecompanion/releases).
-
-#### Option 3: Build from Source
-`cd Tweak && make package install`.
-
-### 3. Usage Options
-Choose the control method that best fits your needs:
-
-#### Option 1: CLI (Easiest)
-Control your iPhone from your computer terminal using the `rc` script. It uses SSH to securely tunnel commands into a local UNIX socket on the device.
-
-1. Copy the script to your path:
-   ```bash
-   chmod +x rc
-   sudo cp rc /usr/local/bin/rc
-   ```
-2. Set your iPhone's IP (add this to your `~/.zshrc`):
-   ```bash
-   export RC_IPHONE_IP=iphone.local
-   ```
-3. Run the command:
-   ```bash
-   rc play
-   ```
-
-#### Option 2: SSH Direct (Secure)
-Control the device directly via SSH using the `rc` command installed on the iPhone.
-This method works even if the external "TCP Server" is disabled in settings.
-
-```bash
-ssh mobile@iphone.local "rc lock"
-ssh mobile@iphone.local "rc volume 50"
-ssh mobile@iphone.local "rc respring"
-```
-
-#### Option 3: Shortcuts (External Triggers)
-Control your device using iOS Shortcuts. There are two primary ways:
-
-**A. Using Native SSH (Localhost)**
-The most reliable method without extra tweaks. Requires **OpenSSH**.
-1. Add the **Run script over SSH** action.
-2. Configure host settings:
-   - **Host**: `localhost`
-   - **Port**: `22`
-   - **User**: `mobile` (or `root`)
-   - **Password**: Your SSH password (default is `alpine`)
-3. Enter your command:
-   ```bash
-   rc flashlight toggle
-   rc dnd on
-   ```
-
-**B. Using Powercuts (Shell)**
-If you have **Powercuts** installed, you can run `rc` commands directly via shell.
-1. Add the **Run shell command** action.
-2. Enter your command:
-   ```bash
-   rc open Music
-   rc volume 50
-   ```
-   
 <details>
-<summary><h3>Home Assistant Setup</h3></summary>
+<summary><b>Home Assistant Setup</b></summary>
 
 The most reliable way to control your device from Home Assistant is via SSH.
 
@@ -300,9 +361,11 @@ data:
 
 RemoteCompanion implements several measures to ensure your device remains secure:
 
-- **Local Access**: Local apps and the `rc` CLI on the device communicate directly with the socket file, ensuring zero network exposure.
+- **Local Execution**: Local apps and the `rc` CLI communicate securely via a local UNIX socket file, ensuring zero network exposure.
+- **Web UI & Automations API**: When enabled, the Automations Hub server transmits data in **plain-text** over your local network. No authentication is required for API access. It is **highly recommended** to only enable the Web UI on trusted, private networks.
 
-## Troubleshooting
+<details>
+<summary><h2>Troubleshooting</h2></summary>
 
 ### Apple Pay Issues
 If you experience the "Updating Cards" screen or other conflicts with Apple Pay when waking your device, you can disable the background NFC scanning feature.
@@ -316,6 +379,8 @@ Due to Pointer Authentication Code (PAC) changes in modern toolchains, iOS 14 on
 - **Supported**: iOS 14 on A11 and below (iPhone 8/X and older, iPad Air 2, etc.)
 - **Supported**: iOS 15+ on all devices.
 - **Workaround**: If you are on iOS 14 with a newer device, you may need to compile the tweak using **Xcode 15.4** or earlier to ensure correct PAC signatures.
+
+</details>
 
 
 ## Support & Feedback

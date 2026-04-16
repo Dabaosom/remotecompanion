@@ -1,5 +1,5 @@
 #import <UIKit/UIKit.h>
 
-@interface RCWiFiTriggerViewController : UITableViewController
+@interface RCScheduledTriggerViewController : UITableViewController
 - (instancetype)initWithTriggerKey:(NSString *)triggerKey;
 @end
