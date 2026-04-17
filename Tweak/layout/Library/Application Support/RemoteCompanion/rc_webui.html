@@ -83,7 +83,7 @@
       font-weight: 700;
       letter-spacing: -0.02em;
       color: #fff;
-      padding: 10px 16px 12px;
+      padding: 20px 16px 12px;
       margin: 0;
     }
 
@@ -312,7 +312,7 @@
     .panel-large-title {
       font-size: 34px; font-weight: 700; color: #fff;
       letter-spacing: -0.02em;
-      padding: 8px 20px 0; margin: 0;
+      padding: 18px 20px 0; margin: 0;
     }
     .panel-content { padding-bottom: 80px; }
 
@@ -1469,9 +1469,9 @@ function renderTriggerRow(key, deletable) {
   // ── Context menu (Right-click) ──
   inner.addEventListener('contextmenu', e => {
     const items = [
-      { label: isFav ? 'Unfavorite' : 'Favorite', icon: isFav ? 'star_slash_fill' : 'star_fill', action: () => toggleFavorite(key) },
+      { label: 'Run Trigger', icon: 'play_fill', action: () => runTrigger(key) },
       { label: 'Copy API Link', icon: 'doc_on_doc', action: () => copyTriggerUrl(key, null) },
-      { label: 'Run Trigger', icon: 'play_fill', action: () => runTrigger(key) }
+      { label: isFav ? 'Unfavorite' : 'Favorite', icon: isFav ? 'star_slash_fill' : 'star_fill', action: () => toggleFavorite(key) }
     ];
     if (deletable) {
       items.push({ label: 'Delete', icon: 'trash_fill', action: () => deleteTrigger(key), destructive: true });
