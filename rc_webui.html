@@ -796,7 +796,7 @@
   <div class="dialog-box">
     <div class="dialog-title" id="dialog-title"></div>
     <div class="dialog-msg" id="dialog-msg"></div>
-    <input class="dialog-input" id="dialog-input" type="text" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <input class="dialog-input" id="dialog-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     <div class="dialog-btns">
       <button onclick="closeDialog()">Cancel</button>
       <button id="dialog-ok" onclick="dialogOk()">OK</button>
@@ -2257,7 +2257,7 @@ async function refreshDatalistsInternal() {
   const airplayList = document.getElementById('airplay-datalist');
   if (airplayList && data.airplay) {
     airplayList.innerHTML = '';
-    data.airplay.forEach(name => {
+    data.airplay.filter(n => n !== 'iPhone').forEach(name => {
       const opt = document.createElement('option');
       opt.value = name;
       airplayList.appendChild(opt);
