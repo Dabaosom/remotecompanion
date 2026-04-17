@@ -1321,6 +1321,8 @@ let _openRow = null; // currently open swipeout row
 
 function closeOpenRow() {
   if (!_openRow) return;
+  const inner = _openRow.querySelector('.trigger-row-inner');
+  if (inner) inner.style.transform = '';
   _openRow.classList.remove('swiped-open');
   _openRow = null;
 }
@@ -1366,7 +1368,7 @@ function renderTriggerRow(key, deletable) {
     const delBtn = document.createElement('div');
     delBtn.className = 'swipe-action sa-del';
     delBtn.innerHTML = `<i class="f7-icons">trash_fill</i>`;
-    delBtn.addEventListener('click', e => { e.stopPropagation(); deleteTrigger(key); });
+    delBtn.addEventListener('click', e => { e.stopPropagation(); closeOpenRow(); deleteTrigger(key); });
     actionsEl.appendChild(delBtn);
   }
 
@@ -1686,6 +1688,8 @@ let _openActionRow = null;
 
 function closeOpenActionRow() {
   if (!_openActionRow) return;
+  const inner = _openActionRow.querySelector('.action-seq-inner');
+  if (inner) inner.style.transform = '';
   _openActionRow.classList.remove('del-open');
   _openActionRow = null;
 }
