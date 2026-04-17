@@ -73,8 +73,7 @@
     .page-content {
       /* Offset for fixed navbar + safe area */
       padding-top: calc(44px + env(safe-area-inset-top, 0px));
-      /* Extra bottom padding to clear the sticky footer */
-      padding-bottom: calc(env(safe-area-inset-bottom, 10px) + 46px);
+      padding-bottom: env(safe-area-inset-bottom, 34px);
       min-height: 100vh;
     }
 
@@ -236,14 +235,11 @@
     }
     #conn-banner.visible { display: block; }
 
-    /* ── Page footer (sticky bottom, matches iOS native UI) ── */
+    /* ── Page footer ── */
     .page-footer {
-      position: fixed;
-      bottom: 0; left: 0; right: 0;
       text-align: center;
-      padding-bottom: calc(env(safe-area-inset-bottom, 10px) + 10px);
-      padding-top: 6px;
-      pointer-events: none;
+      padding-top: 60px;
+      padding-bottom: calc(env(safe-area-inset-bottom, 10px) + 12px);
     }
     .page-footer strong {
       display: block;
@@ -254,10 +250,17 @@
       display: block;
       font-size: 13px; color: #636366;
     }
-    /* Main page footer — below panels */
-    #footer-main { z-index: 90; }
-    /* Settings panel footer — above the panel (z-index 500) */
-    #footer-settings { z-index: 510; display: none; }
+    /* Fixed variant for settings (matching iOS sticky pattern) */
+    .page-footer.fixed {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      z-index: 510;
+      display: none;
+      padding-top: 10px;
+      padding-bottom: calc(env(safe-area-inset-bottom, 10px) + 10px);
+      background: linear-gradient(to top, #000 70%, transparent 100%);
+      pointer-events: none;
+    }
 
     /* ── Full-screen panels (push navigation) ── */
     .rc-panel {
@@ -311,8 +314,7 @@
       letter-spacing: -0.02em;
       padding: 8px 20px 0; margin: 0;
     }
-    /* Extra bottom padding so panel content doesn't hide behind sticky footer */
-    .panel-content { padding-bottom: calc(env(safe-area-inset-bottom, 10px) + 66px); }
+    .panel-content { padding-bottom: 80px; }
 
     /* ── Settings panel action lists ── */
     .action-list-header {
@@ -632,6 +634,10 @@
   <div id="conn-banner">⚠ Unable to connect to device</div>
   <h1 class="large-title" id="main-large-title">RemoteCompanion</h1>
   <div id="triggers-root"></div>
+  <div class="page-footer">
+    <strong>RemoteCompanion</strong>
+    <span>v3.0.0</span>
+  </div>
 </div>
 
 <!-- ══ ACTIONS PANEL ══════════════════════════════════════════════════════ -->
@@ -739,14 +745,10 @@
 <datalist id="bt-datalist"></datalist>
 <datalist id="wifi-datalist"></datalist>
 
-<!-- ══ STICKY FOOTERS (match iOS native sticky bottom label) ══════════════ -->
-<div class="page-footer" id="footer-main">
+<!-- ══ STICKY FOOTER (Settings only) ══════════════════════════════════════ -->
+<div class="page-footer fixed" id="footer-settings-fixed">
   <strong>RemoteCompanion</strong>
-  <span id="footer-main-version">v3.0.0</span>
-</div>
-<div class="page-footer" id="footer-settings">
-  <strong>RemoteCompanion</strong>
-  <span id="footer-settings-version">v3.0.0</span>
+  <span>v3.0.0</span>
 </div>
 
 <!-- ══ BOTTOM SHEET ══════════════════════════════════════════════════════ -->
@@ -2216,13 +2218,11 @@ function openSettings() {
   document.getElementById('setting-nfc').checked    = !!config.nfcEnabled;
   document.getElementById('setting-webui').checked  = !!config.webUIEnabled;
   document.getElementById('settings-panel').classList.add('active');
-  document.getElementById('footer-main').style.display    = 'none';
-  document.getElementById('footer-settings').style.display = 'block';
+  document.getElementById('footer-settings-fixed').style.display = 'block';
 }
 function closeSettings() {
   document.getElementById('settings-panel').classList.remove('active');
-  document.getElementById('footer-settings').style.display = 'none';
-  document.getElementById('footer-main').style.display    = 'block';
+  document.getElementById('footer-settings-fixed').style.display = 'none';
 }
 
 function exportConfig() {
