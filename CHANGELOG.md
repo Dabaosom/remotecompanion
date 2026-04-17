@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.1.0] - 2026-04-17
+
+### Added
+- **Connect AirPlay Action**: Added a functional 'Connect AirPlay' action to the Web UI.
+- **AirPlay Device Discovery**: The action picker now automatically discovers and lists available AirPlay speakers and TVs from the iPhone, providing a native-like experience.
+
 ## [3.0.0] - 2026-04-14
 
 ### Added

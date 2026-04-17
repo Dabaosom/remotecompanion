@@ -1948,6 +1948,48 @@ static NSString *evaluate_lua_code(NSString *code) {
     return output;
 }
 
+static NSArray* RCFetchAirPlayDeviceNames() {
+    __block NSArray *deviceNames = nil;
+    dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+    
+    dispatch_async(dispatch_get_main_queue(), ^{
+        MPAVRoutingController *ctrl = [[objc_getClass("MPAVRoutingController") alloc] init];
+        ctrl.discoveryMode = 3; // Detailed discovery
+        
+        __block int attempts = 0;
+        __block void (^fetch)(void) = nil;
+        
+        fetch = ^void(void) {
+            [ctrl fetchAvailableRoutesWithCompletionHandler:^(NSArray<MPAVRoute *> *routes) {
+                attempts++;
+                
+                // If we only found 1 device (local), try again up to 3 seconds for network devices
+                if (routes.count <= 1 && attempts < 6) {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                        if (fetch) fetch();
+                    });
+                    return;
+                }
+                
+                NSMutableArray *names = [NSMutableArray array];
+                for (MPAVRoute *route in routes) {
+                    NSString *name = route.routeName;
+                    if (name && name.length > 0) {
+                        [names addObject:name];
+                    }
+                }
+                deviceNames = [names copy];
+                dispatch_semaphore_signal(sema);
+                fetch = nil;
+            }];
+        };
+        fetch();
+    });
+    
+    dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
+    return deviceNames ?: @[];
+}
+
 static NSString *handle_command(NSString *cmd) {
     if (!cmd || ![cmd isKindOfClass:[NSString class]]) {
         SRLog(@"ERROR: handle_command received nil or invalid command string");
@@ -3727,52 +3769,16 @@ static NSString *handle_command(NSString *cmd) {
         NSString *scriptPath = [[cleanCmd substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         return execute_lua_script(scriptPath);
     } else if ([cleanCmd isEqualToString:@"airplay list"]) {
-        __block NSString *result = nil;
-        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
-        
-        dispatch_async(dispatch_get_main_queue(), ^{
-            MPAVRoutingController *ctrl = [[objc_getClass("MPAVRoutingController") alloc] init];
-            ctrl.discoveryMode = 3; // Detailed
-            
-            __block int attempts = 0;
-            __block void (^fetchDevices)(void) = nil;
-            
-            fetchDevices = ^void(void) {
-                [ctrl fetchAvailableRoutesWithCompletionHandler:^(NSArray<MPAVRoute *> *routes) {
-                    attempts++;
-                    
-                    // If we only found 1 device (iPhone), try again for up to 3 seconds (6 * 0.5s)
-                    if (routes.count <= 1 && attempts < 6) {
-                        SRLog(@"AirPlay list: Only found %lu devices, retrying discovery (%d/6)...", (unsigned long)routes.count, attempts);
-                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                            if (fetchDevices) fetchDevices();
-                        });
-                        return;
-                    }
-                    
-                    NSMutableString *output = [NSMutableString string];
-                    if (routes.count == 0) {
-                        [output appendString:@"No AirPlay devices found.\n"];
-                    } else {
-                        for (MPAVRoute *route in routes) {
-                            NSString *name = route.routeName ?: @"Unknown";
-                            NSString *uid = route.routeUID ?: @"No UID";
-                            NSString *prefix = route.picked ? @"* " : @"  ";
-                            [output appendFormat:@"%@%@ [%@]\n", prefix, name, uid];
-                        }
-                    }
-                    result = output;
-                    dispatch_semaphore_signal(sema);
-                    fetchDevices = nil; // Break cycle
-                }];
-            };
-            
-            fetchDevices();
-        });
-        
-        // Wait up to 5 seconds (6 * 0.5s retry + buffer)
-        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC));
-        return result ?: @"Error: Timeout fetching AirPlay devices\n";
+        NSArray *names = RCFetchAirPlayDeviceNames();
+        NSMutableString *output = [NSMutableString string];
+        if (names.count == 0) {
+            [output appendString:@"No AirPlay devices found.\n"];
+        } else {
+            for (NSString *name in names) {
+                [output appendFormat:@"  %@\n", name];
+            }
+        }
+        return output;
 
     } else if ([cleanCmd hasPrefix:@"airplay connect "]) {
         NSString *target = [[cleanCmd substringFromIndex:16] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -4265,11 +4271,14 @@ static void start_web_server() {
                                     }];
                                     SRLog(@"API: returning %lu apps in device list", (unsigned long)appList.count);
                                     
+                                    NSArray *airplayNames = RCFetchAirPlayDeviceNames();
+
                                     NSDictionary *resp = @{
                                         @"ok": @YES,
                                         @"bluetooth": btNames,
                                         @"wifi": wifiNames,
-                                        @"apps": appList
+                                        @"apps": appList,
+                                        @"airplay": airplayNames
                                     };
                                     NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
                                     NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
