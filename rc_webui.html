@@ -1541,6 +1541,18 @@ async function runTrigger(key) {
   } catch(e) { showToast('⚠ Could not connect to device'); }
 }
 
+async function runSingleAction(action) {
+  if (typeof action !== 'string') return;
+  try {
+    const res = await fetch(`/api/command?cmd=${encodeURIComponent(action)}`, { method: 'POST' });
+    if (res.status === 403) {
+      showToast('⚠ Enable Web UI in Settings first');
+    } else {
+      showToast(res.ok ? '▶ Action Sent' : '⚠ Server Error');
+    }
+  } catch(e) { showToast('⚠ Could not connect to device'); }
+}
+
 function copyTriggerUrl(key, btnEl) {
   const url = `${window.location.protocol}//${window.location.host}/api/trigger/${encodeURIComponent(key)}`;
   
@@ -1775,9 +1787,12 @@ function renderActionList() {
 
     // ── Context menu (Right-click) ──
     inner.addEventListener('contextmenu', e => {
-      showContextMenu(e, [
-        { label: 'Delete Action', icon: 'trash_fill', action: () => removeAction(idx), destructive: true }
-      ]);
+      const items = [];
+      if (typeof action === 'string') {
+        items.push({ label: 'Run Action', icon: 'play_fill', action: () => runSingleAction(action) });
+      }
+      items.push({ label: 'Delete Action', icon: 'trash_fill', action: () => removeAction(idx), destructive: true });
+      showContextMenu(e, items);
     });
 
     // Close if tapping elsewhere
