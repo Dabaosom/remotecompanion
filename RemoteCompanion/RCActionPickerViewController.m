@@ -55,7 +55,7 @@
     
     // Categories and actions
     // Each action: @{ @"name": display name, @"command": rc command }
-    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Audio", @"Scripting & Logic"];
+    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Audio", @"Touch Gestures", @"Scripting & Logic"];
     
     _sections = @[
         // Media
@@ -130,6 +130,16 @@
             @{ @"name": @"ANC On", @"command": @"anc on", @"icon": @"ear.badge.checkmark" },
             @{ @"name": @"ANC Off", @"command": @"anc off", @"icon": @"ear" },
             @{ @"name": @"Transparency Mode", @"command": @"anc transparency", @"icon": @"waveform.circle.fill" }
+        ],
+        // Touch Gestures
+        @[
+            @{ @"name": @"Tap...",          @"command": @"__TAP__",    @"icon": @"hand.tap.fill" },
+            @{ @"name": @"Hold...",         @"command": @"__HOLD__",   @"icon": @"hand.tap.fill" },
+            @{ @"name": @"Swipe Up",        @"command": @"swipeU",     @"icon": @"arrow.up" },
+            @{ @"name": @"Swipe Down",      @"command": @"swipeD",     @"icon": @"arrow.down" },
+            @{ @"name": @"Swipe Left",      @"command": @"swipeL",     @"icon": @"arrow.left" },
+            @{ @"name": @"Swipe Right",     @"command": @"swipeR",     @"icon": @"arrow.right" },
+            @{ @"name": @"Custom Swipe...", @"command": @"__SWIPE__",  @"icon": @"hand.draw.fill" }
         ],
         // Scripting & Logic
         @[
@@ -247,7 +257,10 @@
         [cmd isEqualToString:@"__LUA_SCRIPT__"] || 
         [cmd isEqualToString:@"__IF_CONDITION__"] ||
         [cmd isEqualToString:@"__DELAY__"] ||
-        [cmd isEqualToString:@"__CUSTOM__"]) {
+        [cmd isEqualToString:@"__CUSTOM__"] ||
+        [cmd isEqualToString:@"__TAP__"] ||
+        [cmd isEqualToString:@"__HOLD__"] ||
+        [cmd isEqualToString:@"__SWIPE__"]) {
         
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
@@ -270,7 +283,29 @@
 
     if ([command isEqualToString:@"__SET_VOLUME__"] || [command isEqualToString:@"__SET_BRIGHTNESS__"] || [command isEqualToString:@"__SET_FLASHLIGHT__"]) {
         [self handleValueInputForCommand:command];
-        return; // Don't dismiss yet
+        return;
+    }
+    
+    // Touch gesture handlers
+    if ([command isEqualToString:@"__TAP__"]) {
+        [self handleTouchCoordInputWithTitle:@"Tap" placeholder:@"x y  (e.g. 195 422)" build:^NSString *(NSString *v) {
+            return [NSString stringWithFormat:@"tap %@", v];
+        }];
+        return;
+    }
+    
+    if ([command isEqualToString:@"__HOLD__"]) {
+        [self handleTouchCoordInputWithTitle:@"Hold" placeholder:@"x y ms  (e.g. 195 422 800)" build:^NSString *(NSString *v) {
+            return [NSString stringWithFormat:@"hold %@", v];
+        }];
+        return;
+    }
+    
+    if ([command isEqualToString:@"__SWIPE__"]) {
+        [self handleTouchCoordInputWithTitle:@"Custom Swipe" placeholder:@"x1 y1 x2 y2  (e.g. 195 700 195 200)" build:^NSString *(NSString *v) {
+            return [NSString stringWithFormat:@"swipe %@", v];
+        }];
+        return;
     }
     
     // Existing special handlers
@@ -289,7 +324,6 @@
         return;
     }
 
-    
     if (self.onActionSelected) {
         self.onActionSelected(command);
     }
@@ -303,6 +337,37 @@
     } else {
         [self dismissViewControllerAnimated:YES completion:nil];
     }
+}
+
+- (void)handleTouchCoordInputWithTitle:(NSString *)title
+                           placeholder:(NSString *)placeholder
+                                 build:(NSString *(^)(NSString *))build {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
+                                                                   message:placeholder
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
+        tf.placeholder = placeholder;
+    }];
+    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"Add" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        NSString *val = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (!val.length) return;
+        NSString *cmd = build(val);
+        if (self.onActionSelected) self.onActionSelected(cmd);
+        if (self.searchController.isActive) {
+            [self.searchController dismissViewControllerAnimated:NO completion:^{
+                [self dismissViewControllerAnimated:YES completion:nil];
+            }];
+        } else {
+            [self dismissViewControllerAnimated:YES completion:nil];
+        }
+    }];
+    UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+        [self.tableView deselectRowAtIndexPath:[self.tableView indexPathForSelectedRow] animated:YES];
+    }];
+    [alert addAction:cancel];
+    [alert addAction:ok];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)handleValueInputForCommand:(NSString *)commandPlaceholder {
