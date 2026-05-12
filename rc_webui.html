@@ -662,7 +662,7 @@
   <div id="triggers-root"></div>
   <div class="page-footer">
     <strong>RemoteCompanion</strong>
-    <span>v3.0.0</span>
+    <span>v3.1.0</span>
   </div>
 </div>
 
@@ -775,7 +775,7 @@
 <!-- ══ STICKY FOOTER (Settings only) ══════════════════════════════════════ -->
 <div class="page-footer fixed" id="footer-settings-fixed">
   <strong>RemoteCompanion</strong>
-  <span>v3.0.0</span>
+  <span>v3.1.0</span>
 </div>
 
 <!-- ══ CONTEXT MENU ═══════════════════════════════════════════════════════ -->
@@ -1433,12 +1433,7 @@ function renderTriggerRow(key, deletable) {
     if (!isTracking) return;
     isTracking = false;
     inner.style.transition = '';
-    // Clear inline width so CSS class can optionally control it
-    actionsEl.querySelectorAll('.swipe-action').forEach(el => {
-      el.style.transition = '';
-      el.style.width = '';
-    });
-    
+
     if (!isSwipe) {
       inner.style.transform = row.classList.contains('swiped-open') ? `translateX(-${ACTION_WIDTH}px)` : '';
       return;
@@ -1446,7 +1441,7 @@ function renderTriggerRow(key, deletable) {
 
     lastSwipeAt = Date.now();
     const isOpen = row.classList.contains('swiped-open');
-    const threshold = ACTION_WIDTH * 0.35;
+    const threshold = 40; // Reduced from 35% to 40px for better feel
     
     if (!isOpen && dx < -threshold) {
       // Snap open
@@ -1462,6 +1457,14 @@ function renderTriggerRow(key, deletable) {
       // Snap back to current state
       inner.style.transform = isOpen ? `translateX(-${ACTION_WIDTH}px)` : '';
     }
+
+    // Clear inline widths AFTER class changes to allow CSS transitions to take over smoothly
+    setTimeout(() => {
+      actionsEl.querySelectorAll('.swipe-action').forEach(el => {
+        el.style.transition = '';
+        el.style.width = '';
+      });
+    }, 0);
   }
 
   // Touch events
@@ -1652,7 +1655,6 @@ function onEditTriggerSettings() {
   else if (isBT) promptComplexTrigger('bt', currentKey);
   else if (isApp) promptAppEdit(currentKey);
 }
-
 function promptAppEdit(key) {
   const data = config.triggers[key];
   if (!data) return;
@@ -1739,7 +1741,8 @@ function renderActionList() {
     row.appendChild(inner);
 
     // ── Unified swipe (touch + mouse) ────────────────────
-    let startX, startY, dx, startedSwipe, currentlyTracking;
+    let startX, startY, dx, startedSwipe, currentlyTracking = false;
+    let lastSwipeAt = 0;
 
     function onStart(clientX, clientY) {
       if (_openActionRow && _openActionRow !== row) closeOpenActionRow();
@@ -1764,15 +1767,16 @@ function renderActionList() {
     }
     function onEnd() {
       if (!startedSwipe) { currentlyTracking = false; return; }
+      lastSwipeAt = Date.now();
       inner.style.transition = ''; // Restore transition
       const isOpen = row.classList.contains('del-open');
       
       // Determine final state based on move distance
-      if (!isOpen && dx < -30) {
+      if (!isOpen && dx < -20) {
         row.classList.add('del-open');
         inner.style.transform = 'translateX(-75px)';
         _openActionRow = row;
-      } else if (isOpen && dx > 30) {
+      } else if (isOpen && dx > 10) {
         row.classList.remove('del-open');
         inner.style.transform = 'translateX(0)';
         _openActionRow = null;
@@ -1789,9 +1793,18 @@ function renderActionList() {
     inner.addEventListener('touchend',   () => onEnd());
 
     // Mouse (for desktop browser testing)
-    inner.addEventListener('mousedown', e => { onStart(e.clientX, e.clientY); });
-    window.addEventListener('mousemove', e => { if (currentlyTracking) onMove(e.clientX, e.clientY, null); });
-    window.addEventListener('mouseup',   () => { if (currentlyTracking) onEnd(); });
+    const onMouseMove = e => { if (currentlyTracking) onMove(e.clientX, e.clientY, null); };
+    const onMouseUp = () => {
+      if (currentlyTracking) onEnd();
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    inner.addEventListener('mousedown', e => {
+      onStart(e.clientX, e.clientY);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
 
     // ── Context menu (Right-click) ──
     inner.addEventListener('contextmenu', e => {
@@ -1803,8 +1816,9 @@ function renderActionList() {
       showContextMenu(e, items);
     });
 
-    // Close if tapping elsewhere
+    // Click handler with suppression
     inner.addEventListener('click', e => {
+      if (Date.now() - lastSwipeAt < 150) return;
       if (row.classList.contains('del-open')) { closeOpenActionRow(); e.stopPropagation(); }
     });
 
