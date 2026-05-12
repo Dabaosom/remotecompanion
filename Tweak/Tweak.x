@@ -1697,52 +1697,59 @@ static void register_system_event_observers() {
 // ============ LUA INTERPRETER ============
 
 // ── Touch / Digitizer helper ──────────────────────────────────────────────────
-// Sends a digitizer finger-touch event at normalized screen coordinates.
-// normX/normY are in [0.0, 1.0] relative to the logical screen bounds.
-// Caller is responsible for appropriate delays between down/move/up events.
-static void perform_digitizer_touch(double normX, double normY, BOOL down) {
-    // Ensure symbols are loaded – they share the dispatch_once in inject_hid_event.
-    // Force a dummy call so the once block runs if it hasn't already.
-    static BOOL symbolsReady = NO;
-    if (!symbolsReady) {
-        symbolsReady = YES;
-        // Trigger the dispatch_once by injecting a no-op event duration 0
-        // (we cannot easily call inject_hid_event from here without page/usage, so load manually)
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            void *handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_NOLOAD);
-            if (!handle) handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
-            if (handle) {
-                if (!_IOHIDEventCreateDigitizerEvent)
-                    _IOHIDEventCreateDigitizerEvent = (IOHIDEventRef (*)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventCreateDigitizerEvent");
-                if (!_IOHIDEventCreateDigitizerFingerEvent)
-                    _IOHIDEventCreateDigitizerFingerEvent = (IOHIDEventRef (*)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventCreateDigitizerFingerEvent");
-                if (!_IOHIDEventAppendEvent)
-                    _IOHIDEventAppendEvent = (void (*)(IOHIDEventRef, IOHIDEventRef, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventAppendEvent");
-                if (!_IOHIDEventSetIntegerValue)
-                    _IOHIDEventSetIntegerValue = (void (*)(IOHIDEventRef, uint32_t, int32_t))dlsym(handle, "IOHIDEventSetIntegerValue");
-                if (!_IOHIDEventSetSenderID)
-                    _IOHIDEventSetSenderID = (void (*)(IOHIDEventRef, uint64_t))dlsym(handle, "IOHIDEventSetSenderID");
-                if (!_IOHIDEventSystemClientCreate)
-                    _IOHIDEventSystemClientCreate = (IOHIDEventSystemClientRef (*)(CFAllocatorRef))dlsym(handle, "IOHIDEventSystemClientCreate");
-                if (!_IOHIDEventSystemClientDispatchEvent)
-                    _IOHIDEventSystemClientDispatchEvent = (void (*)(IOHIDEventSystemClientRef, IOHIDEventRef))dlsym(handle, "IOHIDEventSystemClientDispatchEvent");
-            }
-        });
-    }
+// Dedicated serial queue for touch HID events (must NOT run on main thread).
+static dispatch_queue_t rc_touch_queue(void) {
+    static dispatch_queue_t q;
+    static dispatch_once_t qt;
+    dispatch_once(&qt, ^{
+        q = dispatch_queue_create("com.pizzaman.remotecommand.touch", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
 
+// Ensures all IOHIDKit symbols needed for touch are loaded.
+static void rc_load_touch_symbols(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_NOLOAD);
+        if (!handle) handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+        if (!handle) {
+            SRLog(@"[Touch] Failed to open IOKit framework");
+            return;
+        }
+        if (!_IOHIDEventSystemClientCreate)
+            _IOHIDEventSystemClientCreate = (IOHIDEventSystemClientRef (*)(CFAllocatorRef))dlsym(handle, "IOHIDEventSystemClientCreate");
+        if (!_IOHIDEventSystemClientDispatchEvent)
+            _IOHIDEventSystemClientDispatchEvent = (void (*)(IOHIDEventSystemClientRef, IOHIDEventRef))dlsym(handle, "IOHIDEventSystemClientDispatchEvent");
+        if (!_IOHIDEventCreateDigitizerEvent)
+            _IOHIDEventCreateDigitizerEvent = (IOHIDEventRef (*)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventCreateDigitizerEvent");
+        if (!_IOHIDEventCreateDigitizerFingerEvent)
+            _IOHIDEventCreateDigitizerFingerEvent = (IOHIDEventRef (*)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventCreateDigitizerFingerEvent");
+        if (!_IOHIDEventAppendEvent)
+            _IOHIDEventAppendEvent = (void (*)(IOHIDEventRef, IOHIDEventRef, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventAppendEvent");
+        if (!_IOHIDEventSetIntegerValue)
+            _IOHIDEventSetIntegerValue = (void (*)(IOHIDEventRef, uint32_t, int32_t))dlsym(handle, "IOHIDEventSetIntegerValue");
+        if (!_IOHIDEventSetSenderID)
+            _IOHIDEventSetSenderID = (void (*)(IOHIDEventRef, uint64_t))dlsym(handle, "IOHIDEventSetSenderID");
+        SRLog(@"[Touch] IOHIDKit symbols loaded: create=%p dispatch=%p",
+              _IOHIDEventCreateDigitizerEvent, _IOHIDEventSystemClientDispatchEvent);
+    });
+}
+
+// Sends a single digitizer finger event. normX/normY are in [0.0,1.0].
+// MUST be called from rc_touch_queue (a background serial queue), never from main thread.
+static void perform_digitizer_touch(double normX, double normY, BOOL down) {
     if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
         !_IOHIDEventAppendEvent || !_IOHIDEventSystemClientCreate || !_IOHIDEventSystemClientDispatchEvent) {
         SRLog(@"[Touch] Digitizer symbols not loaded – cannot simulate touch");
         return;
     }
 
-    // kIOHIDDigitizerTransducerTypeHand = 4 (used for multi-touch)
-    // eventMask: 0x2 = position, 0x1 = touch/range
+    // kIOHIDDigitizerTransducerTypeHand = 4
     uint32_t transducerType = 4;
     uint32_t index = 0;
     uint32_t identity = 2;
-    uint32_t eventMask = down ? 0x3 : 0x3;
+    uint32_t eventMask = 0x3; // touch + position
     uint32_t buttonMask = 0;
     double pressure = down ? 1.0 : 0.0;
     uint64_t ts = mach_absolute_time();
@@ -1769,9 +1776,8 @@ static void perform_digitizer_touch(double normX, double normY, BOOL down) {
         CFRelease(finger);
     }
 
-    if (_IOHIDEventSetSenderID) {
+    if (_IOHIDEventSetSenderID)
         _IOHIDEventSetSenderID(parent, 0x0000000B00000000ULL);
-    }
 
     IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
     if (client) {
@@ -1781,34 +1787,25 @@ static void perform_digitizer_touch(double normX, double normY, BOOL down) {
     CFRelease(parent);
 }
 
-// Convenience: normalize pixel coords to screen-relative [0,1]
-static CGSize rc_screen_size() {
-    __block CGSize size = CGSizeMake(390, 844); // sensible default (iPhone 14)
-    if ([NSThread isMainThread]) {
-        size = [UIScreen mainScreen].bounds.size;
-    } else {
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            size = [UIScreen mainScreen].bounds.size;
-        });
-    }
-    return size;
-}
-
-// Simulate a tap at pixel coordinates (x, y)
+// Simulate a tap at pixel coordinates (x, y).
+// MUST be called from rc_touch_queue.
 static void rc_simulate_tap(double px, double py) {
-    CGSize s = rc_screen_size();
+    __block CGSize s;
+    dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
     double nx = px / s.width;
     double ny = py / s.height;
-    SRLog(@"[Touch] tap at pixel (%.0f,%.0f) → norm (%.4f,%.4f)", px, py, nx, ny);
+    SRLog(@"[Touch] tap at pixel (%.0f,%.0f) → norm (%.4f,%.4f) screen(%.0f,%.0f)", px, py, nx, ny, s.width, s.height);
 
     perform_digitizer_touch(nx, ny, YES);   // finger down
-    usleep(50000);                          // 50 ms contact
+    usleep(80000);                          // 80 ms contact
     perform_digitizer_touch(nx, ny, NO);    // finger up
 }
 
-// Simulate a hold at pixel coordinates for `durationMs` milliseconds
+// Simulate a hold at pixel coordinates for `durationMs` milliseconds.
+// MUST be called from rc_touch_queue.
 static void rc_simulate_hold(double px, double py, int durationMs) {
-    CGSize s = rc_screen_size();
+    __block CGSize s;
+    dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
     double nx = px / s.width;
     double ny = py / s.height;
     int clampedMs = MAX(50, MIN(durationMs, 10000));
@@ -1819,27 +1816,29 @@ static void rc_simulate_hold(double px, double py, int durationMs) {
     perform_digitizer_touch(nx, ny, NO);
 }
 
-// Simulate a swipe from (x1,y1) to (x2,y2) over ~600ms with smooth interpolation
+// Simulate a swipe from (x1,y1) to (x2,y2) over ~600ms with smooth interpolation.
+// MUST be called from rc_touch_queue.
 static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
-    CGSize s = rc_screen_size();
+    __block CGSize s;
+    dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
     const int steps = 40;
     const int stepDelayUs = 15000; // 15 ms per step → ~600 ms total
 
-    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f)", x1, y1, x2, y2);
+    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f) screen(%.0f,%.0f)", x1, y1, x2, y2, s.width, s.height);
 
-    perform_digitizer_touch(x1/s.width, y1/s.height, YES); // down
+    perform_digitizer_touch(x1/s.width, y1/s.height, YES); // touch down
     usleep(16000); // brief settle
 
     for (int i = 1; i <= steps; i++) {
         double t = (double)i / steps;
         double cx = x1 + (x2 - x1) * t;
         double cy = y1 + (y2 - y1) * t;
-        perform_digitizer_touch(cx/s.width, cy/s.height, YES);
+        perform_digitizer_touch(cx/s.width, cy/s.height, YES); // move
         usleep((useconds_t)stepDelayUs);
     }
 
     usleep(16000);
-    perform_digitizer_touch(x2/s.width, y2/s.height, NO); // up
+    perform_digitizer_touch(x2/s.width, y2/s.height, NO); // touch up
 }
 
 // ── Lua-callable touch functions ──────────────────────────────────────────────
@@ -1848,7 +1847,8 @@ static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
 static int lua_tap_fn(lua_State *L) {
     double x = luaL_checknumber(L, 1);
     double y = luaL_checknumber(L, 2);
-    dispatch_async(dispatch_get_main_queue(), ^{
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
         rc_simulate_tap(x, y);
     });
     return 0;
@@ -1859,7 +1859,8 @@ static int lua_hold_fn(lua_State *L) {
     double x = luaL_checknumber(L, 1);
     double y = luaL_checknumber(L, 2);
     int ms = (int)luaL_optinteger(L, 3, 500);
-    dispatch_async(dispatch_get_main_queue(), ^{
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
         rc_simulate_hold(x, y, ms);
     });
     return 0;
@@ -1871,7 +1872,8 @@ static int lua_swipe_fn(lua_State *L) {
     double y1 = luaL_checknumber(L, 2);
     double x2 = luaL_checknumber(L, 3);
     double y2 = luaL_checknumber(L, 4);
-    dispatch_async(dispatch_get_main_queue(), ^{
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
         rc_simulate_swipe(x1, y1, x2, y2);
     });
     return 0;
@@ -1880,8 +1882,10 @@ static int lua_swipe_fn(lua_State *L) {
 // swipeUp()  — swipe upward from near bottom edge toward center-top
 static int lua_swipe_up(lua_State *L) {
     (void)L;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        CGSize s = rc_screen_size();
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
+        __block CGSize s;
+        dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
         rc_simulate_swipe(s.width * 0.5, s.height * 0.92, s.width * 0.5, s.height * 0.15);
     });
     return 0;
@@ -1890,8 +1894,10 @@ static int lua_swipe_up(lua_State *L) {
 // swipeDown()
 static int lua_swipe_down(lua_State *L) {
     (void)L;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        CGSize s = rc_screen_size();
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
+        __block CGSize s;
+        dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
         rc_simulate_swipe(s.width * 0.5, s.height * 0.08, s.width * 0.5, s.height * 0.85);
     });
     return 0;
@@ -1900,8 +1906,10 @@ static int lua_swipe_down(lua_State *L) {
 // swipeLeft()
 static int lua_swipe_left(lua_State *L) {
     (void)L;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        CGSize s = rc_screen_size();
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
+        __block CGSize s;
+        dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
         rc_simulate_swipe(s.width * 0.9, s.height * 0.5, s.width * 0.1, s.height * 0.5);
     });
     return 0;
@@ -1910,8 +1918,10 @@ static int lua_swipe_left(lua_State *L) {
 // swipeRight()
 static int lua_swipe_right(lua_State *L) {
     (void)L;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        CGSize s = rc_screen_size();
+    rc_load_touch_symbols();
+    dispatch_async(rc_touch_queue(), ^{
+        __block CGSize s;
+        dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
         rc_simulate_swipe(s.width * 0.1, s.height * 0.5, s.width * 0.9, s.height * 0.5);
     });
     return 0;
@@ -4074,7 +4084,8 @@ static NSString *handle_command(NSString *cmd) {
         if (parts.count >= 2) {
             double px = [parts[0] doubleValue];
             double py = [parts[1] doubleValue];
-            dispatch_async(dispatch_get_main_queue(), ^{ rc_simulate_tap(px, py); });
+            rc_load_touch_symbols();
+            dispatch_async(rc_touch_queue(), ^{ rc_simulate_tap(px, py); });
             return @"Tap sent\n";
         }
         return @"Usage: tap x y\n";
@@ -4086,7 +4097,8 @@ static NSString *handle_command(NSString *cmd) {
             double px = [parts[0] doubleValue];
             double py = [parts[1] doubleValue];
             int ms = (parts.count >= 3) ? (int)[parts[2] integerValue] : 500;
-            dispatch_async(dispatch_get_main_queue(), ^{ rc_simulate_hold(px, py, ms); });
+            rc_load_touch_symbols();
+            dispatch_async(rc_touch_queue(), ^{ rc_simulate_hold(px, py, ms); });
             return @"Hold sent\n";
         }
         return @"Usage: hold x y [ms]\n";
@@ -4101,39 +4113,48 @@ static NSString *handle_command(NSString *cmd) {
             double y1 = [parts[1] doubleValue];
             double x2 = [parts[2] doubleValue];
             double y2 = [parts[3] doubleValue];
-            dispatch_async(dispatch_get_main_queue(), ^{ rc_simulate_swipe(x1, y1, x2, y2); });
+            rc_load_touch_symbols();
+            dispatch_async(rc_touch_queue(), ^{ rc_simulate_swipe(x1, y1, x2, y2); });
             return @"Swipe sent\n";
         }
         return @"Usage: swipe x1 y1 x2 y2\n";
 
     // swipeU / swipeUp
     } else if ([cleanCmd isEqualToString:@"swipeU"] || [cleanCmd isEqualToString:@"swipeUp"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CGSize s = rc_screen_size();
+        rc_load_touch_symbols();
+        dispatch_async(rc_touch_queue(), ^{
+            __block CGSize s;
+            dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
             rc_simulate_swipe(s.width*0.5, s.height*0.92, s.width*0.5, s.height*0.15);
         });
         return @"Swipe Up sent\n";
 
     // swipeD / swipeDown
     } else if ([cleanCmd isEqualToString:@"swipeD"] || [cleanCmd isEqualToString:@"swipeDown"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CGSize s = rc_screen_size();
+        rc_load_touch_symbols();
+        dispatch_async(rc_touch_queue(), ^{
+            __block CGSize s;
+            dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
             rc_simulate_swipe(s.width*0.5, s.height*0.08, s.width*0.5, s.height*0.85);
         });
         return @"Swipe Down sent\n";
 
     // swipeL / swipeLeft
     } else if ([cleanCmd isEqualToString:@"swipeL"] || [cleanCmd isEqualToString:@"swipeLeft"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CGSize s = rc_screen_size();
+        rc_load_touch_symbols();
+        dispatch_async(rc_touch_queue(), ^{
+            __block CGSize s;
+            dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
             rc_simulate_swipe(s.width*0.9, s.height*0.5, s.width*0.1, s.height*0.5);
         });
         return @"Swipe Left sent\n";
 
     // swipeR / swipeRight
     } else if ([cleanCmd isEqualToString:@"swipeR"] || [cleanCmd isEqualToString:@"swipeRight"]) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            CGSize s = rc_screen_size();
+        rc_load_touch_symbols();
+        dispatch_async(rc_touch_queue(), ^{
+            __block CGSize s;
+            dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
             rc_simulate_swipe(s.width*0.1, s.height*0.5, s.width*0.9, s.height*0.5);
         });
         return @"Swipe Right sent\n";
