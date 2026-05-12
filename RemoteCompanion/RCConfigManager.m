@@ -639,7 +639,16 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"userspace-reboot": @"Userspace Reboot",
         @"uicache": @"Refresh Icon Cache",
         @"player status": @"Player Status",
-        @"switcher": @"App Switcher"
+        @"switcher": @"App Switcher",
+        // Touch gestures
+        @"swipeU": @"Swipe Up",
+        @"swipeUp": @"Swipe Up",
+        @"swipeD": @"Swipe Down",
+        @"swipeDown": @"Swipe Down",
+        @"swipeL": @"Swipe Left",
+        @"swipeLeft": @"Swipe Left",
+        @"swipeR": @"Swipe Right",
+        @"swipeRight": @"Swipe Right"
     };
     
     NSString *result = names[cmd];
@@ -681,6 +690,16 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
             result = @"Lua Script";
         } else if ([cmd hasPrefix:@"spotify "]) {
             result = @"Spotify";
+        // Touch gestures with coordinates
+        } else if ([cmd hasPrefix:@"tap "]) {
+            NSString *coords = [[cmd substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            result = [NSString stringWithFormat:@"Tap at %@", coords];
+        } else if ([cmd hasPrefix:@"hold "]) {
+            NSString *coords = [[cmd substringFromIndex:5] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            result = [NSString stringWithFormat:@"Hold at %@", coords];
+        } else if ([cmd hasPrefix:@"swipe "]) {
+            NSString *coords = [[cmd substringFromIndex:6] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+            result = [NSString stringWithFormat:@"Swipe %@", coords];
         } else if ([cmd hasPrefix:@"uiopen "]) {
             NSString *bundleId = [cmd substringFromIndex:7];
             Class LSProxy = NSClassFromString(@"LSApplicationProxy");
@@ -758,6 +777,10 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     if ([cmd hasPrefix:@"spotify "]) return @"music.note";
     if ([cmd isEqualToString:@"home"]) return @"house.fill";
     if ([cmd hasPrefix:@"uiopen "]) return [NSString stringWithFormat:@"USER_APP:%@", [cmd substringFromIndex:7]];
+    // Touch gesture prefix icons
+    if ([cmd hasPrefix:@"tap "]) return @"hand.tap.fill";
+    if ([cmd hasPrefix:@"hold "]) return @"hand.point.up.left.fill";
+    if ([cmd hasPrefix:@"swipe "]) return @"hand.draw.fill";
     
     NSDictionary *icons = @{
         @"play": @"play.fill",
@@ -823,7 +846,16 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"vibration ring-off": @"bell",
         @"vibration ring-toggle": @"bell",
         @"vibration ring-status": @"bell.circle",
-        @"switcher": @"square.stack.3d.up.fill"
+        @"switcher": @"square.stack.3d.up.fill",
+        // Touch gestures
+        @"swipeU": @"arrow.up.circle.fill",
+        @"swipeUp": @"arrow.up.circle.fill",
+        @"swipeD": @"arrow.down.circle.fill",
+        @"swipeDown": @"arrow.down.circle.fill",
+        @"swipeL": @"arrow.left.circle.fill",
+        @"swipeLeft": @"arrow.left.circle.fill",
+        @"swipeR": @"arrow.right.circle.fill",
+        @"swipeRight": @"arrow.right.circle.fill"
     };
     
     NSString *result = icons[cmd];

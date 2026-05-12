@@ -1819,11 +1819,11 @@ static void rc_simulate_hold(double px, double py, int durationMs) {
     perform_digitizer_touch(nx, ny, NO);
 }
 
-// Simulate a swipe from (x1,y1) to (x2,y2) over ~300ms with intermediate steps
+// Simulate a swipe from (x1,y1) to (x2,y2) over ~600ms with smooth interpolation
 static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
     CGSize s = rc_screen_size();
-    const int steps = 20;
-    const int stepDelayUs = 15000; // 15 ms per step → ~300 ms total
+    const int steps = 40;
+    const int stepDelayUs = 15000; // 15 ms per step → ~600 ms total
 
     SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f)", x1, y1, x2, y2);
 
@@ -1877,12 +1877,12 @@ static int lua_swipe_fn(lua_State *L) {
     return 0;
 }
 
-// swipeUp()  — swipe upward from center-bottom toward center-top
+// swipeUp()  — swipe upward from near bottom edge toward center-top
 static int lua_swipe_up(lua_State *L) {
     (void)L;
     dispatch_async(dispatch_get_main_queue(), ^{
         CGSize s = rc_screen_size();
-        rc_simulate_swipe(s.width * 0.5, s.height * 0.8, s.width * 0.5, s.height * 0.2);
+        rc_simulate_swipe(s.width * 0.5, s.height * 0.92, s.width * 0.5, s.height * 0.15);
     });
     return 0;
 }
@@ -1892,7 +1892,7 @@ static int lua_swipe_down(lua_State *L) {
     (void)L;
     dispatch_async(dispatch_get_main_queue(), ^{
         CGSize s = rc_screen_size();
-        rc_simulate_swipe(s.width * 0.5, s.height * 0.2, s.width * 0.5, s.height * 0.8);
+        rc_simulate_swipe(s.width * 0.5, s.height * 0.08, s.width * 0.5, s.height * 0.85);
     });
     return 0;
 }
@@ -1902,7 +1902,7 @@ static int lua_swipe_left(lua_State *L) {
     (void)L;
     dispatch_async(dispatch_get_main_queue(), ^{
         CGSize s = rc_screen_size();
-        rc_simulate_swipe(s.width * 0.8, s.height * 0.5, s.width * 0.2, s.height * 0.5);
+        rc_simulate_swipe(s.width * 0.9, s.height * 0.5, s.width * 0.1, s.height * 0.5);
     });
     return 0;
 }
@@ -1912,7 +1912,7 @@ static int lua_swipe_right(lua_State *L) {
     (void)L;
     dispatch_async(dispatch_get_main_queue(), ^{
         CGSize s = rc_screen_size();
-        rc_simulate_swipe(s.width * 0.2, s.height * 0.5, s.width * 0.8, s.height * 0.5);
+        rc_simulate_swipe(s.width * 0.1, s.height * 0.5, s.width * 0.9, s.height * 0.5);
     });
     return 0;
 }
@@ -4110,7 +4110,7 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"swipeU"] || [cleanCmd isEqualToString:@"swipeUp"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             CGSize s = rc_screen_size();
-            rc_simulate_swipe(s.width*0.5, s.height*0.8, s.width*0.5, s.height*0.2);
+            rc_simulate_swipe(s.width*0.5, s.height*0.92, s.width*0.5, s.height*0.15);
         });
         return @"Swipe Up sent\n";
 
@@ -4118,7 +4118,7 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"swipeD"] || [cleanCmd isEqualToString:@"swipeDown"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             CGSize s = rc_screen_size();
-            rc_simulate_swipe(s.width*0.5, s.height*0.2, s.width*0.5, s.height*0.8);
+            rc_simulate_swipe(s.width*0.5, s.height*0.08, s.width*0.5, s.height*0.85);
         });
         return @"Swipe Down sent\n";
 
@@ -4126,7 +4126,7 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"swipeL"] || [cleanCmd isEqualToString:@"swipeLeft"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             CGSize s = rc_screen_size();
-            rc_simulate_swipe(s.width*0.8, s.height*0.5, s.width*0.2, s.height*0.5);
+            rc_simulate_swipe(s.width*0.9, s.height*0.5, s.width*0.1, s.height*0.5);
         });
         return @"Swipe Left sent\n";
 
@@ -4134,7 +4134,7 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"swipeR"] || [cleanCmd isEqualToString:@"swipeRight"]) {
         dispatch_async(dispatch_get_main_queue(), ^{
             CGSize s = rc_screen_size();
-            rc_simulate_swipe(s.width*0.2, s.height*0.5, s.width*0.8, s.height*0.5);
+            rc_simulate_swipe(s.width*0.1, s.height*0.5, s.width*0.9, s.height*0.5);
         });
         return @"Swipe Right sent\n";
 
