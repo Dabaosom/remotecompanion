@@ -2865,37 +2865,56 @@ static NSString *handle_command(NSString *cmd) {
         
         dispatch_async(dispatch_get_main_queue(), ^{
             Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-            SBLockScreenManager *manager = nil;
-            if (SBLockScreenManagerClass) {
-                manager = [SBLockScreenManagerClass sharedInstance];
-            }
+            SBLockScreenManager *manager = (SBLockScreenManagerClass) ? [SBLockScreenManagerClass sharedInstance] : nil;
+            
             BOOL isLocked = NO;
             if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
                 isLocked = [manager isUILocked];
             }
             
             if (isLocked) {
-                 SRLog(@"[SmartURL] Device locked. Initiating unlock sequence for URL...");
+                 SRLog(@"[SmartURL] Device locked. Initiating stable unlock sequence before opening URL...");
                  
-                 // 1. Wake Screen
-                 inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
+                 // 1. Check Screen State
+                 BOOL needsWake = YES;
+                 Class SBBacklightControllerClass = objc_getClass("SBBacklightController");
+                 if (SBBacklightControllerClass) {
+                     SBBacklightController *blController = [SBBacklightControllerClass sharedInstance];
+                     if (blController) {
+                         if ([blController respondsToSelector:@selector(screenIsOn)]) {
+                             needsWake = ![blController screenIsOn];
+                         } else if ([blController respondsToSelector:@selector(backlightLevel)]) {
+                             needsWake = ([blController backlightLevel] == 0);
+                         }
+                     }
+                 }
+
+                 if (needsWake) {
+                     SRLog(@"[SmartURL] Screen is OFF. Sending wake...");
+                     inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
+                 }
                  
                  // 2. Wait 0.5s then Unlock AND Open URL
                  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                      if (manager && [manager respondsToSelector:@selector(attemptUnlockWithPasscode:)]) {
-                         [manager attemptUnlockWithPasscode:@"2569"];
+                          SRLog(@"[SmartURL] Attempting unlock with default PIN...");
+                          [manager attemptUnlockWithPasscode:@"2569"];
                      }
                      
-                     // Open URL immediately after unlock attempt
-                     NSURL *url = [NSURL URLWithString:urlString];
-                     if (url) {
-                         [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
-                     }
+                     // 3. Wait another short moment for unlock animation/transition to finish
+                     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                         NSURL *url = [NSURL URLWithString:urlString];
+                         if (url) {
+                             SRLog(@"[SmartURL] Opening URL after unlock attempt: %@", urlString);
+                             [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
+                         }
+                     });
                  });
             } else {
-                 // Device unlocked, open immediately
+                 // Device already unlocked, open immediately
                  NSURL *url = [NSURL URLWithString:urlString];
                  if (url) {
+                     SRLog(@"[SmartURL] Device already unlocked. Opening URL: %@", urlString);
                      [[UIApplication sharedApplication] openURL:url options:@{} completionHandler:nil];
                  }
             }
