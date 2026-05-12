@@ -205,6 +205,12 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 - (id)lockScreenViewController;
 @end
 
+@interface SBBacklightController : NSObject
++ (id)sharedInstance;
+- (BOOL)screenIsOn;
+- (float)backlightLevel;
+@end
+
 @interface BKOperation : NSObject
 @end
 
@@ -2735,19 +2741,17 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"unlock"] || [cleanCmd hasPrefix:@"unlock "]) {
         // Unlock phone: Only if currently locked!
         
-        SRLog(@"[SmartUnlock] Checking lock state before unlocking...");
-        
         NSString *pin = @"2569";
         if ([cleanCmd hasPrefix:@"unlock "]) {
             pin = [[cleanCmd substringFromIndex:7] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         }
         
+        SRLog(@"[SmartUnlock] Unlock command received for PIN: %@", pin);
+        
         dispatch_async(dispatch_get_main_queue(), ^{
             Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
-            SBLockScreenManager *manager = nil;
-            if (SBLockScreenManagerClass) {
-                manager = [SBLockScreenManagerClass sharedInstance];
-            }
+            SBLockScreenManager *manager = (SBLockScreenManagerClass) ? [SBLockScreenManagerClass sharedInstance] : nil;
+            
             BOOL isLocked = NO;
             if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
                  isLocked = [manager isUILocked];
@@ -2758,22 +2762,50 @@ static NSString *handle_command(NSString *cmd) {
                  return;
             }
             
-            SRLog(@"[SmartUnlock] Device is locked. Proceeding with unlock sequence...");
+            SRLog(@"[SmartUnlock] Device is locked. Checking screen state...");
 
-            // Ensure screen is on (wake)
-            inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
+            // Check if screen is on before waking
+            BOOL needsWake = YES;
+            Class SBBacklightControllerClass = objc_getClass("SBBacklightController");
+            if (SBBacklightControllerClass) {
+                SBBacklightController *blController = [SBBacklightControllerClass sharedInstance];
+                if (blController) {
+                    if ([blController respondsToSelector:@selector(screenIsOn)]) {
+                        needsWake = ![blController screenIsOn];
+                        SRLog(@"[SmartUnlock] screenIsOn: %d", !needsWake);
+                    } else if ([blController respondsToSelector:@selector(backlightLevel)]) {
+                        float level = [blController backlightLevel];
+                        needsWake = (level == 0);
+                        SRLog(@"[SmartUnlock] backlightLevel: %f", level);
+                    }
+                }
+            }
+
+            if (needsWake) {
+                SRLog(@"[SmartUnlock] Screen is OFF. Sending wake (power button)...");
+                inject_hid_event(kHIDPage_Consumer, kHIDUsage_Csmr_Power, 0, 0);
+            } else {
+                SRLog(@"[SmartUnlock] Screen is already ON. Skipping wake.");
+            }
             
-            // Wait for screen to wake/process (0.3s delay - increased for reliability)
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                if (!manager) return;
+            // Wait for screen to wake/process (0.5s delay for more reliability)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                if (!manager) {
+                    SRLog(@"[SmartUnlock] ERROR: Manager became nil!");
+                    return;
+                }
+                
                 // Try the direct unlock method
                 if ([manager respondsToSelector:@selector(attemptUnlockWithPasscode:)]) {
-                    SRLog(@"Trying attemptUnlockWithPasscode...");
-                    [manager attemptUnlockWithPasscode:pin];
-                    SRLog(@"attemptUnlockWithPasscode called");
+                    SRLog(@"[SmartUnlock] Calling attemptUnlockWithPasscode...");
+                    BOOL success = [manager attemptUnlockWithPasscode:pin];
+                    SRLog(@"[SmartUnlock] attemptUnlockWithPasscode returned: %d", success);
                 } else if ([manager respondsToSelector:@selector(unlockUIFromSource:withOptions:)]) {
-                     SRLog(@"Using fallback unlockUIFromSource...");
-                     [manager unlockUIFromSource:0 withOptions:nil];
+                    SRLog(@"[SmartUnlock] Falling back to unlockUIFromSource...");
+                    [manager unlockUIFromSource:0 withOptions:nil];
+                    SRLog(@"[SmartUnlock] unlockUIFromSource called");
+                } else {
+                    SRLog(@"[SmartUnlock] ERROR: No supported unlock method found on manager!");
                 }
             });
         });
