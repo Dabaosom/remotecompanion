@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.1.0] - 2026-04-17
+## [3.1.0] - 2026-05-12
+
+### Improved
+- **Stable Unlock Sequence**: Fixed a potential 10-second hang when using `rc unlock` or `rc url`. The tweak now intelligently checks the screen state and only sends a wake signal if the screen is actually off, with optimized delays for reliable passcode entry.
+- **Robust URL Handling**: The `rc url` command now automatically strips surrounding quotes and prepends `http://` if a scheme is missing, making it much more resilient to user input errors.
+
+## [3.0.1] - 2026-04-17
 
 ### Added
 - **Connect AirPlay Action**: Added a functional 'Connect AirPlay' action to the Web UI.
