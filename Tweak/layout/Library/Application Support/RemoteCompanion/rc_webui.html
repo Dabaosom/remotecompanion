@@ -1075,7 +1075,7 @@ function nameForCmd(cmd) {
   if (lowCmd.startsWith('uiopen '))       return `Open: ${cmd.slice(7)}`;
   // Touch gesture display names
   if (lowCmd.startsWith('tap '))   { const p=cmd.slice(4).trim().split(/\s+/); return `Tap (${p[0]||'?'}, ${p[1]||'?'})`; }
-  if (lowCmd.startsWith('hold '))  { const p=cmd.slice(5).trim().split(/\s+/); return `Hold (${p[0]||'?'}, ${p[1]||'?'})${p[2]?` ${p[2]}ms`:\'\'}`; }
+  if (lowCmd.startsWith('hold '))  { const p=cmd.slice(5).trim().split(/\s+/); return `Hold (${p[0]||'?'}, ${p[1]||'?'})${p[2]?` ${p[2]}ms`:''}`; }
   if (lowCmd.startsWith('swipe ')) { const p=cmd.slice(6).trim().split(/\s+/); return `Swipe (${p[0]||'?'},${p[1]||'?'})→(${p[2]||'?'},${p[3]||'?'})`; }
   if (lowCmd === 'swipeu' || lowCmd === 'swipeup')   return 'Swipe Up';
   if (lowCmd === 'swiped' || lowCmd === 'swipedown') return 'Swipe Down';
