@@ -1696,6 +1696,229 @@ static void register_system_event_observers() {
 
 // ============ LUA INTERPRETER ============
 
+// ── Touch / Digitizer helper ──────────────────────────────────────────────────
+// Sends a digitizer finger-touch event at normalized screen coordinates.
+// normX/normY are in [0.0, 1.0] relative to the logical screen bounds.
+// Caller is responsible for appropriate delays between down/move/up events.
+static void perform_digitizer_touch(double normX, double normY, BOOL down) {
+    // Ensure symbols are loaded – they share the dispatch_once in inject_hid_event.
+    // Force a dummy call so the once block runs if it hasn't already.
+    static BOOL symbolsReady = NO;
+    if (!symbolsReady) {
+        symbolsReady = YES;
+        // Trigger the dispatch_once by injecting a no-op event duration 0
+        // (we cannot easily call inject_hid_event from here without page/usage, so load manually)
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            void *handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW | RTLD_NOLOAD);
+            if (!handle) handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+            if (handle) {
+                if (!_IOHIDEventCreateDigitizerEvent)
+                    _IOHIDEventCreateDigitizerEvent = (IOHIDEventRef (*)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventCreateDigitizerEvent");
+                if (!_IOHIDEventCreateDigitizerFingerEvent)
+                    _IOHIDEventCreateDigitizerFingerEvent = (IOHIDEventRef (*)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventCreateDigitizerFingerEvent");
+                if (!_IOHIDEventAppendEvent)
+                    _IOHIDEventAppendEvent = (void (*)(IOHIDEventRef, IOHIDEventRef, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventAppendEvent");
+                if (!_IOHIDEventSetIntegerValue)
+                    _IOHIDEventSetIntegerValue = (void (*)(IOHIDEventRef, uint32_t, int32_t))dlsym(handle, "IOHIDEventSetIntegerValue");
+                if (!_IOHIDEventSetSenderID)
+                    _IOHIDEventSetSenderID = (void (*)(IOHIDEventRef, uint64_t))dlsym(handle, "IOHIDEventSetSenderID");
+                if (!_IOHIDEventSystemClientCreate)
+                    _IOHIDEventSystemClientCreate = (IOHIDEventSystemClientRef (*)(CFAllocatorRef))dlsym(handle, "IOHIDEventSystemClientCreate");
+                if (!_IOHIDEventSystemClientDispatchEvent)
+                    _IOHIDEventSystemClientDispatchEvent = (void (*)(IOHIDEventSystemClientRef, IOHIDEventRef))dlsym(handle, "IOHIDEventSystemClientDispatchEvent");
+            }
+        });
+    }
+
+    if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
+        !_IOHIDEventAppendEvent || !_IOHIDEventSystemClientCreate || !_IOHIDEventSystemClientDispatchEvent) {
+        SRLog(@"[Touch] Digitizer symbols not loaded – cannot simulate touch");
+        return;
+    }
+
+    // kIOHIDDigitizerTransducerTypeHand = 4 (used for multi-touch)
+    // eventMask: 0x2 = position, 0x1 = touch/range
+    uint32_t transducerType = 4;
+    uint32_t index = 0;
+    uint32_t identity = 2;
+    uint32_t eventMask = down ? 0x3 : 0x3;
+    uint32_t buttonMask = 0;
+    double pressure = down ? 1.0 : 0.0;
+    uint64_t ts = mach_absolute_time();
+
+    IOHIDEventRef parent = _IOHIDEventCreateDigitizerEvent(
+        kCFAllocatorDefault, ts,
+        transducerType, index, identity, eventMask, buttonMask,
+        normX, normY, 0.0, pressure, 0.0,
+        (boolean_t)down, (boolean_t)down, 0);
+
+    if (!parent) {
+        SRLog(@"[Touch] Failed to create parent digitizer event");
+        return;
+    }
+
+    IOHIDEventRef finger = _IOHIDEventCreateDigitizerFingerEvent(
+        kCFAllocatorDefault, ts,
+        index, identity, eventMask,
+        normX, normY, 0.0, pressure, 0.0,
+        (boolean_t)down, (boolean_t)down, 0);
+
+    if (finger) {
+        _IOHIDEventAppendEvent(parent, finger, 0);
+        CFRelease(finger);
+    }
+
+    if (_IOHIDEventSetSenderID) {
+        _IOHIDEventSetSenderID(parent, 0x0000000B00000000ULL);
+    }
+
+    IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+    if (client) {
+        _IOHIDEventSystemClientDispatchEvent(client, parent);
+        CFRelease(client);
+    }
+    CFRelease(parent);
+}
+
+// Convenience: normalize pixel coords to screen-relative [0,1]
+static CGSize rc_screen_size() {
+    __block CGSize size = CGSizeMake(390, 844); // sensible default (iPhone 14)
+    if ([NSThread isMainThread]) {
+        size = [UIScreen mainScreen].bounds.size;
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), ^{
+            size = [UIScreen mainScreen].bounds.size;
+        });
+    }
+    return size;
+}
+
+// Simulate a tap at pixel coordinates (x, y)
+static void rc_simulate_tap(double px, double py) {
+    CGSize s = rc_screen_size();
+    double nx = px / s.width;
+    double ny = py / s.height;
+    SRLog(@"[Touch] tap at pixel (%.0f,%.0f) → norm (%.4f,%.4f)", px, py, nx, ny);
+
+    perform_digitizer_touch(nx, ny, YES);   // finger down
+    usleep(50000);                          // 50 ms contact
+    perform_digitizer_touch(nx, ny, NO);    // finger up
+}
+
+// Simulate a hold at pixel coordinates for `durationMs` milliseconds
+static void rc_simulate_hold(double px, double py, int durationMs) {
+    CGSize s = rc_screen_size();
+    double nx = px / s.width;
+    double ny = py / s.height;
+    int clampedMs = MAX(50, MIN(durationMs, 10000));
+    SRLog(@"[Touch] hold at pixel (%.0f,%.0f) for %d ms", px, py, clampedMs);
+
+    perform_digitizer_touch(nx, ny, YES);
+    usleep((useconds_t)(clampedMs * 1000));
+    perform_digitizer_touch(nx, ny, NO);
+}
+
+// Simulate a swipe from (x1,y1) to (x2,y2) over ~300ms with intermediate steps
+static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
+    CGSize s = rc_screen_size();
+    const int steps = 20;
+    const int stepDelayUs = 15000; // 15 ms per step → ~300 ms total
+
+    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f)", x1, y1, x2, y2);
+
+    perform_digitizer_touch(x1/s.width, y1/s.height, YES); // down
+    usleep(16000); // brief settle
+
+    for (int i = 1; i <= steps; i++) {
+        double t = (double)i / steps;
+        double cx = x1 + (x2 - x1) * t;
+        double cy = y1 + (y2 - y1) * t;
+        perform_digitizer_touch(cx/s.width, cy/s.height, YES);
+        usleep((useconds_t)stepDelayUs);
+    }
+
+    usleep(16000);
+    perform_digitizer_touch(x2/s.width, y2/s.height, NO); // up
+}
+
+// ── Lua-callable touch functions ──────────────────────────────────────────────
+
+// tap(x, y)  — pixel coords, 0,0 = top-left
+static int lua_tap_fn(lua_State *L) {
+    double x = luaL_checknumber(L, 1);
+    double y = luaL_checknumber(L, 2);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        rc_simulate_tap(x, y);
+    });
+    return 0;
+}
+
+// hold(x, y, ms)  — hold finger at (x,y) for ms milliseconds (default 500)
+static int lua_hold_fn(lua_State *L) {
+    double x = luaL_checknumber(L, 1);
+    double y = luaL_checknumber(L, 2);
+    int ms = (int)luaL_optinteger(L, 3, 500);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        rc_simulate_hold(x, y, ms);
+    });
+    return 0;
+}
+
+// swipe(x1, y1, x2, y2)  — swipe between two pixel coords
+static int lua_swipe_fn(lua_State *L) {
+    double x1 = luaL_checknumber(L, 1);
+    double y1 = luaL_checknumber(L, 2);
+    double x2 = luaL_checknumber(L, 3);
+    double y2 = luaL_checknumber(L, 4);
+    dispatch_async(dispatch_get_main_queue(), ^{
+        rc_simulate_swipe(x1, y1, x2, y2);
+    });
+    return 0;
+}
+
+// swipeUp()  — swipe upward from center-bottom toward center-top
+static int lua_swipe_up(lua_State *L) {
+    (void)L;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        CGSize s = rc_screen_size();
+        rc_simulate_swipe(s.width * 0.5, s.height * 0.8, s.width * 0.5, s.height * 0.2);
+    });
+    return 0;
+}
+
+// swipeDown()
+static int lua_swipe_down(lua_State *L) {
+    (void)L;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        CGSize s = rc_screen_size();
+        rc_simulate_swipe(s.width * 0.5, s.height * 0.2, s.width * 0.5, s.height * 0.8);
+    });
+    return 0;
+}
+
+// swipeLeft()
+static int lua_swipe_left(lua_State *L) {
+    (void)L;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        CGSize s = rc_screen_size();
+        rc_simulate_swipe(s.width * 0.8, s.height * 0.5, s.width * 0.2, s.height * 0.5);
+    });
+    return 0;
+}
+
+// swipeRight()
+static int lua_swipe_right(lua_State *L) {
+    (void)L;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        CGSize s = rc_screen_size();
+        rc_simulate_swipe(s.width * 0.2, s.height * 0.5, s.width * 0.8, s.height * 0.5);
+    });
+    return 0;
+}
+
+
+
 // Lua binding: openURL(urlString)
 static int lua_openURL(lua_State *L) {
     const char *urlStr = luaL_checkstring(L, 1);
@@ -1911,6 +2134,30 @@ static lua_State *setup_lua_environment() {
     lua_setglobal(L, "dlopen");
     lua_pushcfunction(L, lua_objc_call);
     lua_setglobal(L, "objc_call");
+    
+    // Touch gesture functions
+    lua_pushcfunction(L, lua_tap_fn);
+    lua_setglobal(L, "tap");
+    lua_pushcfunction(L, lua_hold_fn);
+    lua_setglobal(L, "hold");
+    lua_pushcfunction(L, lua_swipe_fn);
+    lua_setglobal(L, "swipe");
+    lua_pushcfunction(L, lua_swipe_up);
+    lua_setglobal(L, "swipeU");
+    lua_pushcfunction(L, lua_swipe_up);
+    lua_setglobal(L, "swipeUp");
+    lua_pushcfunction(L, lua_swipe_down);
+    lua_setglobal(L, "swipeD");
+    lua_pushcfunction(L, lua_swipe_down);
+    lua_setglobal(L, "swipeDown");
+    lua_pushcfunction(L, lua_swipe_left);
+    lua_setglobal(L, "swipeL");
+    lua_pushcfunction(L, lua_swipe_left);
+    lua_setglobal(L, "swipeLeft");
+    lua_pushcfunction(L, lua_swipe_right);
+    lua_setglobal(L, "swipeR");
+    lua_pushcfunction(L, lua_swipe_right);
+    lua_setglobal(L, "swipeRight");
     
     return L;
 }
@@ -3819,7 +4066,80 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd hasPrefix:@"lua "]) {
         NSString *scriptPath = [[cleanCmd substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         return execute_lua_script(scriptPath);
+
+    // ── Touch gesture commands ────────────────────────────────────────────────
+    // tap x y
+    } else if ([cleanCmd hasPrefix:@"tap "]) {
+        NSArray *parts = [[cleanCmd substringFromIndex:4] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (parts.count >= 2) {
+            double px = [parts[0] doubleValue];
+            double py = [parts[1] doubleValue];
+            dispatch_async(dispatch_get_main_queue(), ^{ rc_simulate_tap(px, py); });
+            return @"Tap sent\n";
+        }
+        return @"Usage: tap x y\n";
+
+    // hold x y [ms]
+    } else if ([cleanCmd hasPrefix:@"hold "]) {
+        NSArray *parts = [[cleanCmd substringFromIndex:5] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (parts.count >= 2) {
+            double px = [parts[0] doubleValue];
+            double py = [parts[1] doubleValue];
+            int ms = (parts.count >= 3) ? (int)[parts[2] integerValue] : 500;
+            dispatch_async(dispatch_get_main_queue(), ^{ rc_simulate_hold(px, py, ms); });
+            return @"Hold sent\n";
+        }
+        return @"Usage: hold x y [ms]\n";
+
+    // swipe x1 y1 x2 y2
+    } else if ([cleanCmd hasPrefix:@"swipe "] &&
+               !([cleanCmd isEqualToString:@"swipeU"] || [cleanCmd isEqualToString:@"swipeD"] ||
+                 [cleanCmd isEqualToString:@"swipeL"] || [cleanCmd isEqualToString:@"swipeR"])) {
+        NSArray *parts = [[cleanCmd substringFromIndex:6] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        if (parts.count >= 4) {
+            double x1 = [parts[0] doubleValue];
+            double y1 = [parts[1] doubleValue];
+            double x2 = [parts[2] doubleValue];
+            double y2 = [parts[3] doubleValue];
+            dispatch_async(dispatch_get_main_queue(), ^{ rc_simulate_swipe(x1, y1, x2, y2); });
+            return @"Swipe sent\n";
+        }
+        return @"Usage: swipe x1 y1 x2 y2\n";
+
+    // swipeU / swipeUp
+    } else if ([cleanCmd isEqualToString:@"swipeU"] || [cleanCmd isEqualToString:@"swipeUp"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGSize s = rc_screen_size();
+            rc_simulate_swipe(s.width*0.5, s.height*0.8, s.width*0.5, s.height*0.2);
+        });
+        return @"Swipe Up sent\n";
+
+    // swipeD / swipeDown
+    } else if ([cleanCmd isEqualToString:@"swipeD"] || [cleanCmd isEqualToString:@"swipeDown"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGSize s = rc_screen_size();
+            rc_simulate_swipe(s.width*0.5, s.height*0.2, s.width*0.5, s.height*0.8);
+        });
+        return @"Swipe Down sent\n";
+
+    // swipeL / swipeLeft
+    } else if ([cleanCmd isEqualToString:@"swipeL"] || [cleanCmd isEqualToString:@"swipeLeft"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGSize s = rc_screen_size();
+            rc_simulate_swipe(s.width*0.8, s.height*0.5, s.width*0.2, s.height*0.5);
+        });
+        return @"Swipe Left sent\n";
+
+    // swipeR / swipeRight
+    } else if ([cleanCmd isEqualToString:@"swipeR"] || [cleanCmd isEqualToString:@"swipeRight"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            CGSize s = rc_screen_size();
+            rc_simulate_swipe(s.width*0.2, s.height*0.5, s.width*0.8, s.height*0.5);
+        });
+        return @"Swipe Right sent\n";
+
     } else if ([cleanCmd isEqualToString:@"airplay list"]) {
+
         NSArray *names = RCFetchAirPlayDeviceNames();
         NSMutableString *output = [NSMutableString string];
         if (names.count == 0) {

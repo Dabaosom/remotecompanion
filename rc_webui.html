@@ -1073,6 +1073,14 @@ function nameForCmd(cmd) {
   if (lowCmd.startsWith('brightness '))   return `Set Brightness ${cmd.slice(11)}%`;
   if (lowCmd.startsWith('shortcut:'))     return `Shortcut: ${cmd.slice(9)}`;
   if (lowCmd.startsWith('uiopen '))       return `Open: ${cmd.slice(7)}`;
+  // Touch gesture display names
+  if (lowCmd.startsWith('tap '))   { const p=cmd.slice(4).trim().split(/\s+/); return `Tap (${p[0]||'?'}, ${p[1]||'?'})`; }
+  if (lowCmd.startsWith('hold '))  { const p=cmd.slice(5).trim().split(/\s+/); return `Hold (${p[0]||'?'}, ${p[1]||'?'})${p[2]?` ${p[2]}ms`:\'\'}`; }
+  if (lowCmd.startsWith('swipe ')) { const p=cmd.slice(6).trim().split(/\s+/); return `Swipe (${p[0]||'?'},${p[1]||'?'})→(${p[2]||'?'},${p[3]||'?'})`; }
+  if (lowCmd === 'swipeu' || lowCmd === 'swipeup')   return 'Swipe Up';
+  if (lowCmd === 'swiped' || lowCmd === 'swipedown') return 'Swipe Down';
+  if (lowCmd === 'swipel' || lowCmd === 'swipeleft') return 'Swipe Left';
+  if (lowCmd === 'swiper' || lowCmd === 'swiperight') return 'Swipe Right';
   // Fallback: capitalize first letter
   return cmd.charAt(0).toUpperCase() + cmd.slice(1);
 }
@@ -1113,6 +1121,10 @@ function iconForCmd(cmd) {
   if (lowCmd.startsWith('uiopen '))       return { icon:'app_badge_fill',  cls:'icon-pink' };
   if (lowCmd.startsWith('exec ') || lowCmd.startsWith('root ')) return { icon:'command', cls:'icon-dark' };
   if (lowCmd.startsWith('trigger_bottombar')) return { icon:'square_stack_3d_up_fill', cls:'icon-gray' };
+  // Touch gestures
+  if (lowCmd.startsWith('tap '))   return { icon:'hand_tap',         cls:'icon-teal' };
+  if (lowCmd.startsWith('hold '))  return { icon:'hand_tap_fill',    cls:'icon-teal' };
+  if (lowCmd.startsWith('swipe')) return { icon:'hand_draw',         cls:'icon-teal' };
   return { icon:'bolt_fill', cls:'icon-dark' };
 }
 
@@ -1172,6 +1184,15 @@ const ACTION_SECTIONS = [
     { name:'Low Power On',      cmd:'low power on',  icon:'battery_25' },
     { name:'Low Power Off',     cmd:'low power off', icon:'battery_100' },
     { name:'Low Power Toggle',  cmd:'low power toggle',icon:'battery_25' },
+  ]},
+  { title:'Touch Gestures', actions:[
+    { name:'Tap…',              cmd:'__TAP__',       icon:'hand_tap', needs_input:true },
+    { name:'Hold…',             cmd:'__HOLD__',      icon:'hand_tap_fill', needs_input:true },
+    { name:'Swipe Up',          cmd:'swipeU',        icon:'arrow_up' },
+    { name:'Swipe Down',        cmd:'swipeD',        icon:'arrow_down' },
+    { name:'Swipe Left',        cmd:'swipeL',        icon:'arrow_left' },
+    { name:'Swipe Right',       cmd:'swipeR',        icon:'arrow_right' },
+    { name:'Custom Swipe…',     cmd:'__SWIPE__',     icon:'hand_draw', needs_input:true },
   ]},
   { title:'Scripting & Logic', actions:[
     { name:'If Condition…',     cmd:'__IF_CONDITION__',icon:'arrow_triangle_branch', needs_input:true },
@@ -1918,6 +1939,9 @@ async function selectAction(action) {
     '__OPEN_APP__':       { title:'Open App',          msg:'Bundle ID:',     def:'',  type:'text',   build: v => `uiopen ${v}` },
     '__LUA_SCRIPT__':     { title:'Lua Script',        msg:'Lua code:',      def:'',  type:'text',   build: v => `Lua ${v}` },
     '__CUSTOM__':         { title:'Terminal Command',  msg:'Command:',       def:'',  type:'text',   build: v => `exec ${v}` },
+    '__TAP__':            { title:'Tap at Coordinates', msg:'x y  (pixels, e.g. 195 422):', def:'195 422', type:'text', build: v => `tap ${v.trim()}` },
+    '__HOLD__':           { title:'Hold at Coordinates', msg:'x y [ms]  (e.g. 195 422 800):', def:'195 422 800', type:'text', build: v => `hold ${v.trim()}` },
+    '__SWIPE__':          { title:'Custom Swipe', msg:'x1 y1 x2 y2  (pixels, e.g. 195 700 195 200):', def:'195 700 195 200', type:'text', build: v => `swipe ${v.trim()}` },
   };
 
   if (needsText[cmd]) {
