@@ -5,11 +5,16 @@ THEOS_DEVICE_IP = iphone.local
 INSTALL_TARGET_USER = mobile
 TARGET := iphone:clang:latest:14.0
 INSTALL_TARGET_PROCESSES = SpringBoard
-ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
+
+# Support for both rootless and roothide
+ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
+ARCHS = arm64 arm64e
+else ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
 ARCHS = arm64 arm64e
 else
 ARCHS = arm64 arm64e
 endif
+
 THEOS_PACKAGE_SCHEME ?= rootless
 
 include $(THEOS)/makefiles/common.mk
@@ -29,5 +34,4 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 SUBPROJECTS += rc-root
 SUBPROJECTS += rc-client
-# SUBPROJECTS += ../RemoteCompanion
 include $(THEOS_MAKE_PATH)/aggregate.mk
