@@ -6,7 +6,6 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 - **Roothide Support**: Native compatibility for the Roothide bootstrap. The build system has been unified to support rootless, rootful, and roothide environments in a single project.
-- **Touch Gestures (Phase 1)**: New support for tap and swipe gestures. You can now bind actions to specific touch patterns on the device.
 - **AirPlay Connect (Web UI)**: Added a dedicated 'Connect AirPlay' action to the browser interface with automatic device discovery.
 - **Right-Click Context Menus**: Added intuitive right-click options for action items in the Web UI for faster management.
 
