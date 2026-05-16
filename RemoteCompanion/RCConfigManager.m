@@ -79,7 +79,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                              @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down",
                              @"volume_both_press", @"touchid_tap",
                              @"power_volume_up", @"power_volume_down", @"shake",
-                             @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle"];
+                             @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle",
+                             @"trigger_device_lock", @"trigger_device_unlock"];
         
         BOOL needsSave = NO;
         for (NSString *key in allKeys) {
@@ -168,6 +169,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                 @"trigger_ringer_mute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_unmute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"trigger_device_lock": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
+                @"trigger_device_unlock": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"shake": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_bottombar_swipe_left": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_bottombar_swipe_right": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
@@ -302,7 +305,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 }
 
 - (NSArray<NSString *> *)allTriggerKeys {
-    return @[@"volume_up_hold", @"volume_down_hold", @"volume_both_press", @"power_double_tap", @"power_long_press", @"power_triple_click", @"power_quadruple_click", @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click", @"touchid_tap", @"touchid_hold", @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down", @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle", @"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right", @"power_volume_up", @"power_volume_down", @"shake"];
+    return @[@"volume_up_hold", @"volume_down_hold", @"volume_both_press", @"power_double_tap", @"power_long_press", @"power_triple_click", @"power_quadruple_click", @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click", @"touchid_tap", @"touchid_hold", @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down", @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle", @"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right", @"power_volume_up", @"power_volume_down", @"shake", @"trigger_device_lock", @"trigger_device_unlock"];
 }
 
 - (NSArray<NSDictionary *> *)notificationTriggers {
@@ -321,6 +324,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 - (NSString *)displayNameForTrigger:(NSString *)triggerKey {
     NSDictionary *names = @{
         @"shake": @"Shake Device",
+        @"trigger_device_lock": @"Device Locked",
+        @"trigger_device_unlock": @"Device Unlocked",
         @"volume_up_hold": @"Volume Up Hold",
         @"volume_down_hold": @"Volume Down Hold",
         @"volume_both_press": @"Volume Up + Down (Both)",

@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - **Roothide Support**: Native compatibility for the Roothide bootstrap. The build system has been unified to support rootless, rootful, and roothide environments in a single project.
 - **AirPlay Connect (Web UI)**: Added a dedicated 'Connect AirPlay' action to the browser interface with automatic device discovery.
 - **Right-Click Context Menus**: Added intuitive right-click options for action items in the Web UI for faster management.
+- **Device Lock/Unlock Triggers**: Added new automation triggers for device lock and unlock events, allowing for complex routines when the device state changes.
 
 ### Improved
 - **Web UI Layout**: Refined spacing, footer placement, and mobile responsiveness for the browser interface.

@@ -927,6 +927,7 @@ function toggleEditMode() {
 // ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGER_SECTIONS = [
   { title: 'Favorites',              id: 'favorites', keys: [] },
+  { title: 'Device Status',          id: 'status',    keys: ['trigger_device_lock','trigger_device_unlock'] },
   { title: 'Volume Buttons',         id: 'volume',    keys: ['volume_up_hold','volume_down_hold','volume_both_press'] },
   { title: 'Power Button',           id: 'power',     keys: ['power_double_tap','power_triple_click','power_quadruple_click','power_volume_up','power_volume_down','power_long_press'] },
   { title: 'Screen Gestures',        id: 'statusbar', keys: ['trigger_statusbar_left_hold','trigger_statusbar_center_hold','trigger_statusbar_right_hold','trigger_statusbar_swipe_left','trigger_statusbar_swipe_right'] },
@@ -959,6 +960,7 @@ const TRIGGER_NAMES = {
   trigger_edge_right_swipe_up:'Right Edge Swipe Up', trigger_edge_right_swipe_down:'Right Edge Swipe Down',
   trigger_ringer_mute:'Ringer Muted', trigger_ringer_unmute:'Ringer Unmuted', trigger_ringer_toggle:'Ringer Toggled',
   trigger_bottombar_swipe_left:'Bottom Bar Swipe Left', trigger_bottombar_swipe_right:'Bottom Bar Swipe Right',
+  trigger_device_lock: 'Device Locked', trigger_device_unlock: 'Device Unlocked',
 };
 
 const TRIGGER_ICONS = {
@@ -991,6 +993,8 @@ const TRIGGER_ICONS = {
   trigger_ringer_mute:   { icon:'bell_slash_fill', cls:'icon-red' },
   trigger_ringer_unmute: { icon:'bell_fill',       cls:'icon-green' },
   trigger_ringer_toggle: { icon:'bell_badge_fill', cls:'icon-orange' },
+  trigger_device_lock:   { icon:'lock_fill',       cls:'icon-red' },
+  trigger_device_unlock: { icon:'lock_open_fill',  cls:'icon-green' },
 };
 
 function iconForKey(key) {

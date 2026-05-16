@@ -201,6 +201,7 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 - (BOOL)attemptUnlockWithPasscode:(NSString *)passcode;
 - (BOOL)_attemptUnlockWithPasscode:(NSString *)passcode mesa:(BOOL)mesa finishUIUnlock:(BOOL)finishUI;
 - (void)unlockUIFromSource:(int)source withOptions:(id)options;
+- (void)_setUILocked:(BOOL)locked animated:(BOOL)animated withReason:(id)reason;
 - (BOOL)isUILocked;
 - (id)lockScreenViewController;
 @end
@@ -5658,10 +5659,18 @@ static void setup_background_hid_listener() {
     }
     return result;
 }
+- (void)_setUILocked:(BOOL)locked animated:(BOOL)animated withReason:(id)reason {
+    %orig;
+    if (locked) {
+        SRLog(@"🔒 Device Locked via SBLockScreenManager (Reason: %@)", reason);
+        RCExecuteTrigger(@"trigger_device_lock");
+    }
+}
 
 - (void)unlockUIFromSource:(int)source withOptions:(id)options {
     %orig;
     SRLog(@"🔓 Device Unlocked via SBLockScreenManager (Source: %d)", source);
+    RCExecuteTrigger(@"trigger_device_unlock");
     
     // Reset biometric state immediately upon unlock to prevent stray triggers
     g_bioFingerDownTime = 0;
