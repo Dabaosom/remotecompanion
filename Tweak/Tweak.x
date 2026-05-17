@@ -200,6 +200,7 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 + (instancetype)sharedInstance;
 - (BOOL)attemptUnlockWithPasscode:(NSString *)passcode;
 - (BOOL)_attemptUnlockWithPasscode:(NSString *)passcode mesa:(BOOL)mesa finishUIUnlock:(BOOL)finishUI;
+- (void)lockUIFromSource:(int)source withOptions:(id)options;
 - (void)unlockUIFromSource:(int)source withOptions:(id)options;
 - (void)_setUILocked:(BOOL)locked animated:(BOOL)animated withReason:(id)reason;
 - (BOOL)isUILocked;
@@ -1666,9 +1667,93 @@ static void handle_wifi_notification(CFNotificationCenterRef center, void *obser
     });
 }
 
+// Biometric / Touch ID / Lock State Globals
+static NSTimeInterval g_bioFingerDownTime = 0;
+static BOOL g_bioHoldTriggered = NO;
+static NSTimer *g_bioWatchdogTimer = nil;
+static NSTimeInterval g_bioIgnoreUntil = 0;
+static BOOL g_bioWasLocked = NO;
+static BOOL g_lastLockedState = NO;
+static BOOL g_lockStateInitialized = NO;
+
+static void initialize_lock_state() {
+    if (g_lockStateInitialized) return;
+    
+    Class LSMClass = objc_getClass("SBLockScreenManager");
+    if (LSMClass) {
+        SBLockScreenManager *lsm = [LSMClass sharedInstance];
+        if (lsm) {
+            g_lastLockedState = [lsm isUILocked];
+            g_lockStateInitialized = YES;
+            SRLog(@"🔒 [RCSystem] Lock state successfully initialized to: %@", g_lastLockedState ? @"LOCKED" : @"UNLOCKED");
+        }
+    }
+}
+
+static void handle_lock_state_transition(BOOL isLocked, NSString *source) {
+    if (!g_lockStateInitialized) {
+        initialize_lock_state();
+        if (!g_lockStateInitialized) {
+            g_lastLockedState = !isLocked; // Set opposite to force transition detection on fallback
+            g_lockStateInitialized = YES;
+            SRLog(@"🔒 [RCSystem] Lock state fallback initialized via %@ to: %@", source, g_lastLockedState ? @"LOCKED" : @"UNLOCKED");
+        }
+    }
+    
+    if (isLocked != g_lastLockedState) {
+        g_lastLockedState = isLocked;
+        if (isLocked) {
+            SRLog(@"🔒 [RCSystem] Transition detected (%@): DEVICE LOCKED. Executing trigger_device_lock.", source);
+            RCExecuteTrigger(@"trigger_device_lock");
+        } else {
+            SRLog(@"🔓 [RCSystem] Transition detected (%@): DEVICE UNLOCKED. Executing trigger_device_unlock.", source);
+            RCExecuteTrigger(@"trigger_device_unlock");
+            
+            // Reset biometric / unlock-related side effects
+            g_bioFingerDownTime = 0;
+            g_bioHoldTriggered = NO;
+            
+            if (g_bioWatchdogTimer) {
+                [g_bioWatchdogTimer invalidate];
+                g_bioWatchdogTimer = nil;
+                SRLog(@"🔐 [RCSystem] Cancelled pending Biometric trigger due to Unlock (%@)", source);
+            }
+            
+            // Brief suppression after unlock (1.0s), without overwriting a larger existing suppression
+            NSTimeInterval newIgnore = [[NSDate date] timeIntervalSince1970] + 1.0;
+            if (g_bioIgnoreUntil < newIgnore) {
+                g_bioIgnoreUntil = newIgnore;
+            }
+        }
+    }
+}
+
+static void handle_lock_state_notification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        Class LSMClass = objc_getClass("SBLockScreenManager");
+        if (!LSMClass) {
+            SRLog(@"⚠️ [RCSystem] SBLockScreenManager class not found in notify handler");
+            return;
+        }
+        
+        SBLockScreenManager *lsm = [LSMClass sharedInstance];
+        if (!lsm) {
+            SRLog(@"⚠️ [RCSystem] SBLockScreenManager instance is nil in notify handler");
+            return;
+        }
+        
+        BOOL currentLocked = [lsm isUILocked];
+        SRLog(@"🔒 [RCSystem] SBLockScreenManager.isUILocked = %@", currentLocked ? @"YES" : @"NO");
+        handle_lock_state_transition(currentLocked, @"Darwin Notification");
+    });
+}
+
 static void register_system_event_observers() {
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     
+    // Initialize initial lock state
+    initialize_lock_state();
+
     // WiFi: Track network changes (Darwin Notification)
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
                                     NULL, 
@@ -1677,6 +1762,21 @@ static void register_system_event_observers() {
                                     NULL, 
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
     
+    // Device Lock / Unlock: Track screen transitions via Darwin Notifications
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_lock_state_notification, 
+                                    CFSTR("com.apple.springboard.lockcomplete"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+                                    
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_lock_state_notification, 
+                                    CFSTR("com.apple.springboard.lockstate"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
     // Bluetooth: Track connection/disconnection
     [nc addObserverForName:@"BluetoothDeviceConnectSuccessNotification" 
                     object:nil 
@@ -4926,12 +5026,8 @@ static BOOL g_forceSystemLongPress = NO;     // New for dual-stage
 static BOOL g_powerIsDown = NO;
 static BOOL g_powerVolComboTriggered = NO;
 
-// Biometric / Touch ID Globals
-static NSTimeInterval g_bioFingerDownTime = 0;
-static BOOL g_bioHoldTriggered = NO;
-static NSTimer *g_bioWatchdogTimer = nil;
-static NSTimeInterval g_bioIgnoreUntil = 0;
-static BOOL g_bioWasLocked = NO;
+
+
 
 
 // static NSTimeInterval g_lastPowerUpTime = 0; // Removed unused variable
@@ -5658,32 +5754,6 @@ static void setup_background_hid_listener() {
         }
     }
     return result;
-}
-- (void)_setUILocked:(BOOL)locked animated:(BOOL)animated withReason:(id)reason {
-    %orig;
-    if (locked) {
-        SRLog(@"🔒 Device Locked via SBLockScreenManager (Reason: %@)", reason);
-        RCExecuteTrigger(@"trigger_device_lock");
-    }
-}
-
-- (void)unlockUIFromSource:(int)source withOptions:(id)options {
-    %orig;
-    SRLog(@"🔓 Device Unlocked via SBLockScreenManager (Source: %d)", source);
-    RCExecuteTrigger(@"trigger_device_unlock");
-    
-    // Reset biometric state immediately upon unlock to prevent stray triggers
-    g_bioFingerDownTime = 0;
-    g_bioHoldTriggered = NO;
-    
-    if (g_bioWatchdogTimer) {
-        [g_bioWatchdogTimer invalidate];
-        g_bioWatchdogTimer = nil;
-        SRLog(@"🔐 Cancelled pending Biometric trigger due to Unlock");
-    }
-    
-    // Brief suppression after unlock (1.0s)
-    g_bioIgnoreUntil = [[NSDate date] timeIntervalSince1970] + 1.0;
 }
 
 %end
