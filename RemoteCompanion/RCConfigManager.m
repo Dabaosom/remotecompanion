@@ -130,12 +130,23 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         BOOL didChange = NO;
         if (triggers[@"watch_near"]) { [triggers removeObjectForKey:@"watch_near"]; didChange = YES; }
         if (triggers[@"watch_far"]) { [triggers removeObjectForKey:@"watch_far"]; didChange = YES; }
+        
+        // Also cleanup unconfigured device state and media triggers so they don't show up in the main list unless created
+        NSArray *deviceStateKeys = @[@"trigger_device_lock", @"trigger_device_unlock", @"trigger_media_play", @"trigger_media_pause", @"trigger_media_track_change"];
+        for (NSString *key in deviceStateKeys) {
+            NSDictionary *trig = triggers[key];
+            if (trig && (!trig[@"actions"] || [trig[@"actions"] count] == 0)) {
+                [triggers removeObjectForKey:key];
+                didChange = YES;
+            }
+        }
+        
         if (didChange) {
             _config[@"triggers"] = triggers;
             [self saveConfig];
         }
     } else {
-        // Default config with all triggers
+        // Default config with all triggers (excluding system events which are added dynamically)
         NSLog(@"[RCConfigManager] Using default config");
         _config = [@{
             @"masterEnabled": @YES,
@@ -170,11 +181,6 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                 @"trigger_ringer_mute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_unmute": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_ringer_toggle": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_device_lock": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_device_unlock": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_media_play": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_media_pause": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
-                @"trigger_media_track_change": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"shake": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_bottombar_swipe_left": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy],
                 @"trigger_bottombar_swipe_right": [@{ @"enabled": @NO, @"actions": @[] } mutableCopy]
