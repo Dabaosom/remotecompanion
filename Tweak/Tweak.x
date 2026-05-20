@@ -1866,6 +1866,20 @@ static void register_system_event_observers() {
                                     NULL, 
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_media_state_notification, 
+                                    CFSTR("com.apple.MediaRemote.nowPlayingApplicationIsPlayingDidChange"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_media_state_notification, 
+                                    CFSTR("com.apple.MediaRemote.nowPlayingApplicationPlaybackStateDidChange"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
     // Initialize initial media state
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         handle_media_state_change();
