@@ -658,6 +658,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"uicache": @"Refresh Icon Cache",
         @"player status": @"Player Status",
         @"switcher": @"App Switcher",
+        @"previous app": @"Previous App",
+        @"last app": @"Previous App",
         // Touch gestures
         @"swipeU": @"Swipe Up",
         @"swipeUp": @"Swipe Up",
@@ -865,6 +867,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"vibration ring-toggle": @"bell",
         @"vibration ring-status": @"bell.circle",
         @"switcher": @"square.stack.3d.up.fill",
+        @"previous app": @"arrow.uturn.backward",
+        @"last app": @"arrow.uturn.backward",
         // Touch gestures
         @"swipeU": @"arrow.up.circle.fill",
         @"swipeUp": @"arrow.up.circle.fill",

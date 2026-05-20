@@ -21,6 +21,9 @@ static void trigger_haptic();
 static void toggle_system_vibration(BOOL silentMode, BOOL enable);
 static BOOL get_system_vibration(BOOL silentMode);
 
+static NSString *g_currentAppBundleId = nil;
+static NSString *g_previousAppBundleId = nil;
+
 // WorkflowKit interfaces
 @interface WFWorkflowDescriptor : NSObject
 - (instancetype)initWithName:(NSString *)name;
@@ -3043,6 +3046,20 @@ static NSString *handle_command(NSString *cmd) {
             dispatch_sync(dispatch_get_main_queue(), ccBlock);
         }
         return opened ? @"Control Center opened\n" : @"Failed to open Control Center\n";
+    } else if ([cleanCmd isEqualToString:@"previous app"] || [cleanCmd isEqualToString:@"last app"]) {
+        if (g_previousAppBundleId) {
+            SRLog(@"[RemoteCommand] Returning to previous app: %@", g_previousAppBundleId);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                Class fbsClass = objc_getClass("FBSOpenApplicationService");
+                if (fbsClass) {
+                    id service = [fbsClass serviceWithDefaultShellEndpoint];
+                    [service openApplication:g_previousAppBundleId withOptions:nil completion:nil];
+                }
+            });
+            return [NSString stringWithFormat:@"Switched to previous app: %@", g_previousAppBundleId];
+        } else {
+            return @"No previous app available.";
+        }
     } else if ([cleanCmd isEqualToString:@"switcher"] || [cleanCmd isEqualToString:@"app switcher"]) {
         __block BOOL success = NO;
         SRLog(@"Attempting to toggle App Switcher...");
@@ -6536,6 +6553,15 @@ static void update_edge_gestures() {
         if ([self respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
             SBApplication *frontApp = [self _accessibilityFrontMostApplication];
             NSString *bundleId = [frontApp bundleIdentifier];
+            
+            // Track previous app for the 'previous app' action
+            if ((bundleId && ![bundleId isEqualToString:g_currentAppBundleId]) || (!bundleId && g_currentAppBundleId)) {
+                if (g_currentAppBundleId && ![g_currentAppBundleId isEqualToString:@"com.apple.springboard"]) {
+                    g_previousAppBundleId = g_currentAppBundleId;
+                }
+                g_currentAppBundleId = bundleId;
+            }
+            
             static NSString *lastApp = nil;
             if (bundleId && ![bundleId isEqualToString:lastApp]) {
                 lastApp = bundleId;

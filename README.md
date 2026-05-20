@@ -70,6 +70,7 @@ Access the desktop-class automation hub at `http://[DEVICE_IP]:8080` from any co
 - `rc haptic` / `rc screenshot` - Haptic feedback / Screenshot (or activate Snapper 3).
 - `rc control-center` - Opens the system Control Center.
 - `rc switcher` - Opens/toggles the App Switcher.
+- `rc previous app` / `rc last app` - Returns to the previously active application.
 - `rc vibration [silent-toggle|ring-toggle]` - System "Vibrate on Silent/Ring" settings.
 
 ### Apps & Shortcuts
