@@ -294,6 +294,12 @@ typedef enum {
 extern void MRMediaRemoteSendCommand(MRCommand command, NSDictionary *options);
 extern void MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_queue_t queue, void (^completion)(Boolean isPlaying));
 extern void MRMediaRemoteGetNowPlayingApplicationPlaybackState(dispatch_queue_t queue, void (^completion)(unsigned int state));
+extern void MRMediaRemoteGetNowPlayingInfo(dispatch_queue_t queue, void (^completion)(CFDictionaryRef information));
+extern void MRMediaRemoteGetNowPlayingClient(dispatch_queue_t queue, void (^completion)(void *clientObj));
+extern CFStringRef MRNowPlayingClientGetBundleIdentifier(void *clientObj);
+
+extern CFStringRef kMRMediaRemoteNowPlayingInfoTitle;
+extern CFStringRef kMRMediaRemoteNowPlayingInfoArtist;
 
 // AVOutputDevice for ANC control (used by Sonitus)
 @interface AVOutputDevice : NSObject
@@ -1748,6 +1754,81 @@ static void handle_lock_state_notification(CFNotificationCenterRef center, void 
     });
 }
 
+static BOOL g_mediaStateInitialized = NO;
+static BOOL g_lastMediaPlayingState = NO;
+static NSString *g_lastMediaTitle = nil;
+static NSString *g_lastMediaArtist = nil;
+static NSString *g_lastMediaBundleID = nil;
+
+static void handle_media_state_change() {
+    MRMediaRemoteGetNowPlayingClient(dispatch_get_main_queue(), ^(void *clientObj) {
+        __block NSString *bundleID = @"";
+        if (clientObj) {
+            CFStringRef bundleIDRef = MRNowPlayingClientGetBundleIdentifier(clientObj);
+            if (bundleIDRef) {
+                bundleID = (__bridge NSString *)bundleIDRef;
+            }
+        }
+        
+        MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_get_main_queue(), ^(Boolean isPlayingNow) {
+            MRMediaRemoteGetNowPlayingInfo(dispatch_get_main_queue(), ^(CFDictionaryRef information) {
+                NSDictionary *info = (__bridge NSDictionary *)information;
+                NSString *title = info ? (info[(__bridge NSString *)kMRMediaRemoteNowPlayingInfoTitle] ?: @"") : @"";
+                NSString *artist = info ? (info[(__bridge NSString *)kMRMediaRemoteNowPlayingInfoArtist] ?: @"") : @"";
+                
+                BOOL playingChanged = NO;
+                BOOL trackChanged = NO;
+                
+                if (!g_mediaStateInitialized) {
+                    g_lastMediaPlayingState = isPlayingNow;
+                    g_lastMediaTitle = [title copy];
+                    g_lastMediaArtist = [artist copy];
+                    g_lastMediaBundleID = [bundleID copy];
+                    g_mediaStateInitialized = YES;
+                    SRLog(@"🎵 [RCSystem] Media state initialized: playing=%@, title='%@', artist='%@', bundleID='%@'", 
+                          isPlayingNow ? @"YES" : @"NO", title, artist, bundleID);
+                    return;
+                }
+                
+                if (isPlayingNow != g_lastMediaPlayingState) {
+                    playingChanged = YES;
+                    g_lastMediaPlayingState = isPlayingNow;
+                }
+                
+                if (![title isEqualToString:g_lastMediaTitle] || 
+                    ![artist isEqualToString:g_lastMediaArtist] || 
+                    ![bundleID isEqualToString:g_lastMediaBundleID]) {
+                    trackChanged = YES;
+                    g_lastMediaTitle = [title copy];
+                    g_lastMediaArtist = [artist copy];
+                    g_lastMediaBundleID = [bundleID copy];
+                }
+                
+                if (playingChanged) {
+                    if (isPlayingNow) {
+                        SRLog(@"🎵 [RCSystem] Media Playback State -> PLAYING. Executing trigger_media_play.");
+                        RCExecuteTrigger(@"trigger_media_play");
+                    } else {
+                        SRLog(@"🎵 [RCSystem] Media Playback State -> PAUSED. Executing trigger_media_pause.");
+                        RCExecuteTrigger(@"trigger_media_pause");
+                    }
+                }
+                
+                if (trackChanged) {
+                    SRLog(@"🎵 [RCSystem] Media Track Changed: %@ - %@ (%@). Executing trigger_media_track_change.", title, artist, bundleID);
+                    RCExecuteTrigger(@"trigger_media_track_change");
+                }
+            });
+        });
+    });
+}
+
+static void handle_media_state_notification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        handle_media_state_change();
+    });
+}
+
 static void register_system_event_observers() {
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     
@@ -1777,6 +1858,19 @@ static void register_system_event_observers() {
                                     NULL, 
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
 
+    // Media State changes (Darwin Notifications)
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_media_state_notification, 
+                                    CFSTR("com.apple.mediaremote.nowplayinginfochanged"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    // Initialize initial media state
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        handle_media_state_change();
+    });
+
     // Bluetooth: Track connection/disconnection
     [nc addObserverForName:@"BluetoothDeviceConnectSuccessNotification" 
                     object:nil 
@@ -1792,7 +1886,7 @@ static void register_system_event_observers() {
         handle_bluetooth_transition(note, NO);
     }];
 
-    SRLog(@"[RCTweak] WiFi and Bluetooth observers registered.");
+    SRLog(@"[RCTweak] WiFi, Bluetooth and Media observers registered.");
 }
 
 // ============ LUA INTERPRETER ============

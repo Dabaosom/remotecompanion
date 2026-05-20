@@ -44,6 +44,9 @@
     if ([triggerKey isEqualToString:@"shake"]) return @"waveform.path.ecg";
     if ([triggerKey isEqualToString:@"trigger_device_lock"]) return @"lock.fill";
     if ([triggerKey isEqualToString:@"trigger_device_unlock"]) return @"lock.open.fill";
+    if ([triggerKey isEqualToString:@"trigger_media_play"]) return @"play.fill";
+    if ([triggerKey isEqualToString:@"trigger_media_pause"]) return @"pause.fill";
+    if ([triggerKey isEqualToString:@"trigger_media_track_change"]) return @"forward.fill";
     return @"hand.tap"; // Default
 }
 
@@ -220,7 +223,25 @@
     addSection(@[@"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right"], @"Bottom Bar Gestures", NO);
     addSection(@[@"trigger_home_double_click", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"touchid_tap", @"touchid_hold"], @"Home Button", NO);
     addSection(@[@"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle"], @"Ringer Switch", NO);
-    addSection(@[@"trigger_device_lock", @"trigger_device_unlock"], @"Device State", NO);
+    // Device State Section (Only show if configured, hide if empty)
+    NSMutableArray *deviceStateKeys = [NSMutableArray array];
+    NSArray *configuredKeys = [[RCConfigManager sharedManager] allConfiguredTriggerKeys];
+    if ([configuredKeys containsObject:@"trigger_device_lock"]) {
+        [deviceStateKeys addObject:@"trigger_device_lock"];
+    }
+    if ([configuredKeys containsObject:@"trigger_device_unlock"]) {
+        [deviceStateKeys addObject:@"trigger_device_unlock"];
+    }
+    if ([configuredKeys containsObject:@"trigger_media_play"]) {
+        [deviceStateKeys addObject:@"trigger_media_play"];
+    }
+    if ([configuredKeys containsObject:@"trigger_media_pause"]) {
+        [deviceStateKeys addObject:@"trigger_media_pause"];
+    }
+    if ([configuredKeys containsObject:@"trigger_media_track_change"]) {
+        [deviceStateKeys addObject:@"trigger_media_track_change"];
+    }
+    addSection(deviceStateKeys, @"Device State", YES);
     addSection(@[@"shake"], @"Motion Gestures", NO);
 
     // Dynamic Sections (Hide if empty/favorited)
@@ -344,6 +365,21 @@
         
         [systemAlert addAction:[UIAlertAction actionWithTitle:@"Device Unlocked" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
             RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:@"trigger_device_unlock"];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Media Playing" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:@"trigger_media_play"];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Media Paused" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:@"trigger_media_pause"];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Media Track Changed" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:@"trigger_media_track_change"];
             [self.navigationController pushViewController:actionsVC animated:YES];
         }]];
         
