@@ -2,13 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
-## [3.2.0] - 2026-05-16
+## [3.2.0] - 2026-05-20
 
 ### Added
 - **Roothide Support**: Native compatibility for the Roothide bootstrap. The build system has been unified to support rootless, rootful, and roothide environments in a single project.
 - **AirPlay Connect (Web UI)**: Added a dedicated 'Connect AirPlay' action to the browser interface with automatic device discovery.
 - **Right-Click Context Menus**: Added intuitive right-click options for action items in the Web UI for faster management.
 - **Device Lock/Unlock Triggers**: Added new automation triggers for device lock and unlock events, allowing for complex routines when the device state changes.
+- **Media Playback Triggers**: Added new automation triggers for media events (`Media Playing`, `Media Paused`, and `Media Track Changed`) utilizing private `MediaRemote` observers.
+- **Web UI & Companion App Integration**: Integrated the new media triggers with custom iconography and control flows across both the iOS companion app and the web configuration interface.
 
 ### Improved
 - **Web UI Layout**: Refined spacing, footer placement, and mobile responsiveness for the browser interface.
