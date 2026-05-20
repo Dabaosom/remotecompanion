@@ -927,7 +927,7 @@ function toggleEditMode() {
 // ── Trigger metadata ──────────────────────────────────────────────────────────
 const TRIGGER_SECTIONS = [
   { title: 'Favorites',              id: 'favorites', keys: [] },
-  { title: 'Device Status',          id: 'status',    keys: [], prefix: 'trigger_device_', prefix2: 'trigger_media_', deletable: true },
+  { title: 'Device Status',          id: 'status',    keys: ['trigger_device_lock', 'trigger_device_unlock', 'trigger_media_play', 'trigger_media_pause', 'trigger_media_track_change'] },
   { title: 'Volume Buttons',         id: 'volume',    keys: ['volume_up_hold','volume_down_hold','volume_both_press'] },
   { title: 'Power Button',           id: 'power',     keys: ['power_double_tap','power_triple_click','power_quadruple_click','power_volume_up','power_volume_down','power_long_press'] },
   { title: 'Screen Gestures',        id: 'statusbar', keys: ['trigger_statusbar_left_hold','trigger_statusbar_center_hold','trigger_statusbar_right_hold','trigger_statusbar_swipe_left','trigger_statusbar_swipe_right'] },
@@ -1320,9 +1320,7 @@ function renderAll() {
 
   const allKeys = Object.keys(config.triggers);
   TRIGGER_SECTIONS.forEach(sec => {
-    if (sec.id === 'status') {
-      sec.keys = allKeys.filter(k => k.startsWith('trigger_device_') || k.startsWith('trigger_media_'));
-    } else if (sec.dynamic) {
+    if (sec.dynamic) {
       sec.keys = allKeys.filter(k => k.startsWith(sec.prefix));
     }
     if (sec.id === 'favorites') sec.keys = (config.favoriteTriggers || []).filter(k => config.triggers[k]);
@@ -2032,24 +2030,7 @@ function showAddTriggerSheet() {
     { label:'App Launch',        action:() => promptAppLaunchTrigger() },
     { label:'Notification',      action:() => promptNotifTrigger() },
     { label:'Scheduled',         action:() => promptSchedTrigger() },
-    { label:'System Event',      action:() => showAddSystemEventSheet() },
   ]);
-}
-
-function showAddSystemEventSheet() {
-  showSheet('New System Event', [
-    { label:'Device Locked',         action:() => createSystemEventTrigger('trigger_device_lock', 'Device Locked') },
-    { label:'Device Unlocked',       action:() => createSystemEventTrigger('trigger_device_unlock', 'Device Unlocked') },
-    { label:'Media Playing',         action:() => createSystemEventTrigger('trigger_media_play', 'Media Playing') },
-    { label:'Media Paused',          action:() => createSystemEventTrigger('trigger_media_pause', 'Media Paused') },
-    { label:'Media Track Changed',   action:() => createSystemEventTrigger('trigger_media_track_change', 'Media Track Changed') },
-  ]);
-}
-
-function createSystemEventTrigger(key, name) {
-  config.triggers[key] = { enabled: true, actions: [], name: name };
-  saveConfig(); renderAll();
-  setTimeout(() => openActionsPanel(key), 400);
 }
 
 function promptNewTrigger(prefix, placeholder) {
