@@ -1824,7 +1824,9 @@ static void handle_media_state_change() {
 }
 
 static void handle_media_state_notification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    NSString *notifName = (__bridge NSString *)name;
+    SRLog(@"🎵 [RCSystem] Received Media State Notification: %@", notifName);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         handle_media_state_change();
     });
 }
