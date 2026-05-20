@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [3.2.0] - 2026-05-20
 
 ### Added
+- **Previous App**: Added the `rc previous app` (or `rc last app`) command to instantly return to the previously active application. Accessible via the Web UI and iOS App Action Pickers.
 - **Roothide Support**: Native compatibility for the Roothide bootstrap. The build system has been unified to support rootless, rootful, and roothide environments in a single project.
 - **AirPlay Connect (Web UI)**: Added a dedicated 'Connect AirPlay' action to the browser interface with automatic device discovery.
 - **Right-Click Context Menus**: Added intuitive right-click options for action items in the Web UI for faster management.
