@@ -4795,6 +4795,14 @@ static void start_web_server() {
                                             }
                                         }
                                     }
+                            } else if ([path isEqualToString:@"/api/version"] && [method isEqualToString:@"GET"]) {
+                                NSString *plistPath = [NSString stringWithFormat:@"%@/Applications/RemoteCompanion.app/Info.plist", root_prefix()];
+                                NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+                                NSString *version = plist[@"CFBundleShortVersionString"] ?: @"3.3.0";
+                                NSDictionary *resp = @{@"ok": @YES, @"version": version};
+                                NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
                             } else if ([path isEqualToString:@"/api/triggers"] && [method isEqualToString:@"GET"]) {
                                 load_trigger_config();
                                 if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {

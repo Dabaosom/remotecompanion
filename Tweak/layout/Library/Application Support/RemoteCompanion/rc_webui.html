@@ -662,7 +662,7 @@
   <div id="triggers-root"></div>
   <div class="page-footer">
     <strong>RemoteCompanion</strong>
-    <span>v3.1.0</span>
+    <span class="app-version-display">v3.3.0</span>
   </div>
 </div>
 
@@ -775,7 +775,7 @@
 <!-- ══ STICKY FOOTER (Settings only) ══════════════════════════════════════ -->
 <div class="page-footer fixed" id="footer-settings-fixed">
   <strong>RemoteCompanion</strong>
-  <span>v3.1.0</span>
+  <span class="app-version-display">v3.3.0</span>
 </div>
 
 <!-- ══ CONTEXT MENU ═══════════════════════════════════════════════════════ -->
@@ -1234,8 +1234,25 @@ async function loadData() {
     document.getElementById('conn-banner').classList.remove('visible');
     hasLoadedData = true;
     renderAll();
+    loadVersion();
   } catch(e) {
     document.getElementById('conn-banner').classList.add('visible');
+  }
+}
+
+async function loadVersion() {
+  try {
+    const res = await fetch('/api/version');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.version) {
+        document.querySelectorAll('.app-version-display').forEach(el => {
+          el.textContent = 'v' + data.version;
+        });
+      }
+    }
+  } catch(e) {
+    console.error("Failed to load version", e);
   }
 }
 
