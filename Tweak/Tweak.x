@@ -71,6 +71,7 @@ typedef uint32_t IOOptionBits;
 
 extern void BKSHIDEventSetDigitizerInfo(IOHIDEventRef digitizerEvent, uint32_t contextID, uint8_t systemGestureisPossible, uint8_t isSystemGestureStateChangeEvent, CFStringRef displayUUID, CFTimeInterval initialTouchTimestamp, float maxForce);
 static UIWindow *g_rcTapTestWindow;
+static UIWindow *g_rcTapRecordWindow = nil;
 
 void SRLog(NSString *format, ...);
 #import <objc/message.h>
@@ -2002,6 +2003,9 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
         if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
             testWindowContextID = [g_rcTapTestWindow _contextId];
             contextID = testWindowContextID;
+        } else if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
+            testWindowContextID = [g_rcTapRecordWindow _contextId];
+            contextID = testWindowContextID;
         } else {
             id server = [NSClassFromString(@"CAWindowServer") performSelector:@selector(serverIfRunning)];
             id display = [server performSelector:@selector(displayWithName:) withObject:@"LCD"];
@@ -2184,6 +2188,163 @@ static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
 
     usleep(16000);
     perform_digitizer_touch(x2, y2, NO); // touch up
+}
+
+// ── Tap Recording Overlay ───────────────────────────────────────────────────
+static NSString *g_tapRecordStatus = @"idle";
+static int g_tapRecordCountdown = 0;
+static CGPoint g_tapRecordPoint = {0, 0};
+static UIViewController *g_rcTapRecordViewController = nil;
+static UILabel *g_rcTapRecordLabel = nil;
+static NSTimer *g_tapRecordTimeoutTimer = nil;
+
+static void rc_taprecord_cleanup(void);
+
+@interface RCTapRecordViewController : UIViewController
+@end
+
+@implementation RCTapRecordViewController
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (![g_tapRecordStatus isEqualToString:@"waiting"]) return;
+    UITouch *touch = [touches anyObject];
+    if (touch && g_rcTapRecordWindow) {
+        CGPoint pt = [touch locationInView:self.view];
+        g_tapRecordPoint = pt;
+        g_tapRecordStatus = @"recorded";
+        SRLog(@"[TapRecord] Touch captured at: %.1f, %.1f", pt.x, pt.y);
+        
+        // Play success haptic
+        AudioServicesPlaySystemSound(1519); // Peak/Actuation haptic
+        
+        rc_taprecord_cleanup();
+        
+        // Open/Foreground the RemoteCompanion app
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @try {
+                Class FBSOpenApplicationServiceClass = objc_getClass("FBSOpenApplicationService");
+                if (FBSOpenApplicationServiceClass) {
+                    FBSOpenApplicationService *service = [FBSOpenApplicationServiceClass serviceWithDefaultShellEndpoint];
+                    [service openApplication:@"com.saihgupr.remotecompanion" withOptions:nil completion:nil];
+                }
+            } @catch (NSException *e) {
+                SRLog(@"[TapRecord] Error relaunching app: %@", e);
+            }
+        });
+    }
+}
+
+- (BOOL)shouldAutorotate {
+    return NO;
+}
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskPortrait;
+}
+@end
+
+static void rc_taprecord_cleanup(void) {
+    if (g_tapRecordTimeoutTimer) {
+        [g_tapRecordTimeoutTimer invalidate];
+        g_tapRecordTimeoutTimer = nil;
+    }
+    if (g_rcTapRecordWindow) {
+        g_rcTapRecordWindow.hidden = YES;
+        g_rcTapRecordWindow = nil;
+        g_rcTapRecordViewController = nil;
+        g_rcTapRecordLabel = nil;
+    }
+}
+
+static void rc_taprecord_timeout(void) {
+    if ([g_tapRecordStatus isEqualToString:@"waiting"]) {
+        g_tapRecordStatus = @"timeout";
+        SRLog(@"[TapRecord] Timeout reached, no touch received.");
+        rc_taprecord_cleanup();
+    }
+}
+
+static void rc_taprecord_update_countdown(int secondsLeft) {
+    g_tapRecordCountdown = secondsLeft;
+    if (secondsLeft > 0) {
+        g_tapRecordStatus = @"counting";
+        rc_dispatch_sync_main_safe(^{
+            if (g_rcTapRecordLabel) {
+                g_rcTapRecordLabel.text = [NSString stringWithFormat:@"Recording tap in %d...", secondsLeft];
+            }
+        });
+        
+        // Play click sound / haptic
+        AudioServicesPlaySystemSound(1104);
+        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if ([g_tapRecordStatus isEqualToString:@"counting"]) {
+                rc_taprecord_update_countdown(secondsLeft - 1);
+            }
+        });
+    } else {
+        g_tapRecordStatus = @"waiting";
+        rc_dispatch_sync_main_safe(^{
+            if (g_rcTapRecordWindow) {
+                g_rcTapRecordWindow.userInteractionEnabled = YES;
+                g_rcTapRecordViewController.view.backgroundColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.0 alpha:0.12];
+                g_rcTapRecordViewController.view.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.0 alpha:1.0].CGColor;
+                g_rcTapRecordViewController.view.layer.borderWidth = 4.0;
+            }
+            if (g_rcTapRecordLabel) {
+                g_rcTapRecordLabel.text = @"TAP SCREEN NOW\nto record coordinates";
+                g_rcTapRecordLabel.backgroundColor = [UIColor colorWithRed:0.0 green:0.5 blue:0.0 alpha:0.85];
+            }
+        });
+        
+        // Start 10 seconds timeout timer
+        g_tapRecordTimeoutTimer = [NSTimer scheduledTimerWithTimeInterval:10.0 repeats:NO block:^(NSTimer *timer) {
+            rc_taprecord_timeout();
+        }];
+    }
+}
+
+static void rc_taprecord_start(void) {
+    rc_dispatch_sync_main_safe(^{
+        rc_taprecord_cleanup();
+        
+        g_tapRecordStatus = @"counting";
+        g_tapRecordCountdown = 3;
+        g_tapRecordPoint = CGPointZero;
+        
+        CGRect bounds = [UIScreen mainScreen].bounds;
+        g_rcTapRecordWindow = [[UIWindow alloc] initWithFrame:bounds];
+        g_rcTapRecordWindow.windowLevel = UIWindowLevelAlert + 2590.0;
+        g_rcTapRecordWindow.backgroundColor = [UIColor clearColor];
+        g_rcTapRecordWindow.userInteractionEnabled = NO;
+        
+        g_rcTapRecordViewController = [[RCTapRecordViewController alloc] init];
+        g_rcTapRecordViewController.view.frame = bounds;
+        g_rcTapRecordViewController.view.backgroundColor = [UIColor clearColor];
+        g_rcTapRecordWindow.rootViewController = g_rcTapRecordViewController;
+        
+        CGFloat labelWidth = bounds.size.width - 64.0;
+        CGFloat labelHeight = 100.0;
+        CGFloat labelX = (bounds.size.width - labelWidth) / 2.0;
+        CGFloat labelY = (bounds.size.height - labelHeight) / 2.0;
+        
+        g_rcTapRecordLabel = [[UILabel alloc] initWithFrame:CGRectMake(labelX, labelY, labelWidth, labelHeight)];
+        g_rcTapRecordLabel.textAlignment = NSTextAlignmentCenter;
+        g_rcTapRecordLabel.numberOfLines = 0;
+        g_rcTapRecordLabel.font = [UIFont boldSystemFontOfSize:20.0];
+        g_rcTapRecordLabel.textColor = [UIColor whiteColor];
+        g_rcTapRecordLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
+        g_rcTapRecordLabel.layer.cornerRadius = 16.0;
+        g_rcTapRecordLabel.layer.masksToBounds = YES;
+        g_rcTapRecordLabel.text = @"Recording tap in 3...";
+        
+        [g_rcTapRecordViewController.view addSubview:g_rcTapRecordLabel];
+        
+        g_rcTapRecordWindow.hidden = NO;
+        [g_rcTapRecordWindow makeKeyAndVisible];
+        
+        SRLog(@"[TapRecord] Countdown started");
+        
+        rc_taprecord_update_countdown(3);
+    });
 }
 
 // -- GraphicsServices tap beta -------------------------------------------------
@@ -4858,6 +5019,30 @@ static NSString *handle_command(NSString *cmd) {
     } else if ([cleanCmd isEqualToString:@"taptest"] || [cleanCmd hasPrefix:@"taptest "]) {
         return rc_handle_taptest_command(cleanCmd);
 
+    // taprecord
+    } else if ([cleanCmd isEqualToString:@"taprecord"]) {
+        rc_taprecord_start();
+        return @"Tap recording started\n";
+
+    // taprecordstatus
+    } else if ([cleanCmd isEqualToString:@"taprecordstatus"]) {
+        __block NSDictionary *resp = nil;
+        rc_dispatch_sync_main_safe(^{
+            NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+            [dict setObject:@YES forKey:@"ok"];
+            [dict setObject:g_tapRecordStatus forKey:@"status"];
+            if ([g_tapRecordStatus isEqualToString:@"counting"]) {
+                [dict setObject:@(g_tapRecordCountdown) forKey:@"seconds"];
+            } else if ([g_tapRecordStatus isEqualToString:@"recorded"]) {
+                [dict setObject:@(g_tapRecordPoint.x) forKey:@"x"];
+                [dict setObject:@(g_tapRecordPoint.y) forKey:@"y"];
+                g_tapRecordStatus = @"idle";
+            }
+            resp = [dict copy];
+        });
+        NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+        return [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+
     // tap x y
     } else if ([cleanCmd hasPrefix:@"tap "]) {
         NSArray<NSString *> *parts = rc_split_whitespace([cleanCmd substringFromIndex:4]);
@@ -5385,6 +5570,30 @@ static void start_web_server() {
                                     NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
                                     // Remove backslash escaping for forward slashes
                                     jsonStr = [jsonStr stringByReplacingOccurrencesOfString:@"\\/" withString:@"/"];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
+                                }
+                            } else if ([path isEqualToString:@"/api/taprecordstatus"] && ([method isEqualToString:@"GET"] || [method isEqualToString:@"POST"])) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    __block NSDictionary *resp = nil;
+                                    rc_dispatch_sync_main_safe(^{
+                                        NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+                                        [dict setObject:@YES forKey:@"ok"];
+                                        [dict setObject:g_tapRecordStatus forKey:@"status"];
+                                        if ([g_tapRecordStatus isEqualToString:@"counting"]) {
+                                            [dict setObject:@(g_tapRecordCountdown) forKey:@"seconds"];
+                                        } else if ([g_tapRecordStatus isEqualToString:@"recorded"]) {
+                                            [dict setObject:@(g_tapRecordPoint.x) forKey:@"x"];
+                                            [dict setObject:@(g_tapRecordPoint.y) forKey:@"y"];
+                                            g_tapRecordStatus = @"idle";
+                                        }
+                                        resp = [dict copy];
+                                    });
+                                    
+                                    NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                    NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
                                     responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
                                 }
                             } else if ([path isEqualToString:@"/api/devices"] && [method isEqualToString:@"GET"]) {

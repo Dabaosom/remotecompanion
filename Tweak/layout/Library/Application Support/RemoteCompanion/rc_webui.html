@@ -531,7 +531,9 @@
       flex: 1; background: none; border: none; color: #007aff;
       font-size: 17px; font-family: inherit; padding: 14px; cursor: pointer;
     }
-    .dialog-btns button:first-child { border-right: 0.5px solid rgba(255,255,255,0.1); color: #8e8e93; }
+    .dialog-btns button:not(:last-child) { border-right: 0.5px solid rgba(255,255,255,0.1); }
+    .dialog-btns button:first-child { color: #8e8e93; }
+    #dialog-record { color: #ff9500; }
 
     /* ── Context Menu (Right-click) ── */
     .context-menu {
@@ -799,6 +801,7 @@
     <input class="dialog-input" id="dialog-input" type="text" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     <div class="dialog-btns">
       <button onclick="closeDialog()">Cancel</button>
+      <button id="dialog-record" style="display:none;" onclick="dialogRecord()">Record</button>
       <button id="dialog-ok" onclick="dialogOk()">OK</button>
     </div>
   </div>
@@ -2501,6 +2504,9 @@ function closeSheet() {
 }
 
 // ── Dialog ────────────────────────────────────────────────────────────────────
+let dialogRecordInterval = null;
+let originalDialogMsg = '';
+
 function showDialog(title, msg, defaultVal, okLabel, callback, inputType='text', listId=null) {
   document.getElementById('dialog-title').textContent = title;
   document.getElementById('dialog-msg').textContent = msg;
@@ -2511,12 +2517,105 @@ function showDialog(title, msg, defaultVal, okLabel, callback, inputType='text',
   input.value = defaultVal || '';
   document.getElementById('dialog-ok').textContent = okLabel || 'OK';
   dialogCallback = callback;
+  
+  const recordBtn = document.getElementById('dialog-record');
+  if (title.includes('Tap') || title.includes('Hold')) {
+    recordBtn.style.display = 'inline-block';
+  } else {
+    recordBtn.style.display = 'none';
+  }
+  
   document.getElementById('dialog-backdrop').classList.add('visible');
   setTimeout(() => input.focus(), 100);
 }
 function closeDialog() {
   document.getElementById('dialog-backdrop').classList.remove('visible');
   dialogCallback = null;
+  if (dialogRecordInterval) {
+    clearInterval(dialogRecordInterval);
+    dialogRecordInterval = null;
+  }
+  const msgEl = document.getElementById('dialog-msg');
+  if (originalDialogMsg) {
+    msgEl.textContent = originalDialogMsg;
+    msgEl.style.color = '';
+    originalDialogMsg = '';
+  }
+}
+async function dialogRecord() {
+  const msgEl = document.getElementById('dialog-msg');
+  if (!originalDialogMsg) {
+    originalDialogMsg = msgEl.textContent;
+  }
+  
+  msgEl.textContent = 'Starting record on device...';
+  msgEl.style.color = '#ff9500';
+  
+  try {
+    await fetch('/api/command?cmd=taprecord', { method: 'POST' });
+  } catch (e) {
+    msgEl.textContent = 'Failed to start recording';
+    msgEl.style.color = '#ff3b30';
+    return;
+  }
+  
+  if (dialogRecordInterval) clearInterval(dialogRecordInterval);
+  
+  dialogRecordInterval = setInterval(async () => {
+    try {
+      const res = await fetch('/api/taprecordstatus');
+      const data = await res.json();
+      if (data.ok) {
+        if (data.status === 'counting') {
+          msgEl.textContent = `Recording tap in ${data.seconds}s...`;
+          msgEl.style.color = '#ff9500';
+        } else if (data.status === 'waiting') {
+          msgEl.textContent = 'TAP ON DEVICE SCREEN NOW!';
+          msgEl.style.color = '#34c759';
+        } else if (data.status === 'recorded') {
+          clearInterval(dialogRecordInterval);
+          dialogRecordInterval = null;
+          
+          let val = '';
+          const title = document.getElementById('dialog-title').textContent;
+          if (title.includes('Hold')) {
+            val = `${Math.round(data.x)} ${Math.round(data.y)} 800`;
+          } else {
+            val = `${Math.round(data.x)} ${Math.round(data.y)}`;
+          }
+          
+          const cb = dialogCallback;
+          closeDialog();
+          if (cb) cb(val);
+          showToast('✓ Coordinate recorded and added');
+        } else if (data.status === 'timeout') {
+          clearInterval(dialogRecordInterval);
+          dialogRecordInterval = null;
+          msgEl.textContent = 'Recording timed out.';
+          msgEl.style.color = '#ff3b30';
+          setTimeout(() => {
+            if (!dialogRecordInterval && originalDialogMsg) {
+              msgEl.textContent = originalDialogMsg;
+              msgEl.style.color = '';
+              originalDialogMsg = '';
+            }
+          }, 3000);
+        }
+      }
+    } catch (e) {
+      clearInterval(dialogRecordInterval);
+      dialogRecordInterval = null;
+      msgEl.textContent = 'Error checking status.';
+      msgEl.style.color = '#ff3b30';
+      setTimeout(() => {
+        if (!dialogRecordInterval && originalDialogMsg) {
+          msgEl.textContent = originalDialogMsg;
+          msgEl.style.color = '';
+          originalDialogMsg = '';
+        }
+      }, 3000);
+    }
+  }, 500);
 }
 function dialogOk() {
   const val = document.getElementById('dialog-input').value.trim();

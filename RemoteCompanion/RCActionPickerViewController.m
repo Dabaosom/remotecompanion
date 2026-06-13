@@ -7,6 +7,8 @@
 @property (nonatomic, strong) NSArray<NSArray<NSDictionary *> *> *sections;
 @property (nonatomic, strong) NSArray<NSDictionary *> *filteredActions;
 @property (nonatomic, strong) UISearchController *searchController;
+@property (nonatomic, strong) UIAlertController *activeAlert;
+@property (nonatomic, assign) BOOL isWaitingForTapRecord;
 @end
 
 @implementation RCActionPickerViewController
@@ -22,6 +24,11 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(appDidBecomeActive)
+                                                 name:UIApplicationDidBecomeActiveNotification
+                                               object:nil];
     
     // Elegant grey tint
     self.navigationController.navigationBar.tintColor = [UIColor labelColor];
@@ -339,18 +346,23 @@
         [self dismissViewControllerAnimated:YES completion:nil];
     }
 }
-
 - (void)handleTouchCoordInputWithTitle:(NSString *)title
                            placeholder:(NSString *)placeholder
                                  build:(NSString *(^)(NSString *))build {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
-                                                                   message:placeholder
-                                                            preferredStyle:UIAlertControllerStyleAlert];
+                                                                    message:placeholder
+                                                             preferredStyle:UIAlertControllerStyleAlert];
+    self.activeAlert = alert;
+    self.isWaitingForTapRecord = NO;
+    
     [alert addTextFieldWithConfigurationHandler:^(UITextField *tf) {
         tf.keyboardType = UIKeyboardTypeNumbersAndPunctuation;
         tf.placeholder = placeholder;
     }];
+    
     UIAlertAction *ok = [UIAlertAction actionWithTitle:@"Add" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self.activeAlert = nil;
+        self.isWaitingForTapRecord = NO;
         NSString *val = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if (!val.length) return;
         NSString *cmd = build(val);
@@ -363,12 +375,74 @@
             [self dismissViewControllerAnimated:YES completion:nil];
         }
     }];
+    
     UIAlertAction *cancel = [UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a) {
+        self.activeAlert = nil;
+        self.isWaitingForTapRecord = NO;
         [self.tableView deselectRowAtIndexPath:[self.tableView indexPathForSelectedRow] animated:YES];
     }];
+    
+    UIAlertAction *record = [UIAlertAction actionWithTitle:@"Record Tap" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        self.isWaitingForTapRecord = YES;
+        [[RCServerClient sharedClient] executeCommand:@"taprecord" completion:^(NSString * _Nullable output, NSError * _Nullable error) {}];
+        
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Wundeclared-selector"
+        if ([[UIApplication sharedApplication] respondsToSelector:@selector(suspend)]) {
+            [[UIApplication sharedApplication] performSelector:@selector(suspend)];
+        }
+        #pragma clang diagnostic pop
+    }];
+    
     [alert addAction:cancel];
+    if ([title isEqualToString:@"Tap"] || [title isEqualToString:@"Hold"]) {
+        [alert addAction:record];
+    }
     [alert addAction:ok];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)appDidBecomeActive {
+    if (self.isWaitingForTapRecord && self.activeAlert) {
+        [[RCServerClient sharedClient] executeCommand:@"taprecordstatus" completion:^(NSString * _Nullable output, NSError * _Nullable error) {
+            if (output) {
+                NSData *data = [output dataUsingEncoding:NSUTF8StringEncoding];
+                NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+                if (json && [json[@"status"] isEqualToString:@"recorded"]) {
+                    double x = [json[@"x"] doubleValue];
+                    double y = [json[@"y"] doubleValue];
+                    
+                    NSString *val;
+                    NSString *cmd;
+                    if ([self.activeAlert.title isEqualToString:@"Hold"]) {
+                        val = [NSString stringWithFormat:@"%.0f %.0f 800", x, y];
+                        cmd = [NSString stringWithFormat:@"hold %@", val];
+                    } else {
+                        val = [NSString stringWithFormat:@"%.0f %.0f", x, y];
+                        cmd = [NSString stringWithFormat:@"tap %@", val];
+                    }
+                    
+                    if (self.onActionSelected) {
+                        self.onActionSelected(cmd);
+                    }
+                    
+                    UIAlertController *alertToDismiss = self.activeAlert;
+                    self.activeAlert = nil;
+                    self.isWaitingForTapRecord = NO;
+                    
+                    [alertToDismiss dismissViewControllerAnimated:YES completion:^{
+                        if (self.searchController.isActive) {
+                            [self.searchController dismissViewControllerAnimated:NO completion:^{
+                                [self dismissViewControllerAnimated:YES completion:nil];
+                            }];
+                        } else {
+                            [self dismissViewControllerAnimated:YES completion:nil];
+                        }
+                    }];
+                }
+            }
+        }];
+    }
 }
 
 - (void)handleValueInputForCommand:(NSString *)commandPlaceholder {
