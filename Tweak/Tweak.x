@@ -63,6 +63,7 @@ typedef uint32_t IOOptionBits;
 
 @interface UIWindow (Private)
 - (uint32_t)_contextId;
++ (NSArray *)allWindowsIncludingInternalWindows:(BOOL)includeInternal onlyVisibleWindows:(BOOL)onlyVisible;
 @end
 
 @interface UIApplication (Private)
@@ -1968,8 +1969,96 @@ static void rc_load_touch_symbols(void) {
 
 static void rc_dispatch_sync_main_safe(dispatch_block_t block);
 
-// Sends a single digitizer finger event using absolute screen points (not normalized).
-// MUST be called from rc_touch_queue (a background serial queue), never from main thread.
+static BOOL rc_is_springboard_context(uint32_t cid) {
+    if (cid == 0) return NO;
+    __block BOOL isSB = NO;
+    rc_dispatch_sync_main_safe(^{
+        if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
+            if ([g_rcTapTestWindow _contextId] == cid) {
+                isSB = YES;
+                return;
+            }
+        }
+        if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
+            if ([g_rcTapRecordWindow _contextId] == cid) {
+                isSB = YES;
+                return;
+            }
+        }
+        Class windowClass = NSClassFromString(@"UIWindow");
+        if (windowClass && [windowClass respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
+            NSArray *allWindows = [windowClass allWindowsIncludingInternalWindows:YES onlyVisibleWindows:YES];
+            for (UIWindow *window in allWindows) {
+                if ([window respondsToSelector:@selector(_contextId)]) {
+                    if ([window _contextId] == cid) {
+                        isSB = YES;
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    return isSB;
+}
+
+static uint64_t rc_get_digitizer_sender_id(void) {
+    static uint64_t savedSenderID = 0;
+    if (savedSenderID != 0) return savedSenderID;
+
+    void *ioKit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+    if (!ioKit) return 0xDEFACEDBEEFFECE5ULL;
+
+    CFArrayRef (*copyServices)(IOHIDEventSystemClientRef) = (CFArrayRef (*)(IOHIDEventSystemClientRef))dlsym(ioKit, "IOHIDEventSystemClientCopyServices");
+    CFTypeRef (*copyProperty)(id, CFStringRef) = (CFTypeRef (*)(id, CFStringRef))dlsym(ioKit, "IOHIDServiceClientCopyProperty");
+    uint64_t (*getRegistryID)(id) = (uint64_t (*)(id))dlsym(ioKit, "IOHIDServiceClientGetRegistryID");
+
+    if (!copyServices || !copyProperty || !getRegistryID) {
+        return 0xDEFACEDBEEFFECE5ULL;
+    }
+
+    IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+    if (!client) return 0xDEFACEDBEEFFECE5ULL;
+
+    CFArrayRef services = copyServices(client);
+    if (services) {
+        CFIndex count = CFArrayGetCount(services);
+        for (CFIndex i = 0; i < count; i++) {
+            id service = (__bridge id)CFArrayGetValueAtIndex(services, i);
+            CFTypeRef usagePageRef = copyProperty(service, CFSTR("PrimaryUsagePage"));
+            CFTypeRef usageRef = copyProperty(service, CFSTR("PrimaryUsage"));
+
+            if (usagePageRef && usageRef) {
+                int usagePage = 0;
+                int usage = 0;
+                CFNumberGetValue((CFNumberRef)usagePageRef, kCFNumberIntType, &usagePage);
+                CFNumberGetValue((CFNumberRef)usageRef, kCFNumberIntType, &usage);
+
+                CFRelease(usagePageRef);
+                CFRelease(usageRef);
+
+                // Digitizer Usage Page = 0x0D (13), Touch Screen Usage = 0x04 (4)
+                if (usagePage == 13 && usage == 4) {
+                    uint64_t regID = getRegistryID(service);
+                    if (regID != 0) {
+                        savedSenderID = regID;
+                        SRLog(@"[Touch] Dynamically resolved digitizer senderID: 0x%llX", regID);
+                        break;
+                    }
+                }
+            }
+        }
+        CFRelease(services);
+    }
+    CFRelease(client);
+
+    if (savedSenderID == 0) {
+        savedSenderID = 0xDEFACEDBEEFFECE5ULL; // Fallback
+        SRLog(@"[Touch] Could not resolve digitizer senderID dynamically, using fallback: 0x%llX", savedSenderID);
+    }
+    return savedSenderID;
+}
+
+
 static void perform_digitizer_touch(double x, double y, BOOL down) {
     if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
         !_IOHIDEventAppendEvent || !_IOHIDEventSystemClientCreate || !_IOHIDEventSystemClientDispatchEvent) {
@@ -1999,32 +2088,282 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
     // Find context ID at the touch location to route the touch event correctly
     __block uint32_t contextID = 0;
     __block uint32_t testWindowContextID = 0;
+    __block uint32_t recordWindowContextID = 0;
+    __block NSString *loggedBundleID = nil;
     rc_dispatch_sync_main_safe(^{
         if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
             testWindowContextID = [g_rcTapTestWindow _contextId];
             contextID = testWindowContextID;
         } else if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
-            testWindowContextID = [g_rcTapRecordWindow _contextId];
-            contextID = testWindowContextID;
+            recordWindowContextID = [g_rcTapRecordWindow _contextId];
+            contextID = recordWindowContextID;
         } else {
+            // 1. Primary Method: CAWindowServer contextIdAtPosition:
+            dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_NOW);
             id server = [NSClassFromString(@"CAWindowServer") performSelector:@selector(serverIfRunning)];
             id display = [server performSelector:@selector(displayWithName:) withObject:@"LCD"];
             if (display) {
-                CGPoint pt = CGPointMake(x, y);
+                CGPoint ptUnscaled = CGPointMake(x, y);
                 typedef unsigned int (*ContextIdAtPosFn)(id, SEL, CGPoint);
                 ContextIdAtPosFn fn = (ContextIdAtPosFn)[display methodForSelector:@selector(contextIdAtPosition:)];
                 if (fn) {
-                    contextID = fn(display, @selector(contextIdAtPosition:), pt);
+                    contextID = fn(display, @selector(contextIdAtPosition:), ptUnscaled);
+                    if (contextID > 0) {
+                        SRLog(@"[Touch] CAWindowServer resolved contextID: %u using unscaled coords (%.1f, %.1f)", contextID, x, y);
+                    } else if (scale > 1.0) {
+                        CGPoint ptScaled = CGPointMake(x * scale, y * scale);
+                        contextID = fn(display, @selector(contextIdAtPosition:), ptScaled);
+                        if (contextID > 0) {
+                            SRLog(@"[Touch] CAWindowServer resolved contextID: %u using scaled coords (%.1f, %.1f)", contextID, ptScaled.x, ptScaled.y);
+                        }
+                    }
+                }
+            }
+
+            // 2. Secondary Fallback: FBSceneManager scene traversal + window lists
+            if (contextID == 0) {
+                // Resolve contextID via FBSceneManager from the frontmost application scene
+                NSString *frontBundleID = nil;
+                SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+                if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+                    id frontApp = [sb _accessibilityFrontMostApplication];
+                    if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
+                        frontBundleID = [frontApp bundleIdentifier];
+                    }
+                }
+                loggedBundleID = frontBundleID;
+                
+                if (frontBundleID) {
+                    Class managerClass = NSClassFromString(@"FBSceneManager");
+                    id manager = nil;
+                    if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+                        manager = [managerClass performSelector:@selector(sharedInstance)];
+                    }
+                    
+                    if (manager) {
+                        id workspace = nil;
+                        @try {
+                            workspace = [manager valueForKey:@"_workspace"];
+                        } @catch (NSException *e) {}
+                        
+                        if (workspace) {
+                            id scenes = nil;
+                            if ([workspace respondsToSelector:@selector(scenes)]) {
+                                scenes = [workspace performSelector:@selector(scenes)];
+                            }
+                            if (!scenes) {
+                                @try {
+                                    scenes = [workspace valueForKey:@"_scenes"];
+                                } @catch (NSException *e) {}
+                            }
+                            if (!scenes) {
+                                @try {
+                                    scenes = [workspace valueForKey:@"_scenesByID"];
+                                } @catch (NSException *e) {}
+                            }
+                            if (!scenes) {
+                                @try {
+                                    scenes = [workspace valueForKey:@"allScenes"];
+                                } @catch (NSException *e) {}
+                            }
+                            
+                            NSArray *sceneArray = nil;
+                            if ([scenes isKindOfClass:[NSDictionary class]]) {
+                                sceneArray = [scenes allValues];
+                            } else if ([scenes isKindOfClass:[NSSet class]]) {
+                                sceneArray = [scenes allObjects];
+                            } else if ([scenes isKindOfClass:[NSArray class]]) {
+                                sceneArray = scenes;
+                            }
+                            
+                            for (id scene in sceneArray) {
+                                @try {
+                                    id sceneID = nil;
+                                    if ([scene respondsToSelector:@selector(identifier)]) {
+                                        sceneID = [scene performSelector:@selector(identifier)];
+                                    }
+                                    if (![sceneID isKindOfClass:[NSString class]]) {
+                                        continue;
+                                    }
+                                    
+                                    // Check if the scene identifier contains the frontBundleID
+                                    if ([sceneID rangeOfString:frontBundleID options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                                        id layerManager = nil;
+                                        if ([scene respondsToSelector:@selector(layerManager)]) {
+                                            layerManager = [scene performSelector:@selector(layerManager)];
+                                        }
+                                        if (!layerManager) {
+                                            @try {
+                                                layerManager = [scene valueForKey:@"_layerManager"];
+                                            } @catch (NSException *e) {}
+                                        }
+                                        
+                                        id layers = nil;
+                                        if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
+                                            layers = [layerManager performSelector:@selector(layers)];
+                                        }
+                                        if (!layers && layerManager) {
+                                            @try {
+                                                layers = [layerManager valueForKey:@"_layers"];
+                                            } @catch (NSException *e) {}
+                                        }
+                                        
+                                        NSArray *layerArray = nil;
+                                        if ([layers isKindOfClass:[NSSet class]]) {
+                                            layerArray = [layers allObjects];
+                                        } else if ([layers isKindOfClass:[NSArray class]]) {
+                                            layerArray = layers;
+                                        } else if ([layers isKindOfClass:[NSOrderedSet class]]) {
+                                            layerArray = [layers array];
+                                        }
+                                        
+                                        for (id layer in layerArray) {
+                                            if ([layer respondsToSelector:@selector(contextID)]) {
+                                                NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
+                                                if (sig) {
+                                                    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                                                    [inv setSelector:@selector(contextID)];
+                                                    [inv setTarget:layer];
+                                                    [inv invoke];
+                                                    uint32_t cid = 0;
+                                                    [inv getReturnValue:&cid];
+                                                    if (cid > 0) {
+                                                        contextID = cid;
+                                                        SRLog(@"[Touch] FBSceneManager resolved contextID: %u for frontApp: %@", contextID, frontBundleID);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } @catch (NSException *e) {}
+                            }
+                        }
+                    }
+                }
+                
+                // Fallback 1: Local SpringBoard Windows
+                if (contextID == 0) {
+                    Class windowClass = NSClassFromString(@"UIWindow");
+                    if (windowClass && [windowClass respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
+                        NSArray *allWindows = [windowClass allWindowsIncludingInternalWindows:YES onlyVisibleWindows:YES];
+                        for (UIWindow *window in [allWindows reverseObjectEnumerator]) {
+                            if (window.userInteractionEnabled && !window.hidden) {
+                                CGPoint localPt = [window convertPoint:CGPointMake(x, y) fromWindow:nil];
+                                if ([window pointInside:localPt withEvent:nil]) {
+                                    uint32_t cid = 0;
+                                    if ([window respondsToSelector:@selector(_contextId)]) {
+                                        cid = [window _contextId];
+                                    }
+                                    if (cid > 0) {
+                                        contextID = cid;
+                                        SRLog(@"[Touch] SpringBoard window list resolved contextID: %u", contextID);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Fallback 2: Any active foreground scene
+                if (contextID == 0) {
+                    Class managerClass = NSClassFromString(@"FBSceneManager");
+                    id manager = nil;
+                    if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+                        manager = [managerClass performSelector:@selector(sharedInstance)];
+                    }
+                    if (manager) {
+                        id workspace = nil;
+                        @try {
+                            workspace = [manager valueForKey:@"_workspace"];
+                        } @catch (NSException *e) {}
+                        if (workspace) {
+                            id scenes = nil;
+                            if ([workspace respondsToSelector:@selector(scenes)]) {
+                                scenes = [workspace performSelector:@selector(scenes)];
+                            }
+                            if (!scenes) {
+                                @try { scenes = [workspace valueForKey:@"_scenes"]; } @catch (NSException *e) {}
+                            }
+                            if (!scenes) {
+                                @try { scenes = [workspace valueForKey:@"allScenes"]; } @catch (NSException *e) {}
+                            }
+                            NSArray *sceneArray = nil;
+                            if ([scenes isKindOfClass:[NSDictionary class]]) {
+                                sceneArray = [scenes allValues];
+                            } else if ([scenes isKindOfClass:[NSSet class]]) {
+                                sceneArray = [scenes allObjects];
+                            } else if ([scenes isKindOfClass:[NSArray class]]) {
+                                sceneArray = scenes;
+                            }
+                            
+                            for (id scene in sceneArray) {
+                                @try {
+                                    id settings = nil;
+                                    if ([scene respondsToSelector:@selector(settings)]) {
+                                        settings = [scene performSelector:@selector(settings)];
+                                    }
+                                    BOOL isForeground = NO;
+                                    if (settings && [settings respondsToSelector:NSSelectorFromString(@"isForeground")]) {
+                                        SEL isFgSel = NSSelectorFromString(@"isForeground");
+                                        NSMethodSignature *fgSig = [settings methodSignatureForSelector:isFgSel];
+                                        if (fgSig) {
+                                            NSInvocation *fgInv = [NSInvocation invocationWithMethodSignature:fgSig];
+                                            [fgInv setSelector:isFgSel];
+                                            [fgInv setTarget:settings];
+                                            [fgInv invoke];
+                                            [fgInv getReturnValue:&isForeground];
+                                        }
+                                    }
+                                    if (isForeground) {
+                                        id layerManager = nil;
+                                        if ([scene respondsToSelector:@selector(layerManager)]) {
+                                            layerManager = [scene performSelector:@selector(layerManager)];
+                                        }
+                                        if (!layerManager) {
+                                            @try { layerManager = [scene valueForKey:@"_layerManager"]; } @catch (NSException *e) {}
+                                        }
+                                        id layers = nil;
+                                        if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
+                                            layers = [layerManager performSelector:@selector(layers)];
+                                        }
+                                        if (!layers && layerManager) {
+                                            @try { layers = [layerManager valueForKey:@"_layers"]; } @catch (NSException *e) {}
+                                        }
+                                        NSArray *layerArray = nil;
+                                        if ([layers isKindOfClass:[NSSet class]]) {
+                                            layerArray = [layers allObjects];
+                                        } else if ([layers isKindOfClass:[NSArray class]]) {
+                                            layerArray = layers;
+                                        }
+                                        for (id layer in layerArray) {
+                                            if ([layer respondsToSelector:@selector(contextID)]) {
+                                                NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
+                                                if (sig) {
+                                                    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                                                    [inv setSelector:@selector(contextID)];
+                                                    [inv setTarget:layer];
+                                                    [inv invoke];
+                                                    uint32_t cid = 0;
+                                                    [inv getReturnValue:&cid];
+                                                    if (cid > 0) {
+                                                        contextID = cid;
+                                                        SRLog(@"[Touch] Foreground scene resolved contextID: %u", contextID);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        if (contextID > 0) break;
+                                    }
+                                } @catch (NSException *e) {}
+                            }
+                        }
+                    }
                 }
             }
         }
     });
-
-    if (contextID > 0) {
-        SRLog(@"[Touch] Routing touch to contextID: %u (test window context: %u)", contextID, testWindowContextID);
-    } else {
-        SRLog(@"[Touch] No contextID resolved for coordinates (%.1f, %.1f)", x, y);
-    }
 
     uint32_t transducerType = 3;
     uint32_t parentIndex = 0;
@@ -2032,14 +2371,14 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
     uint32_t parentEventMask = 0;
     uint32_t parentButtonMask = 0;
     uint64_t ts = mach_absolute_time();
-    uint32_t fingerIndex = 1; // Non-zero path index
+    uint32_t fingerIndex = 1;
     uint32_t fingerIdentity = 2;
     uint32_t fingerEventMask = 0x3; // kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch
     double pressure = down ? 1.0 : 0.0;
     uint32_t handEventMask = 35;
     uint32_t handEventTouch = down ? 1 : 0;
 
-    // Dispatch system-wide event (Normalized Coordinates)
+    // Path 1: System-wide global event
     IOHIDEventRef parentGlobal = _IOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault, ts,
         transducerType, parentIndex, parentIdentity, parentEventMask, parentButtonMask,
@@ -2047,6 +2386,7 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
         0, 0, 0);
 
     if (parentGlobal) {
+        // Path 1 system-wide event: BackBoard/IOHIDFamily always expects normalized coordinates (rx, ry) in [0.0, 1.0].
         IOHIDEventRef fingerGlobal = _IOHIDEventCreateDigitizerFingerEvent(
             kCFAllocatorDefault, ts,
             fingerIndex, fingerIdentity, fingerEventMask,
@@ -2075,7 +2415,7 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
         }
 
         if (_IOHIDEventSetSenderID) {
-            _IOHIDEventSetSenderID(parentGlobal, 0xDEFACEDBEEFFECE5ULL);
+            _IOHIDEventSetSenderID(parentGlobal, rc_get_digitizer_sender_id());
         }
 
         if (contextID > 0) {
@@ -2091,12 +2431,9 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
         CFRelease(parentGlobal);
     }
 
-    // Local dispatch if targeting SpringBoard context (Absolute Coordinates)
-    BOOL targetIsLocal = (contextID > 0 && testWindowContextID > 0 && contextID == testWindowContextID);
-    
-    // As a fallback/extra measure, we can always enqueue locally inside SpringBoard if we have a contextID.
-    // However, if it's another app's context, local enqueue inside SpringBoard won't route to that app,
-    // so we only do it if the target is indeed local to our test overlay (or SpringBoard context).
+    // Path 2: Local SpringBoard Window enqueue (Absolute Coordinates)
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
+
     if (targetIsLocal) {
         IOHIDEventRef parentLocal = _IOHIDEventCreateDigitizerEvent(
             kCFAllocatorDefault, ts,
@@ -2145,6 +2482,8 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
             CFRelease(parentLocal);
         }
     }
+    
+    SRLog(@"[Touch] Dispatched touch event (down=%d) to contextID=%u (frontApp: %@) at (%.1f, %.1f)", down, contextID, loggedBundleID, x, y);
 }
 
 // Simulate a tap at absolute pixel coordinates (x, y).
