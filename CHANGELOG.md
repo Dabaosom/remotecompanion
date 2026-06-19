@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.0] - 2026-06-13
+
+### Added
+- **Previous App**: Added the `rc previous app` (or `rc last app`) command to instantly return to the previously active application. Accessible via the Web UI and iOS App Action Pickers.
+- **Device Lock/Unlock Triggers**: Added new automation triggers for device lock and unlock events, allowing for complex routines when the device state changes.
+- **Media Playback Triggers**: Added new automation triggers for media events (`Media Playing`, `Media Paused`, and `Media Track Changed`) utilizing private `MediaRemote` observers.
+- **Web UI & Companion App Integration**: Integrated the new media triggers with custom iconography and control flows across both the iOS companion app and the web configuration interface.
+
 ## [3.2.0] - 2026-05-16
 
 ### Added

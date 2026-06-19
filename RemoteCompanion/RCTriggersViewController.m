@@ -42,6 +42,11 @@
     if ([triggerKey hasPrefix:@"notif_"]) return @"bell.badge.fill";
     if ([triggerKey hasPrefix:@"sched_"]) return @"clock.fill";
     if ([triggerKey isEqualToString:@"shake"]) return @"waveform.path.ecg";
+    if ([triggerKey isEqualToString:@"trigger_device_lock"]) return @"lock.fill";
+    if ([triggerKey isEqualToString:@"trigger_device_unlock"]) return @"lock.open.fill";
+    if ([triggerKey isEqualToString:@"trigger_media_play"]) return @"play.fill";
+    if ([triggerKey isEqualToString:@"trigger_media_pause"]) return @"pause.fill";
+    if ([triggerKey isEqualToString:@"trigger_media_track_change"]) return @"forward.fill";
     return @"hand.tap"; // Default
 }
 
@@ -218,6 +223,25 @@
     addSection(@[@"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right"], @"Bottom Bar Gestures", NO);
     addSection(@[@"trigger_home_double_click", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"touchid_tap", @"touchid_hold"], @"Home Button", NO);
     addSection(@[@"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle"], @"Ringer Switch", NO);
+    // Device State Section (Only show if configured, hide if empty)
+    NSMutableArray *deviceStateKeys = [NSMutableArray array];
+    NSArray *configuredKeys = [[RCConfigManager sharedManager] allConfiguredTriggerKeys];
+    if ([configuredKeys containsObject:@"trigger_device_lock"]) {
+        [deviceStateKeys addObject:@"trigger_device_lock"];
+    }
+    if ([configuredKeys containsObject:@"trigger_device_unlock"]) {
+        [deviceStateKeys addObject:@"trigger_device_unlock"];
+    }
+    if ([configuredKeys containsObject:@"trigger_media_play"]) {
+        [deviceStateKeys addObject:@"trigger_media_play"];
+    }
+    if ([configuredKeys containsObject:@"trigger_media_pause"]) {
+        [deviceStateKeys addObject:@"trigger_media_pause"];
+    }
+    if ([configuredKeys containsObject:@"trigger_media_track_change"]) {
+        [deviceStateKeys addObject:@"trigger_media_track_change"];
+    }
+    addSection(deviceStateKeys, @"Device State", YES);
     addSection(@[@"shake"], @"Motion Gestures", NO);
 
     // Dynamic Sections (Hide if empty/favorited)
@@ -329,6 +353,58 @@
     [alert addAction:[UIAlertAction actionWithTitle:@"Scheduled Trigger" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
         RCScheduledTriggerViewController *vc = [[RCScheduledTriggerViewController alloc] init];
         [self.navigationController pushViewController:vc animated:YES];
+    }]];
+    
+    [alert addAction:[UIAlertAction actionWithTitle:@"System Event" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+        UIAlertController *systemAlert = [UIAlertController alertControllerWithTitle:@"System Event" message:@"Select a system event to trigger actions." preferredStyle:UIAlertControllerStyleAlert];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Device Locked" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *key = @"trigger_device_lock";
+            if (![[[RCConfigManager sharedManager] allConfiguredTriggerKeys] containsObject:key]) {
+                [[RCConfigManager sharedManager] updateTrigger:key withData:@{@"name": @"Device Locked", @"enabled": @YES, @"actions": @[]}];
+            }
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:key];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Device Unlocked" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *key = @"trigger_device_unlock";
+            if (![[[RCConfigManager sharedManager] allConfiguredTriggerKeys] containsObject:key]) {
+                [[RCConfigManager sharedManager] updateTrigger:key withData:@{@"name": @"Device Unlocked", @"enabled": @YES, @"actions": @[]}];
+            }
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:key];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Media Playing" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *key = @"trigger_media_play";
+            if (![[[RCConfigManager sharedManager] allConfiguredTriggerKeys] containsObject:key]) {
+                [[RCConfigManager sharedManager] updateTrigger:key withData:@{@"name": @"Media Playing", @"enabled": @YES, @"actions": @[]}];
+            }
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:key];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Media Paused" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *key = @"trigger_media_pause";
+            if (![[[RCConfigManager sharedManager] allConfiguredTriggerKeys] containsObject:key]) {
+                [[RCConfigManager sharedManager] updateTrigger:key withData:@{@"name": @"Media Paused", @"enabled": @YES, @"actions": @[]}];
+            }
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:key];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Media Track Changed" style:UIAlertActionStyleDefault handler:^(UIAlertAction * _Nonnull action) {
+            NSString *key = @"trigger_media_track_change";
+            if (![[[RCConfigManager sharedManager] allConfiguredTriggerKeys] containsObject:key]) {
+                [[RCConfigManager sharedManager] updateTrigger:key withData:@{@"name": @"Media Track Changed", @"enabled": @YES, @"actions": @[]}];
+            }
+            RCActionsViewController *actionsVC = [[RCActionsViewController alloc] initWithTriggerKey:key];
+            [self.navigationController pushViewController:actionsVC animated:YES];
+        }]];
+        
+        [systemAlert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+        [self presentViewController:systemAlert animated:YES completion:nil];
     }]];
     
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
@@ -641,8 +717,8 @@
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tableView trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)indexPath {
     NSString *triggerKey = _sections[indexPath.section][indexPath.row];
 
-    // Only allow delete for NFC, WiFi, BT, App, Notif, Sched triggers
-    if (![triggerKey hasPrefix:@"nfc_"] && ![triggerKey hasPrefix:@"wifi_"] && ![triggerKey hasPrefix:@"bt_"] && ![triggerKey hasPrefix:@"app_launch_"] && ![triggerKey hasPrefix:@"notif_"] && ![triggerKey hasPrefix:@"sched_"]) {
+    // Only allow delete for NFC, WiFi, BT, App, Notif, Sched, Device State triggers
+    if (![triggerKey hasPrefix:@"nfc_"] && ![triggerKey hasPrefix:@"wifi_"] && ![triggerKey hasPrefix:@"bt_"] && ![triggerKey hasPrefix:@"app_launch_"] && ![triggerKey hasPrefix:@"notif_"] && ![triggerKey hasPrefix:@"sched_"] && ![triggerKey hasPrefix:@"trigger_device_"] && ![triggerKey hasPrefix:@"trigger_media_"]) {
         return [UISwipeActionsConfiguration configurationWithActions:@[]];
     }
 

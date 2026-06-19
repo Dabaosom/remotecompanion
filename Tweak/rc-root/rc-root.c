@@ -13,10 +13,202 @@
 #include <sys/wait.h>
 #include <CoreFoundation/CoreFoundation.h>
 
+#include <dlfcn.h>
+#include <mach/mach_time.h>
+
 extern char **environ;
 
-// Read custom paths from preferences plist
+// IOHIDEvent types and private function pointers
+typedef struct __IOHIDEvent *IOHIDEventRef;
+typedef struct __IOHIDEventSystemClient *IOHIDEventSystemClientRef;
+typedef uint32_t IOHIDEventOptionBits;
 
+static IOHIDEventRef (*_IOHIDEventCreateDigitizerEvent)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits);
+static IOHIDEventRef (*_IOHIDEventCreateDigitizerFingerEvent)(CFAllocatorRef, uint64_t, uint32_t, uint32_t, uint32_t, double, double, double, double, double, boolean_t, boolean_t, IOHIDEventOptionBits);
+static void (*_IOHIDEventAppendEvent)(IOHIDEventRef, IOHIDEventRef, IOHIDEventOptionBits);
+static IOHIDEventSystemClientRef (*_IOHIDEventSystemClientCreate)(CFAllocatorRef);
+static void (*_IOHIDEventSystemClientDispatchEvent)(IOHIDEventSystemClientRef, IOHIDEventRef);
+static void (*_IOHIDEventSetSenderID)(IOHIDEventRef, uint64_t);
+static void (*_IOHIDEventSetIntegerValueWithOptions)(IOHIDEventRef, uint32_t, uint32_t, uint32_t);
+static void (*_IOHIDEventSetIntegerValue)(IOHIDEventRef, uint32_t, uint32_t);
+
+static uint64_t rc_get_digitizer_sender_id(void) {
+    void *ioKit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+    if (!ioKit) return 0xDEFACEDBEEFFECE5ULL;
+
+    CFArrayRef (*copyServices)(IOHIDEventSystemClientRef) = (CFArrayRef (*)(IOHIDEventSystemClientRef))dlsym(ioKit, "IOHIDEventSystemClientCopyServices");
+    CFTypeRef (*copyProperty)(CFTypeRef, CFStringRef) = (CFTypeRef (*)(CFTypeRef, CFStringRef))dlsym(ioKit, "IOHIDServiceClientCopyProperty");
+    uint64_t (*getRegistryID)(CFTypeRef) = (uint64_t (*)(CFTypeRef))dlsym(ioKit, "IOHIDServiceClientGetRegistryID");
+
+    if (!copyServices || !copyProperty || !getRegistryID || !_IOHIDEventSystemClientCreate) {
+        return 0xDEFACEDBEEFFECE5ULL;
+    }
+
+    IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+    if (!client) return 0xDEFACEDBEEFFECE5ULL;
+
+    uint64_t resolvedID = 0;
+    CFArrayRef services = copyServices(client);
+    if (services) {
+        CFIndex count = CFArrayGetCount(services);
+        for (CFIndex i = 0; i < count; i++) {
+            CFTypeRef service = CFArrayGetValueAtIndex(services, i);
+            CFTypeRef usagePageRef = copyProperty(service, CFSTR("PrimaryUsagePage"));
+            CFTypeRef usageRef = copyProperty(service, CFSTR("PrimaryUsage"));
+
+            if (usagePageRef && usageRef) {
+                int usagePage = 0;
+                int usage = 0;
+                CFNumberGetValue((CFNumberRef)usagePageRef, kCFNumberIntType, &usagePage);
+                CFNumberGetValue((CFNumberRef)usageRef, kCFNumberIntType, &usage);
+
+                CFRelease(usagePageRef);
+                CFRelease(usageRef);
+
+                if (usagePage == 13 && usage == 4) {
+                    uint64_t regID = getRegistryID(service);
+                    if (regID != 0) {
+                        resolvedID = regID;
+                        break;
+                    }
+                }
+            }
+        }
+        CFRelease(services);
+    }
+    CFRelease(client);
+
+    return (resolvedID != 0) ? resolvedID : 0xDEFACEDBEEFFECE5ULL;
+}
+
+static void perform_digitizer_touch(double x, double y, int down, uint32_t contextID, double screenWidth, double screenHeight) {
+    void *handle = dlopen("/System/Library/PrivateFrameworks/IOKit.framework/IOKit", RTLD_NOW);
+    if (!handle) {
+        handle = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+    }
+    if (!handle) return;
+
+    _IOHIDEventCreateDigitizerEvent = dlsym(handle, "IOHIDEventCreateDigitizerEvent");
+    _IOHIDEventCreateDigitizerFingerEvent = dlsym(handle, "IOHIDEventCreateDigitizerFingerEvent");
+    _IOHIDEventAppendEvent = dlsym(handle, "IOHIDEventAppendEvent");
+    _IOHIDEventSystemClientCreate = dlsym(handle, "IOHIDEventSystemClientCreate");
+    _IOHIDEventSystemClientDispatchEvent = dlsym(handle, "IOHIDEventSystemClientDispatchEvent");
+    _IOHIDEventSetSenderID = dlsym(handle, "IOHIDEventSetSenderID");
+    _IOHIDEventSetIntegerValueWithOptions = dlsym(handle, "IOHIDEventSetIntegerValueWithOptions");
+    _IOHIDEventSetIntegerValue = dlsym(handle, "IOHIDEventSetIntegerValue");
+
+    if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
+        !_IOHIDEventAppendEvent || !_IOHIDEventSystemClientCreate || !_IOHIDEventSystemClientDispatchEvent) {
+        return;
+    }
+
+    double injectX = x;
+    double injectY = y;
+    if (contextID == 0) {
+        if (screenWidth > 0) injectX = x / screenWidth;
+        if (screenHeight > 0) injectY = y / screenHeight;
+    }
+
+    uint32_t transducerType = 3;
+    uint32_t parentIndex = 0;
+    uint32_t parentIdentity = 1;
+    uint32_t parentEventMask = 0;
+    uint32_t parentButtonMask = 0;
+    uint64_t ts = mach_absolute_time();
+    uint32_t fingerIndex = 1;
+    uint32_t fingerIdentity = 2;
+    uint32_t fingerEventMask = 0x3; // kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch
+    double pressure = down ? 1.0 : 0.0;
+    uint32_t handEventMask = 35;
+    uint32_t handEventTouch = down ? 1 : 0;
+
+    IOHIDEventRef parentGlobal = _IOHIDEventCreateDigitizerEvent(
+        kCFAllocatorDefault, ts,
+        transducerType, parentIndex, parentIdentity, parentEventMask, parentButtonMask,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+        0, 0, 0);
+
+    if (parentGlobal) {
+        IOHIDEventRef fingerGlobal = _IOHIDEventCreateDigitizerFingerEvent(
+            kCFAllocatorDefault, ts,
+            fingerIndex, fingerIdentity, fingerEventMask,
+            injectX, injectY, 0.0, pressure, 0.0,
+            (boolean_t)down, (boolean_t)down, 0);
+
+        if (fingerGlobal) {
+            _IOHIDEventAppendEvent(parentGlobal, fingerGlobal, 0);
+            CFRelease(fingerGlobal);
+        }
+
+        if (_IOHIDEventSetIntegerValueWithOptions) {
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720921, 1, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720925, 1, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 4, 1, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720903, handEventMask, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720904, handEventTouch, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720905, handEventTouch, 0xF0000000);
+        } else if (_IOHIDEventSetIntegerValue) {
+            _IOHIDEventSetIntegerValue(parentGlobal, 720921, 1);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720925, 1);
+            _IOHIDEventSetIntegerValue(parentGlobal, 4, 1);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720903, handEventMask);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720904, handEventTouch);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720905, handEventTouch);
+        }
+
+        if (_IOHIDEventSetSenderID) {
+            _IOHIDEventSetSenderID(parentGlobal, rc_get_digitizer_sender_id());
+        }
+
+        if (contextID > 0) {
+            void *bbs = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
+            if (bbs) {
+                typedef void (*BKSHIDEventSetDigitizerInfoFn)(IOHIDEventRef, uint32_t, uint8_t, uint8_t, CFStringRef, CFTimeInterval, float);
+                BKSHIDEventSetDigitizerInfoFn setDigitizerInfo = (BKSHIDEventSetDigitizerInfoFn)dlsym(bbs, "BKSHIDEventSetDigitizerInfo");
+                if (setDigitizerInfo) {
+                    setDigitizerInfo(parentGlobal, contextID, 0, 0, NULL, 0.0, 0.0);
+                }
+                dlclose(bbs);
+            }
+        }
+
+        IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+        if (client) {
+            _IOHIDEventSystemClientDispatchEvent(client, parentGlobal);
+            CFRelease(client);
+        }
+        CFRelease(parentGlobal);
+    }
+}
+
+static void rc_simulate_tap(double px, double py, uint32_t contextID, double screenWidth, double screenHeight) {
+    perform_digitizer_touch(px, py, 1, contextID, screenWidth, screenHeight);
+    usleep(80000);
+    perform_digitizer_touch(px, py, 0, contextID, screenWidth, screenHeight);
+}
+
+static void rc_simulate_hold(double px, double py, int durationMs, uint32_t contextID, double screenWidth, double screenHeight) {
+    int clampedMs = durationMs < 50 ? 50 : (durationMs > 10000 ? 10000 : durationMs);
+    perform_digitizer_touch(px, py, 1, contextID, screenWidth, screenHeight);
+    usleep(clampedMs * 1000);
+    perform_digitizer_touch(px, py, 0, contextID, screenWidth, screenHeight);
+}
+
+static void rc_simulate_swipe(double x1, double y1, double x2, double y2, uint32_t contextID, double screenWidth, double screenHeight) {
+    const int steps = 40;
+    const int stepDelayUs = 15000;
+    perform_digitizer_touch(x1, y1, 1, contextID, screenWidth, screenHeight);
+    usleep(16000);
+    for (int i = 1; i <= steps; i++) {
+        double t = (double)i / steps;
+        double cx = x1 + (x2 - x1) * t;
+        double cy = y1 + (y2 - y1) * t;
+        perform_digitizer_touch(cx, cy, 1, contextID, screenWidth, screenHeight);
+        usleep(stepDelayUs);
+    }
+    usleep(16000);
+    perform_digitizer_touch(x2, y2, 0, contextID, screenWidth, screenHeight);
+}
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
@@ -32,6 +224,35 @@ int main(int argc, char *argv[]) {
 
     if (setgid(0) != 0) {
         fprintf(stderr, "Error: Failed to setgid to root\n");
+        return 1;
+    }
+
+    if (strcmp(argv[1], "iohid") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "Usage: rc-root iohid <tap|hold|swipe> [args...]\n");
+            return 1;
+        }
+        if (strcmp(argv[2], "tap") == 0 && argc >= 5) {
+            uint32_t contextID = (argc >= 6) ? (uint32_t)strtoul(argv[5], NULL, 10) : 0;
+            double sw = (argc >= 8) ? atof(argv[6]) : 0;
+            double sh = (argc >= 8) ? atof(argv[7]) : 0;
+            rc_simulate_tap(atof(argv[3]), atof(argv[4]), contextID, sw, sh);
+            return 0;
+        } else if (strcmp(argv[2], "hold") == 0 && argc >= 6) {
+            int duration = atoi(argv[5]);
+            uint32_t contextID = (argc >= 7) ? (uint32_t)strtoul(argv[6], NULL, 10) : 0;
+            double sw = (argc >= 9) ? atof(argv[7]) : 0;
+            double sh = (argc >= 9) ? atof(argv[8]) : 0;
+            rc_simulate_hold(atof(argv[3]), atof(argv[4]), duration, contextID, sw, sh);
+            return 0;
+        } else if (strcmp(argv[2], "swipe") == 0 && argc >= 7) {
+            uint32_t contextID = (argc >= 8) ? (uint32_t)strtoul(argv[7], NULL, 10) : 0;
+            double sw = (argc >= 10) ? atof(argv[8]) : 0;
+            double sh = (argc >= 10) ? atof(argv[9]) : 0;
+            rc_simulate_swipe(atof(argv[3]), atof(argv[4]), atof(argv[5]), atof(argv[6]), contextID, sw, sh);
+            return 0;
+        }
+        fprintf(stderr, "Invalid iohid subcommand or arguments\n");
         return 1;
     }
 

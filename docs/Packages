@@ -199,10 +199,10 @@ Architecture: iphoneos-arm
 Version: 3.2.0
 Installed-Size: 2184
 Filename: ./com.saihgupr.remotecompanion_3.2.0_iphoneos-arm.deb
-Size: 838052
-MD5sum: 2dad5c7cb2f46ae537271821098fd6b9
-SHA1: 1b0b5d62cb3de6476ddb14ae868133cf1f1fb0bd
-SHA256: abd0c1f5f68be78cd5dd8ef62ea6e6faa2bccff7ed1e06d7d7bea627bc07f04c
+Size: 838202
+MD5sum: cc06519bd8955f9f2a9dbcb83cff129a
+SHA1: 22e276a469f781ac598f12fe71341fe3c480fe68
+SHA256: 10f2192e1f2768c2909dbd211c6c3e24e7a1ce46fd92828bdee843105ed913b4
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -276,6 +276,23 @@ Size: 296476
 MD5sum: c51383346cd12eb37fb065581a5380af
 SHA1: fa91b526b05819959880f60b748578d9f01c6981
 SHA256: 73e2c2b32683c521bff9fed9ff5aafbdcb144cae479ee8e94cf3bc1eb7965397
+
+Package: com.saihgupr.remotecompanion
+Name: RemoteCompanion
+Depends: mobilesubstrate
+Description: A modern Activator replacement for rootless and rootful jailbreaks. Bind triggers like Touch ID, Power/Volume buttons, and Status Bar gestures to system actions, Siri automation, and custom TCP commands. Includes native arm64e support for iOS 14. https://github.com/saihgupr/RemoteCompanion
+Icon: https://saihgupr.github.io/remotecompanion/CydiaIcon.png
+Maintainer: Saihgupr
+Author: Saihgupr
+Section: Tweaks
+Architecture: iphoneos-arm
+Version: 3.3.0
+Installed-Size: 2292
+Filename: ./com.saihgupr.remotecompanion_3.3.0_iphoneos-arm.deb
+Size: 861526
+MD5sum: be80e2ef09014e7c9683dd7c9a1faf82
+SHA1: 386e8939cb8357b6c207ccbdbb1fa7242881b74a
+SHA256: 5eb44623ffe710d39f0e435c4e45d48bde71abc43fd030dae52bcffd110c5422
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -361,10 +378,10 @@ Architecture: iphoneos-arm64
 Version: 3.2.0
 Installed-Size: 2184
 Filename: ./com.saihgupr.remotecompanion_3.2.0_iphoneos-arm64.deb
-Size: 837862
-MD5sum: c34294588c6fec07ae30b575255e9705
-SHA1: dcde19fc64e7d59280a29516a93ed32746a69191
-SHA256: c8d4417a9ee11be13ea4afaf5b59dd386cad3658b84c9e732e34bed51648c0d8
+Size: 838276
+MD5sum: f0c84b2ef93bdbc98ea06984c495fd4a
+SHA1: 3011abfbd5ca57664875f6a1eca41d4212406b38
+SHA256: 1d381e0b27b0cc34d610cf192bb09d3bd83588e498f648424d420b08f91fe5ee
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
@@ -545,4 +562,21 @@ Size: 286594
 MD5sum: 72eb7f8322816c99ce00172c8dce2625
 SHA1: f57bbcb404c12b8d7c48689524708ce91bc082ae
 SHA256: 1aa1d46040b648e6b5a4f90531d8971ff6e75f1ff6e998b96a4b9662202b0692
+
+Package: com.saihgupr.remotecompanion
+Name: RemoteCompanion
+Depends: mobilesubstrate
+Description: A modern Activator replacement for rootless and rootful jailbreaks. Bind triggers like Touch ID, Power/Volume buttons, and Status Bar gestures to system actions, Siri automation, and custom TCP commands. Includes native arm64e support for iOS 14. https://github.com/saihgupr/RemoteCompanion
+Icon: https://saihgupr.github.io/remotecompanion/CydiaIcon.png
+Maintainer: Saihgupr
+Author: Saihgupr
+Section: Tweaks
+Architecture: iphoneos-arm64
+Version: 3.3.0
+Installed-Size: 2292
+Filename: ./com.saihgupr.remotecompanion_3.3.0_iphoneos-arm64.deb
+Size: 861876
+MD5sum: 7a5e3ff768912a522adf1ffc55531471
+SHA1: d11070d21f35b6df892698e37111910bb782a1ea
+SHA256: 2aff490b2217b287f85f8ab4104b888f894ee8565f470faa455aaddab74a25fe
 

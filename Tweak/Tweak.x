@@ -9,17 +9,22 @@
 #import <spawn.h>
 #import <notify.h>
 #import <sys/wait.h>
+#import <sys/utsname.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <AVFoundation/AVFoundation.h>
 #import <mach/mach_time.h>
+#import <GraphicsServices/GraphicsServices.h>
 #import "native_curl.h"
 #import <CoreFoundation/CoreFoundation.h>
 
 static void trigger_haptic();
 static void toggle_system_vibration(BOOL silentMode, BOOL enable);
 static BOOL get_system_vibration(BOOL silentMode);
+
+static NSString *g_currentAppBundleId = nil;
+static NSString *g_previousAppBundleId = nil;
 
 // WorkflowKit interfaces
 @interface WFWorkflowDescriptor : NSObject
@@ -56,6 +61,19 @@ typedef struct __IOHIDEvent * IOHIDEventRef;
 typedef struct __IOHIDEventSystemClient * IOHIDEventSystemClientRef;
 typedef uint32_t IOHIDEventOptionBits;
 typedef uint32_t IOOptionBits;
+
+@interface UIWindow (Private)
+- (uint32_t)_contextId;
++ (NSArray *)allWindowsIncludingInternalWindows:(BOOL)includeInternal onlyVisibleWindows:(BOOL)onlyVisible;
+@end
+
+@interface UIApplication (Private)
+- (void)_enqueueHIDEvent:(IOHIDEventRef)event;
+@end
+
+extern void BKSHIDEventSetDigitizerInfo(IOHIDEventRef digitizerEvent, uint32_t contextID, uint8_t systemGestureisPossible, uint8_t isSystemGestureStateChangeEvent, CFStringRef displayUUID, CFTimeInterval initialTouchTimestamp, float maxForce);
+static UIWindow *g_rcTapTestWindow;
+static UIWindow *g_rcTapRecordWindow = nil;
 
 void SRLog(NSString *format, ...);
 #import <objc/message.h>
@@ -146,6 +164,7 @@ static IOHIDEventRef (*_IOHIDEventCreateDigitizerFingerEvent)(CFAllocatorRef all
     boolean_t range, boolean_t touch, IOHIDEventOptionBits options);
 static void (*_IOHIDEventAppendEvent)(IOHIDEventRef parent, IOHIDEventRef child, IOHIDEventOptionBits options);
 static void (*_IOHIDEventSetIntegerValue)(IOHIDEventRef event, uint32_t field, int32_t value);
+static void (*_IOHIDEventSetIntegerValueWithOptions)(IOHIDEventRef event, uint32_t field, int32_t value, uint32_t options);
 static void (*_IOHIDEventSetSenderID)(IOHIDEventRef event, uint64_t senderID);
 
 // Usage Pages / Usages
@@ -200,7 +219,9 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 + (instancetype)sharedInstance;
 - (BOOL)attemptUnlockWithPasscode:(NSString *)passcode;
 - (BOOL)_attemptUnlockWithPasscode:(NSString *)passcode mesa:(BOOL)mesa finishUIUnlock:(BOOL)finishUI;
+- (void)lockUIFromSource:(int)source withOptions:(id)options;
 - (void)unlockUIFromSource:(int)source withOptions:(id)options;
+- (void)_setUILocked:(BOOL)locked animated:(BOOL)animated withReason:(id)reason;
 - (BOOL)isUILocked;
 - (id)lockScreenViewController;
 @end
@@ -292,6 +313,12 @@ typedef enum {
 extern void MRMediaRemoteSendCommand(MRCommand command, NSDictionary *options);
 extern void MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_queue_t queue, void (^completion)(Boolean isPlaying));
 extern void MRMediaRemoteGetNowPlayingApplicationPlaybackState(dispatch_queue_t queue, void (^completion)(unsigned int state));
+extern void MRMediaRemoteGetNowPlayingInfo(dispatch_queue_t queue, void (^completion)(CFDictionaryRef information));
+extern void MRMediaRemoteGetNowPlayingClient(dispatch_queue_t queue, void (^completion)(void *clientObj));
+extern CFStringRef MRNowPlayingClientGetBundleIdentifier(void *clientObj);
+
+extern CFStringRef kMRMediaRemoteNowPlayingInfoTitle;
+extern CFStringRef kMRMediaRemoteNowPlayingInfoArtist;
 
 // AVOutputDevice for ANC control (used by Sonitus)
 @interface AVOutputDevice : NSObject
@@ -1665,9 +1692,170 @@ static void handle_wifi_notification(CFNotificationCenterRef center, void *obser
     });
 }
 
+// Biometric / Touch ID / Lock State Globals
+static NSTimeInterval g_bioFingerDownTime = 0;
+static BOOL g_bioHoldTriggered = NO;
+static NSTimer *g_bioWatchdogTimer = nil;
+static NSTimeInterval g_bioIgnoreUntil = 0;
+static BOOL g_bioWasLocked = NO;
+static BOOL g_lastLockedState = NO;
+static BOOL g_lockStateInitialized = NO;
+
+static void initialize_lock_state() {
+    if (g_lockStateInitialized) return;
+    
+    Class LSMClass = objc_getClass("SBLockScreenManager");
+    if (LSMClass) {
+        SBLockScreenManager *lsm = [LSMClass sharedInstance];
+        if (lsm) {
+            g_lastLockedState = [lsm isUILocked];
+            g_lockStateInitialized = YES;
+            SRLog(@"🔒 [RCSystem] Lock state successfully initialized to: %@", g_lastLockedState ? @"LOCKED" : @"UNLOCKED");
+        }
+    }
+}
+
+static void handle_lock_state_transition(BOOL isLocked, NSString *source) {
+    if (!g_lockStateInitialized) {
+        initialize_lock_state();
+        if (!g_lockStateInitialized) {
+            g_lastLockedState = !isLocked; // Set opposite to force transition detection on fallback
+            g_lockStateInitialized = YES;
+            SRLog(@"🔒 [RCSystem] Lock state fallback initialized via %@ to: %@", source, g_lastLockedState ? @"LOCKED" : @"UNLOCKED");
+        }
+    }
+    
+    if (isLocked != g_lastLockedState) {
+        g_lastLockedState = isLocked;
+        if (isLocked) {
+            SRLog(@"🔒 [RCSystem] Transition detected (%@): DEVICE LOCKED. Executing trigger_device_lock.", source);
+            RCExecuteTrigger(@"trigger_device_lock");
+        } else {
+            SRLog(@"🔓 [RCSystem] Transition detected (%@): DEVICE UNLOCKED. Executing trigger_device_unlock.", source);
+            RCExecuteTrigger(@"trigger_device_unlock");
+            
+            // Reset biometric / unlock-related side effects
+            g_bioFingerDownTime = 0;
+            g_bioHoldTriggered = NO;
+            
+            if (g_bioWatchdogTimer) {
+                [g_bioWatchdogTimer invalidate];
+                g_bioWatchdogTimer = nil;
+                SRLog(@"🔐 [RCSystem] Cancelled pending Biometric trigger due to Unlock (%@)", source);
+            }
+            
+            // Brief suppression after unlock (1.0s), without overwriting a larger existing suppression
+            NSTimeInterval newIgnore = [[NSDate date] timeIntervalSince1970] + 1.0;
+            if (g_bioIgnoreUntil < newIgnore) {
+                g_bioIgnoreUntil = newIgnore;
+            }
+        }
+    }
+}
+
+static void handle_lock_state_notification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        Class LSMClass = objc_getClass("SBLockScreenManager");
+        if (!LSMClass) {
+            SRLog(@"⚠️ [RCSystem] SBLockScreenManager class not found in notify handler");
+            return;
+        }
+        
+        SBLockScreenManager *lsm = [LSMClass sharedInstance];
+        if (!lsm) {
+            SRLog(@"⚠️ [RCSystem] SBLockScreenManager instance is nil in notify handler");
+            return;
+        }
+        
+        BOOL currentLocked = [lsm isUILocked];
+        SRLog(@"🔒 [RCSystem] SBLockScreenManager.isUILocked = %@", currentLocked ? @"YES" : @"NO");
+        handle_lock_state_transition(currentLocked, @"Darwin Notification");
+    });
+}
+
+static BOOL g_mediaStateInitialized = NO;
+static BOOL g_lastMediaPlayingState = NO;
+static NSString *g_lastMediaTitle = nil;
+static NSString *g_lastMediaArtist = nil;
+static NSString *g_lastMediaBundleID = nil;
+
+static void handle_media_state_change() {
+    MRMediaRemoteGetNowPlayingClient(dispatch_get_main_queue(), ^(void *clientObj) {
+        __block NSString *bundleID = @"";
+        if (clientObj) {
+            CFStringRef bundleIDRef = MRNowPlayingClientGetBundleIdentifier(clientObj);
+            if (bundleIDRef) {
+                bundleID = (__bridge NSString *)bundleIDRef;
+            }
+        }
+        
+        MRMediaRemoteGetNowPlayingApplicationIsPlaying(dispatch_get_main_queue(), ^(Boolean isPlayingNow) {
+            MRMediaRemoteGetNowPlayingInfo(dispatch_get_main_queue(), ^(CFDictionaryRef information) {
+                NSDictionary *info = (__bridge NSDictionary *)information;
+                NSString *title = info ? (info[(__bridge NSString *)kMRMediaRemoteNowPlayingInfoTitle] ?: @"") : @"";
+                NSString *artist = info ? (info[(__bridge NSString *)kMRMediaRemoteNowPlayingInfoArtist] ?: @"") : @"";
+                
+                BOOL playingChanged = NO;
+                BOOL trackChanged = NO;
+                
+                if (!g_mediaStateInitialized) {
+                    g_lastMediaPlayingState = isPlayingNow;
+                    g_lastMediaTitle = [title copy];
+                    g_lastMediaArtist = [artist copy];
+                    g_lastMediaBundleID = [bundleID copy];
+                    g_mediaStateInitialized = YES;
+                    SRLog(@"🎵 [RCSystem] Media state initialized: playing=%@, title='%@', artist='%@', bundleID='%@'", 
+                          isPlayingNow ? @"YES" : @"NO", title, artist, bundleID);
+                    return;
+                }
+                
+                if (isPlayingNow != g_lastMediaPlayingState) {
+                    playingChanged = YES;
+                    g_lastMediaPlayingState = isPlayingNow;
+                }
+                
+                if (![title isEqualToString:g_lastMediaTitle] || 
+                    ![artist isEqualToString:g_lastMediaArtist] || 
+                    ![bundleID isEqualToString:g_lastMediaBundleID]) {
+                    trackChanged = YES;
+                    g_lastMediaTitle = [title copy];
+                    g_lastMediaArtist = [artist copy];
+                    g_lastMediaBundleID = [bundleID copy];
+                }
+                
+                if (playingChanged) {
+                    if (isPlayingNow) {
+                        SRLog(@"🎵 [RCSystem] Media Playback State -> PLAYING. Executing trigger_media_play.");
+                        RCExecuteTrigger(@"trigger_media_play");
+                    } else {
+                        SRLog(@"🎵 [RCSystem] Media Playback State -> PAUSED. Executing trigger_media_pause.");
+                        RCExecuteTrigger(@"trigger_media_pause");
+                    }
+                }
+                
+                if (trackChanged) {
+                    SRLog(@"🎵 [RCSystem] Media Track Changed: %@ - %@ (%@). Executing trigger_media_track_change.", title, artist, bundleID);
+                    RCExecuteTrigger(@"trigger_media_track_change");
+                }
+            });
+        });
+    });
+}
+
+static void handle_media_state_notification(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
+    NSString *notifName = (__bridge NSString *)name;
+    SRLog(@"🎵 [RCSystem] Received Media State Notification: %@", notifName);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        handle_media_state_change();
+    });
+}
+
 static void register_system_event_observers() {
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     
+    // Initialize initial lock state
+    initialize_lock_state();
+
     // WiFi: Track network changes (Darwin Notification)
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
                                     NULL, 
@@ -1676,6 +1864,48 @@ static void register_system_event_observers() {
                                     NULL, 
                                     CFNotificationSuspensionBehaviorDeliverImmediately);
     
+    // Device Lock / Unlock: Track screen transitions via Darwin Notifications
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_lock_state_notification, 
+                                    CFSTR("com.apple.springboard.lockcomplete"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+                                    
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_lock_state_notification, 
+                                    CFSTR("com.apple.springboard.lockstate"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    // Media State changes (Darwin Notifications)
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_media_state_notification, 
+                                    CFSTR("com.apple.mediaremote.nowplayinginfochanged"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_media_state_notification, 
+                                    CFSTR("com.apple.MediaRemote.nowPlayingApplicationIsPlayingDidChange"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), 
+                                    NULL, 
+                                    handle_media_state_notification, 
+                                    CFSTR("com.apple.MediaRemote.nowPlayingApplicationPlaybackStateDidChange"), 
+                                    NULL, 
+                                    CFNotificationSuspensionBehaviorDeliverImmediately);
+
+    // Initialize initial media state
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        handle_media_state_change();
+    });
+
     // Bluetooth: Track connection/disconnection
     [nc addObserverForName:@"BluetoothDeviceConnectSuccessNotification" 
                     object:nil 
@@ -1691,7 +1921,7 @@ static void register_system_event_observers() {
         handle_bluetooth_transition(note, NO);
     }];
 
-    SRLog(@"[RCTweak] WiFi and Bluetooth observers registered.");
+    SRLog(@"[RCTweak] WiFi, Bluetooth and Media observers registered.");
 }
 
 // ============ LUA INTERPRETER ============
@@ -1729,6 +1959,8 @@ static void rc_load_touch_symbols(void) {
             _IOHIDEventAppendEvent = (void (*)(IOHIDEventRef, IOHIDEventRef, IOHIDEventOptionBits))dlsym(handle, "IOHIDEventAppendEvent");
         if (!_IOHIDEventSetIntegerValue)
             _IOHIDEventSetIntegerValue = (void (*)(IOHIDEventRef, uint32_t, int32_t))dlsym(handle, "IOHIDEventSetIntegerValue");
+        if (!_IOHIDEventSetIntegerValueWithOptions)
+            _IOHIDEventSetIntegerValueWithOptions = (void (*)(IOHIDEventRef, uint32_t, int32_t, uint32_t))dlsym(handle, "IOHIDEventSetIntegerValueWithOptions");
         if (!_IOHIDEventSetSenderID)
             _IOHIDEventSetSenderID = (void (*)(IOHIDEventRef, uint64_t))dlsym(handle, "IOHIDEventSetSenderID");
         SRLog(@"[Touch] IOHIDKit symbols loaded: create=%p dispatch=%p",
@@ -1736,109 +1968,1212 @@ static void rc_load_touch_symbols(void) {
     });
 }
 
-// Sends a single digitizer finger event. normX/normY are in [0.0,1.0].
-// MUST be called from rc_touch_queue (a background serial queue), never from main thread.
-static void perform_digitizer_touch(double normX, double normY, BOOL down) {
+static void rc_dispatch_sync_main_safe(dispatch_block_t block);
+
+static BOOL rc_is_springboard_context(uint32_t cid) {
+    if (cid == 0) return NO;
+    __block BOOL isSB = NO;
+    rc_dispatch_sync_main_safe(^{
+        if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
+            if ([g_rcTapTestWindow _contextId] == cid) {
+                isSB = YES;
+                return;
+            }
+        }
+        if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
+            if ([g_rcTapRecordWindow _contextId] == cid) {
+                isSB = YES;
+                return;
+            }
+        }
+        Class windowClass = NSClassFromString(@"UIWindow");
+        if (windowClass && [windowClass respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
+            NSArray *allWindows = [windowClass allWindowsIncludingInternalWindows:YES onlyVisibleWindows:YES];
+            for (UIWindow *window in allWindows) {
+                if ([window respondsToSelector:@selector(_contextId)]) {
+                    if ([window _contextId] == cid) {
+                        isSB = YES;
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    return isSB;
+}
+
+static uint64_t rc_get_digitizer_sender_id(void) {
+    static uint64_t savedSenderID = 0;
+    if (savedSenderID != 0) return savedSenderID;
+
+    void *ioKit = dlopen("/System/Library/Frameworks/IOKit.framework/IOKit", RTLD_NOW);
+    if (!ioKit) return 0xDEFACEDBEEFFECE5ULL;
+
+    CFArrayRef (*copyServices)(IOHIDEventSystemClientRef) = (CFArrayRef (*)(IOHIDEventSystemClientRef))dlsym(ioKit, "IOHIDEventSystemClientCopyServices");
+    CFTypeRef (*copyProperty)(id, CFStringRef) = (CFTypeRef (*)(id, CFStringRef))dlsym(ioKit, "IOHIDServiceClientCopyProperty");
+    uint64_t (*getRegistryID)(id) = (uint64_t (*)(id))dlsym(ioKit, "IOHIDServiceClientGetRegistryID");
+
+    if (!copyServices || !copyProperty || !getRegistryID) {
+        return 0xDEFACEDBEEFFECE5ULL;
+    }
+
+    IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+    if (!client) return 0xDEFACEDBEEFFECE5ULL;
+
+    CFArrayRef services = copyServices(client);
+    if (services) {
+        CFIndex count = CFArrayGetCount(services);
+        for (CFIndex i = 0; i < count; i++) {
+            id service = (__bridge id)CFArrayGetValueAtIndex(services, i);
+            CFTypeRef usagePageRef = copyProperty(service, CFSTR("PrimaryUsagePage"));
+            CFTypeRef usageRef = copyProperty(service, CFSTR("PrimaryUsage"));
+
+            if (usagePageRef && usageRef) {
+                int usagePage = 0;
+                int usage = 0;
+                CFNumberGetValue((CFNumberRef)usagePageRef, kCFNumberIntType, &usagePage);
+                CFNumberGetValue((CFNumberRef)usageRef, kCFNumberIntType, &usage);
+
+                CFRelease(usagePageRef);
+                CFRelease(usageRef);
+
+                // Digitizer Usage Page = 0x0D (13), Touch Screen Usage = 0x04 (4)
+                if (usagePage == 13 && usage == 4) {
+                    uint64_t regID = getRegistryID(service);
+                    if (regID != 0) {
+                        savedSenderID = regID;
+                        SRLog(@"[Touch] Dynamically resolved digitizer senderID: 0x%llX", regID);
+                        break;
+                    }
+                }
+            }
+        }
+        CFRelease(services);
+    }
+    CFRelease(client);
+
+    if (savedSenderID == 0) {
+        savedSenderID = 0xDEFACEDBEEFFECE5ULL; // Fallback
+        SRLog(@"[Touch] Could not resolve digitizer senderID dynamically, using fallback: 0x%llX", savedSenderID);
+    }
+    return savedSenderID;
+}
+
+static uint32_t rc_resolve_target_context(double x, double y) {
+    __block uint32_t contextID = 0;
+    __block uint32_t testWindowContextID = 0;
+    __block uint32_t recordWindowContextID = 0;
+    rc_dispatch_sync_main_safe(^{
+        if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
+            testWindowContextID = [g_rcTapTestWindow _contextId];
+            contextID = testWindowContextID;
+        } else if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
+            recordWindowContextID = [g_rcTapRecordWindow _contextId];
+            contextID = recordWindowContextID;
+        } else {
+            // Resolve contextID via FBSceneManager from the frontmost application scene
+            NSString *frontBundleID = nil;
+            SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+            if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+                id frontApp = [sb _accessibilityFrontMostApplication];
+                if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
+                    frontBundleID = [frontApp bundleIdentifier];
+                }
+            }
+            
+            if (frontBundleID) {
+                Class managerClass = NSClassFromString(@"FBSceneManager");
+                id manager = nil;
+                if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+                    manager = [managerClass performSelector:@selector(sharedInstance)];
+                }
+                
+                if (manager) {
+                    id workspace = nil;
+                    @try {
+                        workspace = [manager valueForKey:@"_workspace"];
+                    } @catch (NSException *e) {}
+                    
+                    if (workspace) {
+                        id scenes = nil;
+                        if ([workspace respondsToSelector:@selector(scenes)]) {
+                            scenes = [workspace performSelector:@selector(scenes)];
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"_scenes"]; } @catch (NSException *e) {}
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"_scenesByID"]; } @catch (NSException *e) {}
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"allScenes"]; } @catch (NSException *e) {}
+                        }
+                        
+                        NSArray *sceneArray = nil;
+                        if ([scenes isKindOfClass:[NSDictionary class]]) {
+                            sceneArray = [scenes allValues];
+                        } else if ([scenes isKindOfClass:[NSSet class]]) {
+                            sceneArray = [scenes allObjects];
+                        } else if ([scenes isKindOfClass:[NSArray class]]) {
+                            sceneArray = scenes;
+                        }
+                        
+                        for (id scene in sceneArray) {
+                            @try {
+                                id sceneID = nil;
+                                if ([scene respondsToSelector:@selector(identifier)]) {
+                                    sceneID = [scene performSelector:@selector(identifier)];
+                                }
+                                if (![sceneID isKindOfClass:[NSString class]]) {
+                                    continue;
+                                }
+                                
+                                // Check if the scene identifier contains the frontBundleID
+                                if ([sceneID rangeOfString:frontBundleID options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                                    id layerManager = nil;
+                                    if ([scene respondsToSelector:@selector(layerManager)]) {
+                                        layerManager = [scene performSelector:@selector(layerManager)];
+                                    }
+                                    if (!layerManager) {
+                                        @try { layerManager = [scene valueForKey:@"_layerManager"]; } @catch (NSException *e) {}
+                                    }
+                                    
+                                    id layers = nil;
+                                    if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
+                                        layers = [layerManager performSelector:@selector(layers)];
+                                    }
+                                    if (!layers && layerManager) {
+                                        @try { layers = [layerManager valueForKey:@"_layers"]; } @catch (NSException *e) {}
+                                    }
+                                    
+                                    NSArray *layerArray = nil;
+                                    if ([layers isKindOfClass:[NSSet class]]) {
+                                        layerArray = [layers allObjects];
+                                    } else if ([layers isKindOfClass:[NSArray class]]) {
+                                        layerArray = layers;
+                                    } else if ([layers isKindOfClass:[NSOrderedSet class]]) {
+                                        layerArray = [layers array];
+                                    }
+                                    
+                                    for (id layer in layerArray) {
+                                        if ([layer respondsToSelector:@selector(contextID)]) {
+                                            NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
+                                            if (sig) {
+                                                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                                                [inv setSelector:@selector(contextID)];
+                                                [inv setTarget:layer];
+                                                [inv invoke];
+                                                uint32_t cid = 0;
+                                                [inv getReturnValue:&cid];
+                                                if (cid > 0) {
+                                                    contextID = cid;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } @catch (NSException *e) {}
+                        }
+                    }
+                }
+            }
+            
+            // Fallback 1: Local SpringBoard Windows
+            if (contextID == 0) {
+                Class windowClass = NSClassFromString(@"UIWindow");
+                if (windowClass && [windowClass respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
+                    NSArray *allWindows = [windowClass allWindowsIncludingInternalWindows:YES onlyVisibleWindows:YES];
+                    for (UIWindow *window in [allWindows reverseObjectEnumerator]) {
+                        if (window.userInteractionEnabled && !window.hidden) {
+                            CGPoint localPt = [window convertPoint:CGPointMake(x, y) fromWindow:nil];
+                            if ([window pointInside:localPt withEvent:nil]) {
+                                uint32_t cid = 0;
+                                if ([window respondsToSelector:@selector(_contextId)]) {
+                                    cid = [window _contextId];
+                                }
+                                if (cid > 0) {
+                                    contextID = cid;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fallback 2: Any active foreground scene
+            if (contextID == 0) {
+                Class managerClass = NSClassFromString(@"FBSceneManager");
+                id manager = nil;
+                if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+                    manager = [managerClass performSelector:@selector(sharedInstance)];
+                }
+                if (manager) {
+                    id workspace = nil;
+                    @try { workspace = [manager valueForKey:@"_workspace"]; } @catch (NSException *e) {}
+                    if (workspace) {
+                        id scenes = nil;
+                        if ([workspace respondsToSelector:@selector(scenes)]) {
+                            scenes = [workspace performSelector:@selector(scenes)];
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"_scenes"]; } @catch (NSException *e) {}
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"allScenes"]; } @catch (NSException *e) {}
+                        }
+                        NSArray *sceneArray = nil;
+                        if ([scenes isKindOfClass:[NSDictionary class]]) {
+                            sceneArray = [scenes allValues];
+                        } else if ([scenes isKindOfClass:[NSSet class]]) {
+                            sceneArray = [scenes allObjects];
+                        } else if ([scenes isKindOfClass:[NSArray class]]) {
+                            sceneArray = scenes;
+                        }
+                        
+                        for (id scene in sceneArray) {
+                            @try {
+                                id settings = nil;
+                                if ([scene respondsToSelector:@selector(settings)]) {
+                                    settings = [scene performSelector:@selector(settings)];
+                                }
+                                BOOL isForeground = NO;
+                                if (settings && [settings respondsToSelector:NSSelectorFromString(@"isForeground")]) {
+                                    SEL isFgSel = NSSelectorFromString(@"isForeground");
+                                    NSMethodSignature *fgSig = [settings methodSignatureForSelector:isFgSel];
+                                    if (fgSig) {
+                                        NSInvocation *fgInv = [NSInvocation invocationWithMethodSignature:fgSig];
+                                        [fgInv setSelector:isFgSel];
+                                        [fgInv setTarget:settings];
+                                        [fgInv invoke];
+                                        [fgInv getReturnValue:&isForeground];
+                                    }
+                                }
+                                if (isForeground) {
+                                    id layerManager = nil;
+                                    if ([scene respondsToSelector:@selector(layerManager)]) {
+                                        layerManager = [scene performSelector:@selector(layerManager)];
+                                    }
+                                    if (!layerManager) {
+                                        @try { layerManager = [scene valueForKey:@"_layerManager"]; } @catch (NSException *e) {}
+                                    }
+                                    id layers = nil;
+                                    if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
+                                        layers = [layerManager performSelector:@selector(layers)];
+                                    }
+                                    if (!layers && layerManager) {
+                                        @try { layers = [layerManager valueForKey:@"_layers"]; } @catch (NSException *e) {}
+                                    }
+                                    NSArray *layerArray = nil;
+                                    if ([layers isKindOfClass:[NSSet class]]) {
+                                        layerArray = [layers allObjects];
+                                    } else if ([layers isKindOfClass:[NSArray class]]) {
+                                        layerArray = layers;
+                                    }
+                                    for (id layer in layerArray) {
+                                        if ([layer respondsToSelector:@selector(contextID)]) {
+                                            NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
+                                            if (sig) {
+                                                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                                                [inv setSelector:@selector(contextID)];
+                                                [inv setTarget:layer];
+                                                [inv invoke];
+                                                uint32_t cid = 0;
+                                                [inv getReturnValue:&cid];
+                                                if (cid > 0) {
+                                                    contextID = cid;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (contextID > 0) break;
+                                }
+                            } @catch (NSException *e) {}
+                        }
+                    }
+                }
+            }
+        }
+    });
+    return contextID;
+}
+
+#include <spawn.h>
+#include <sys/wait.h>
+
+static void rc_spawn_root_iohid(NSString *subcommand, NSArray *args) {
+    extern char **environ;
+    NSString *rcRootPath = @"/var/jb/usr/bin/rc-root";
+    if (![[NSFileManager defaultManager] fileExistsAtPath:rcRootPath]) {
+        rcRootPath = @"/usr/bin/rc-root";
+    }
+    
+    int argc = (int)args.count + 3;
+    char **argv = malloc((argc + 1) * sizeof(char *));
+    argv[0] = (char *)[rcRootPath UTF8String];
+    argv[1] = "iohid";
+    argv[2] = (char *)[subcommand UTF8String];
+    for (int i = 0; i < (int)args.count; i++) {
+        argv[3 + i] = (char *)[args[i] UTF8String];
+    }
+    argv[argc] = NULL;
+    
+    pid_t pid;
+    int status = posix_spawn(&pid, [rcRootPath UTF8String], NULL, NULL, argv, environ);
+    if (status == 0) {
+        int exit_status;
+        waitpid(pid, &exit_status, 0);
+    } else {
+        SRLog(@"[Touch] posix_spawn failed for rc-root: %d", status);
+    }
+    free(argv);
+}
+
+static void perform_digitizer_touch(double x, double y, BOOL down) {
     if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
         !_IOHIDEventAppendEvent || !_IOHIDEventSystemClientCreate || !_IOHIDEventSystemClientDispatchEvent) {
         SRLog(@"[Touch] Digitizer symbols not loaded – cannot simulate touch");
         return;
     }
 
-    // kIOHIDDigitizerTransducerTypeHand = 4
-    uint32_t transducerType = 4;
-    uint32_t index = 0;
-    uint32_t identity = 2;
-    uint32_t eventMask = 0x3; // touch + position
-    uint32_t buttonMask = 0;
-    double pressure = down ? 1.0 : 0.0;
+    __block NSString *loggedBundleID = nil;
+    __block CGSize s = CGSizeZero;
+    __block CGFloat scale = 1.0;
+    rc_dispatch_sync_main_safe(^{
+        s = [UIScreen mainScreen].bounds.size;
+        scale = [UIScreen mainScreen].scale;
+        
+        SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+        if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+            id frontApp = [sb _accessibilityFrontMostApplication];
+            if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
+                loggedBundleID = [frontApp bundleIdentifier];
+            }
+        }
+    });
+
+    double screenWidth = MIN(s.width, s.height);
+    double screenHeight = MAX(s.width, s.height);
+    if (screenWidth == 0) screenWidth = 375.0; // Fallback for safety
+    if (screenHeight == 0) screenHeight = 667.0;
+
+    // Normalised coordinates [0.0, 1.0] as expected by Apple's HID Digitizer APIs
+    double rx = x / screenWidth;
+    double ry = y / screenHeight;
+
+    SRLog(@"[Touch] Simulated touch: raw(%.1f, %.1f) screen(%.1f, %.1f) scale=%.1f -> normalized(%.4f, %.4f) down=%d",
+          x, y, screenWidth, screenHeight, scale, rx, ry, down);
+
+    uint32_t contextID = rc_resolve_target_context(x, y);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
+
+    uint32_t transducerType = 3;
+    uint32_t parentIndex = 0;
+    uint32_t parentIdentity = 1;
+    uint32_t parentEventMask = 0;
+    uint32_t parentButtonMask = 0;
     uint64_t ts = mach_absolute_time();
+    uint32_t fingerIndex = 1;
+    uint32_t fingerIdentity = 2;
+    uint32_t fingerEventMask = 0x3; // kIOHIDDigitizerEventRange | kIOHIDDigitizerEventTouch
+    double pressure = down ? 1.0 : 0.0;
+    uint32_t handEventMask = 35;
+    uint32_t handEventTouch = down ? 1 : 0;
 
-    IOHIDEventRef parent = _IOHIDEventCreateDigitizerEvent(
+    // Path 1: System-wide global event
+    IOHIDEventRef parentGlobal = _IOHIDEventCreateDigitizerEvent(
         kCFAllocatorDefault, ts,
-        transducerType, index, identity, eventMask, buttonMask,
-        normX, normY, 0.0, pressure, 0.0,
-        (boolean_t)down, (boolean_t)down, 0);
+        transducerType, parentIndex, parentIdentity, parentEventMask, parentButtonMask,
+        0.0, 0.0, 0.0, 0.0, 0.0,
+        0, 0, 0);
 
-    if (!parent) {
-        SRLog(@"[Touch] Failed to create parent digitizer event");
-        return;
+    if (parentGlobal) {
+        // Path 1 system-wide event: BackBoard/IOHIDFamily expects absolute coordinates (x, y) in points.
+        IOHIDEventRef fingerGlobal = _IOHIDEventCreateDigitizerFingerEvent(
+            kCFAllocatorDefault, ts,
+            fingerIndex, fingerIdentity, fingerEventMask,
+            x, y, 0.0, pressure, 0.0,
+            (boolean_t)down, (boolean_t)down, 0);
+
+        if (fingerGlobal) {
+            _IOHIDEventAppendEvent(parentGlobal, fingerGlobal, 0);
+            CFRelease(fingerGlobal);
+        }
+
+        if (_IOHIDEventSetIntegerValueWithOptions) {
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720921, 1, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720925, 1, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 4, 1, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720903, handEventMask, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720904, handEventTouch, 0xF0000000);
+            _IOHIDEventSetIntegerValueWithOptions(parentGlobal, 720905, handEventTouch, 0xF0000000);
+        } else if (_IOHIDEventSetIntegerValue) {
+            _IOHIDEventSetIntegerValue(parentGlobal, 720921, 1);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720925, 1);
+            _IOHIDEventSetIntegerValue(parentGlobal, 4, 1);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720903, handEventMask);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720904, handEventTouch);
+            _IOHIDEventSetIntegerValue(parentGlobal, 720905, handEventTouch);
+        }
+
+        if (_IOHIDEventSetSenderID) {
+            _IOHIDEventSetSenderID(parentGlobal, rc_get_digitizer_sender_id());
+        }
+
+        if (contextID > 0) {
+            BKSHIDEventSetDigitizerInfo(parentGlobal, contextID, false, false, NULL, 0, 0);
+        }
+
+        IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
+        if (client) {
+            _IOHIDEventSystemClientDispatchEvent(client, parentGlobal);
+            CFRelease(client);
+            SRLog(@"[Touch] Dispatched global system-wide touch event.");
+        }
+        CFRelease(parentGlobal);
     }
 
-    IOHIDEventRef finger = _IOHIDEventCreateDigitizerFingerEvent(
-        kCFAllocatorDefault, ts,
-        index, identity, eventMask,
-        normX, normY, 0.0, pressure, 0.0,
-        (boolean_t)down, (boolean_t)down, 0);
+    // Path 2: Local SpringBoard Window enqueue (Absolute Coordinates)
 
-    if (finger) {
-        _IOHIDEventAppendEvent(parent, finger, 0);
-        CFRelease(finger);
+    if (targetIsLocal) {
+        IOHIDEventRef parentLocal = _IOHIDEventCreateDigitizerEvent(
+            kCFAllocatorDefault, ts,
+            transducerType, parentIndex, parentIdentity, parentEventMask, parentButtonMask,
+            0.0, 0.0, 0.0, 0.0, 0.0,
+            0, 0, 0);
+
+        if (parentLocal) {
+            IOHIDEventRef fingerLocal = _IOHIDEventCreateDigitizerFingerEvent(
+                kCFAllocatorDefault, ts,
+                fingerIndex, fingerIdentity, fingerEventMask,
+                x, y, 0.0, pressure, 0.0,
+                (boolean_t)down, (boolean_t)down, 0);
+
+            if (fingerLocal) {
+                _IOHIDEventAppendEvent(parentLocal, fingerLocal, 0);
+                CFRelease(fingerLocal);
+            }
+
+            if (_IOHIDEventSetIntegerValueWithOptions) {
+                _IOHIDEventSetIntegerValueWithOptions(parentLocal, 720921, 1, 0xF0000000);
+                _IOHIDEventSetIntegerValueWithOptions(parentLocal, 720925, 1, 0xF0000000);
+                _IOHIDEventSetIntegerValueWithOptions(parentLocal, 4, 1, 0xF0000000);
+                _IOHIDEventSetIntegerValueWithOptions(parentLocal, 720903, handEventMask, 0xF0000000);
+                _IOHIDEventSetIntegerValueWithOptions(parentLocal, 720904, handEventTouch, 0xF0000000);
+                _IOHIDEventSetIntegerValueWithOptions(parentLocal, 720905, handEventTouch, 0xF0000000);
+            } else if (_IOHIDEventSetIntegerValue) {
+                _IOHIDEventSetIntegerValue(parentLocal, 720921, 1);
+                _IOHIDEventSetIntegerValue(parentLocal, 720925, 1);
+                _IOHIDEventSetIntegerValue(parentLocal, 4, 1);
+                _IOHIDEventSetIntegerValue(parentLocal, 720903, handEventMask);
+                _IOHIDEventSetIntegerValue(parentLocal, 720904, handEventTouch);
+                _IOHIDEventSetIntegerValue(parentLocal, 720905, handEventTouch);
+            }
+
+            if (_IOHIDEventSetSenderID) {
+                _IOHIDEventSetSenderID(parentLocal, 0xDEFACEDBEEFFECE5ULL);
+            }
+
+            BKSHIDEventSetDigitizerInfo(parentLocal, contextID, false, false, NULL, 0, 0);
+
+            rc_dispatch_sync_main_safe(^{
+                [[UIApplication sharedApplication] _enqueueHIDEvent:parentLocal];
+                SRLog(@"[Touch] Enqueued local touch event to UIApplication (absolute coords).");
+            });
+            CFRelease(parentLocal);
+        }
     }
-
-    if (_IOHIDEventSetSenderID)
-        _IOHIDEventSetSenderID(parent, 0x0000000B00000000ULL);
-
-    IOHIDEventSystemClientRef client = _IOHIDEventSystemClientCreate(kCFAllocatorDefault);
-    if (client) {
-        _IOHIDEventSystemClientDispatchEvent(client, parent);
-        CFRelease(client);
-    }
-    CFRelease(parent);
+    
+    SRLog(@"[Touch] Dispatched touch event (down=%d) to contextID=%u (frontApp: %@) at (%.1f, %.1f)", down, contextID, loggedBundleID, x, y);
 }
 
-// Simulate a tap at pixel coordinates (x, y).
+// Simulate a tap at absolute pixel coordinates (x, y).
 // MUST be called from rc_touch_queue.
 static void rc_simulate_tap(double px, double py) {
-    __block CGSize s;
-    dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
-    double nx = px / s.width;
-    double ny = py / s.height;
-    SRLog(@"[Touch] tap at pixel (%.0f,%.0f) → norm (%.4f,%.4f) screen(%.0f,%.0f)", px, py, nx, ny, s.width, s.height);
+    uint32_t contextID = rc_resolve_target_context(px, py);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
+    SRLog(@"[Touch] tap at pixel (%.0f,%.0f) contextID=%u targetIsLocal=%d", px, py, contextID, targetIsLocal);
+    
+    if (targetIsLocal) {
+        perform_digitizer_touch(px, py, YES);   // finger down
+        usleep(80000);                          // 80 ms contact
+        perform_digitizer_touch(px, py, NO);    // finger up
+    } else {
+        __block CGSize s = CGSizeZero;
+        rc_dispatch_sync_main_safe(^{
+            s = [UIScreen mainScreen].bounds.size;
+        });
+        double screenWidth = MIN(s.width, s.height);
+        double screenHeight = MAX(s.width, s.height);
+        if (screenWidth == 0) screenWidth = 375.0;
+        if (screenHeight == 0) screenHeight = 667.0;
 
-    perform_digitizer_touch(nx, ny, YES);   // finger down
-    usleep(80000);                          // 80 ms contact
-    perform_digitizer_touch(nx, ny, NO);    // finger up
+        SRLog(@"[Touch] non-local tap -> spawning rc-root iohid tap (%.1f, %.1f) contextID=%u screen=%.0fx%.0f", px, py, contextID, screenWidth, screenHeight);
+        rc_spawn_root_iohid(@"tap", @[
+            [NSString stringWithFormat:@"%.1f", px],
+            [NSString stringWithFormat:@"%.1f", py],
+            [NSString stringWithFormat:@"%u", contextID],
+            [NSString stringWithFormat:@"%.1f", screenWidth],
+            [NSString stringWithFormat:@"%.1f", screenHeight]
+        ]);
+    }
 }
 
-// Simulate a hold at pixel coordinates for `durationMs` milliseconds.
+// Simulate a hold at absolute pixel coordinates for `durationMs` milliseconds.
 // MUST be called from rc_touch_queue.
 static void rc_simulate_hold(double px, double py, int durationMs) {
-    __block CGSize s;
-    dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
-    double nx = px / s.width;
-    double ny = py / s.height;
+    uint32_t contextID = rc_resolve_target_context(px, py);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
     int clampedMs = MAX(50, MIN(durationMs, 10000));
-    SRLog(@"[Touch] hold at pixel (%.0f,%.0f) for %d ms", px, py, clampedMs);
+    SRLog(@"[Touch] hold at pixel (%.0f,%.0f) for %d ms contextID=%u targetIsLocal=%d", px, py, clampedMs, contextID, targetIsLocal);
 
-    perform_digitizer_touch(nx, ny, YES);
-    usleep((useconds_t)(clampedMs * 1000));
-    perform_digitizer_touch(nx, ny, NO);
+    if (targetIsLocal) {
+        perform_digitizer_touch(px, py, YES);
+        usleep((useconds_t)(clampedMs * 1000));
+        perform_digitizer_touch(px, py, NO);
+    } else {
+        __block CGSize s = CGSizeZero;
+        rc_dispatch_sync_main_safe(^{
+            s = [UIScreen mainScreen].bounds.size;
+        });
+        double screenWidth = MIN(s.width, s.height);
+        double screenHeight = MAX(s.width, s.height);
+        if (screenWidth == 0) screenWidth = 375.0;
+        if (screenHeight == 0) screenHeight = 667.0;
+
+        SRLog(@"[Touch] non-local hold -> spawning rc-root iohid hold (%.1f, %.1f, %d) contextID=%u screen=%.0fx%.0f", px, py, clampedMs, contextID, screenWidth, screenHeight);
+        rc_spawn_root_iohid(@"hold", @[
+            [NSString stringWithFormat:@"%.1f", px],
+            [NSString stringWithFormat:@"%.1f", py],
+            [NSString stringWithFormat:@"%d", clampedMs],
+            [NSString stringWithFormat:@"%u", contextID],
+            [NSString stringWithFormat:@"%.1f", screenWidth],
+            [NSString stringWithFormat:@"%.1f", screenHeight]
+        ]);
+    }
 }
 
 // Simulate a swipe from (x1,y1) to (x2,y2) over ~600ms with smooth interpolation.
 // MUST be called from rc_touch_queue.
 static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
-    __block CGSize s;
-    dispatch_sync(dispatch_get_main_queue(), ^{ s = [UIScreen mainScreen].bounds.size; });
-    const int steps = 40;
-    const int stepDelayUs = 15000; // 15 ms per step → ~600 ms total
+    uint32_t contextID = rc_resolve_target_context(x1, y1);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
+    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f) contextID=%u targetIsLocal=%d", x1, y1, x2, y2, contextID, targetIsLocal);
 
-    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f) screen(%.0f,%.0f)", x1, y1, x2, y2, s.width, s.height);
+    if (targetIsLocal) {
+        const int steps = 40;
+        const int stepDelayUs = 15000; // 15 ms per step → ~600 ms total
 
-    perform_digitizer_touch(x1/s.width, y1/s.height, YES); // touch down
-    usleep(16000); // brief settle
+        perform_digitizer_touch(x1, y1, YES); // touch down
+        usleep(16000); // brief settle
 
-    for (int i = 1; i <= steps; i++) {
-        double t = (double)i / steps;
-        double cx = x1 + (x2 - x1) * t;
-        double cy = y1 + (y2 - y1) * t;
-        perform_digitizer_touch(cx/s.width, cy/s.height, YES); // move
-        usleep((useconds_t)stepDelayUs);
+        for (int i = 1; i <= steps; i++) {
+            double t = (double)i / steps;
+            double cx = x1 + (x2 - x1) * t;
+            double cy = y1 + (y2 - y1) * t;
+            perform_digitizer_touch(cx, cy, YES); // move
+            usleep((useconds_t)stepDelayUs);
+        }
+
+        usleep(16000);
+        perform_digitizer_touch(x2, y2, NO); // touch up
+    } else {
+        __block CGSize s = CGSizeZero;
+        rc_dispatch_sync_main_safe(^{
+            s = [UIScreen mainScreen].bounds.size;
+        });
+        double screenWidth = MIN(s.width, s.height);
+        double screenHeight = MAX(s.width, s.height);
+        if (screenWidth == 0) screenWidth = 375.0;
+        if (screenHeight == 0) screenHeight = 667.0;
+
+        SRLog(@"[Touch] non-local swipe -> spawning rc-root iohid swipe (%.1f, %.1f)→(%.1f, %.1f) contextID=%u screen=%.0fx%.0f", x1, y1, x2, y2, contextID, screenWidth, screenHeight);
+        rc_spawn_root_iohid(@"swipe", @[
+            [NSString stringWithFormat:@"%.1f", x1],
+            [NSString stringWithFormat:@"%.1f", y1],
+            [NSString stringWithFormat:@"%.1f", x2],
+            [NSString stringWithFormat:@"%.1f", y2],
+            [NSString stringWithFormat:@"%u", contextID],
+            [NSString stringWithFormat:@"%.1f", screenWidth],
+            [NSString stringWithFormat:@"%.1f", screenHeight]
+        ]);
+    }
+}
+
+// ── Tap Recording Overlay ───────────────────────────────────────────────────
+static NSString *g_tapRecordStatus = @"idle";
+static int g_tapRecordCountdown = 0;
+static CGPoint g_tapRecordPoint = {0, 0};
+static UIViewController *g_rcTapRecordViewController = nil;
+static UILabel *g_rcTapRecordLabel = nil;
+static NSTimer *g_tapRecordTimeoutTimer = nil;
+
+static void rc_taprecord_cleanup(void);
+
+@interface RCTapRecordViewController : UIViewController
+@end
+
+@implementation RCTapRecordViewController
+- (void)touchesBegan:(NSSet<UITouch *> *)touches withEvent:(UIEvent *)event {
+    if (![g_tapRecordStatus isEqualToString:@"waiting"]) return;
+    UITouch *touch = [touches anyObject];
+    if (touch && g_rcTapRecordWindow) {
+        CGPoint pt = [touch locationInView:self.view];
+        g_tapRecordPoint = pt;
+        g_tapRecordStatus = @"recorded";
+        SRLog(@"[TapRecord] Touch captured at: %.1f, %.1f", pt.x, pt.y);
+        
+        // Play success haptic
+        AudioServicesPlaySystemSound(1519); // Peak/Actuation haptic
+        
+        rc_taprecord_cleanup();
+        
+        // Open/Foreground the RemoteCompanion app
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @try {
+                Class FBSOpenApplicationServiceClass = objc_getClass("FBSOpenApplicationService");
+                if (FBSOpenApplicationServiceClass) {
+                    FBSOpenApplicationService *service = [FBSOpenApplicationServiceClass serviceWithDefaultShellEndpoint];
+                    [service openApplication:@"com.saihgupr.remotecompanion" withOptions:nil completion:nil];
+                }
+            } @catch (NSException *e) {
+                SRLog(@"[TapRecord] Error relaunching app: %@", e);
+            }
+        });
+    }
+}
+
+- (BOOL)shouldAutorotate {
+    return NO;
+}
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskPortrait;
+}
+@end
+
+static void rc_taprecord_cleanup(void) {
+    if (g_tapRecordTimeoutTimer) {
+        [g_tapRecordTimeoutTimer invalidate];
+        g_tapRecordTimeoutTimer = nil;
+    }
+    if (g_rcTapRecordWindow) {
+        g_rcTapRecordWindow.hidden = YES;
+        g_rcTapRecordWindow = nil;
+        g_rcTapRecordViewController = nil;
+        g_rcTapRecordLabel = nil;
+    }
+}
+
+static void rc_taprecord_timeout(void) {
+    if ([g_tapRecordStatus isEqualToString:@"waiting"]) {
+        g_tapRecordStatus = @"timeout";
+        SRLog(@"[TapRecord] Timeout reached, no touch received.");
+        rc_taprecord_cleanup();
+    }
+}
+
+static void rc_taprecord_update_countdown(int secondsLeft) {
+    g_tapRecordCountdown = secondsLeft;
+    if (secondsLeft > 0) {
+        g_tapRecordStatus = @"counting";
+        rc_dispatch_sync_main_safe(^{
+            if (g_rcTapRecordLabel) {
+                g_rcTapRecordLabel.text = [NSString stringWithFormat:@"Recording tap in %d...", secondsLeft];
+            }
+        });
+        
+        // Play click sound / haptic
+        AudioServicesPlaySystemSound(1104);
+        
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if ([g_tapRecordStatus isEqualToString:@"counting"]) {
+                rc_taprecord_update_countdown(secondsLeft - 1);
+            }
+        });
+    } else {
+        g_tapRecordStatus = @"waiting";
+        rc_dispatch_sync_main_safe(^{
+            if (g_rcTapRecordWindow) {
+                g_rcTapRecordWindow.userInteractionEnabled = YES;
+                g_rcTapRecordViewController.view.backgroundColor = [UIColor colorWithRed:0.0 green:1.0 blue:0.0 alpha:0.12];
+                g_rcTapRecordViewController.view.layer.borderColor = [UIColor colorWithRed:0.0 green:0.8 blue:0.0 alpha:1.0].CGColor;
+                g_rcTapRecordViewController.view.layer.borderWidth = 4.0;
+            }
+            if (g_rcTapRecordLabel) {
+                g_rcTapRecordLabel.text = @"TAP SCREEN NOW\nto record coordinates";
+                g_rcTapRecordLabel.backgroundColor = [UIColor colorWithRed:0.0 green:0.5 blue:0.0 alpha:0.85];
+            }
+        });
+        
+        // Start 10 seconds timeout timer
+        g_tapRecordTimeoutTimer = [NSTimer scheduledTimerWithTimeInterval:10.0 repeats:NO block:^(NSTimer *timer) {
+            rc_taprecord_timeout();
+        }];
+    }
+}
+
+static void rc_taprecord_start(void) {
+    rc_dispatch_sync_main_safe(^{
+        rc_taprecord_cleanup();
+        
+        g_tapRecordStatus = @"counting";
+        g_tapRecordCountdown = 3;
+        g_tapRecordPoint = CGPointZero;
+        
+        CGRect bounds = [UIScreen mainScreen].bounds;
+        g_rcTapRecordWindow = [[UIWindow alloc] initWithFrame:bounds];
+        g_rcTapRecordWindow.windowLevel = UIWindowLevelAlert + 2590.0;
+        g_rcTapRecordWindow.backgroundColor = [UIColor clearColor];
+        g_rcTapRecordWindow.userInteractionEnabled = NO;
+        
+        g_rcTapRecordViewController = [[RCTapRecordViewController alloc] init];
+        g_rcTapRecordViewController.view.frame = bounds;
+        g_rcTapRecordViewController.view.backgroundColor = [UIColor clearColor];
+        g_rcTapRecordWindow.rootViewController = g_rcTapRecordViewController;
+        
+        CGFloat labelWidth = bounds.size.width - 64.0;
+        CGFloat labelHeight = 100.0;
+        CGFloat labelX = (bounds.size.width - labelWidth) / 2.0;
+        CGFloat labelY = (bounds.size.height - labelHeight) / 2.0;
+        
+        g_rcTapRecordLabel = [[UILabel alloc] initWithFrame:CGRectMake(labelX, labelY, labelWidth, labelHeight)];
+        g_rcTapRecordLabel.textAlignment = NSTextAlignmentCenter;
+        g_rcTapRecordLabel.numberOfLines = 0;
+        g_rcTapRecordLabel.font = [UIFont boldSystemFontOfSize:20.0];
+        g_rcTapRecordLabel.textColor = [UIColor whiteColor];
+        g_rcTapRecordLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
+        g_rcTapRecordLabel.layer.cornerRadius = 16.0;
+        g_rcTapRecordLabel.layer.masksToBounds = YES;
+        g_rcTapRecordLabel.text = @"Recording tap in 3...";
+        
+        [g_rcTapRecordViewController.view addSubview:g_rcTapRecordLabel];
+        
+        g_rcTapRecordWindow.hidden = NO;
+        [g_rcTapRecordWindow makeKeyAndVisible];
+        
+        SRLog(@"[TapRecord] Countdown started");
+        
+        rc_taprecord_update_countdown(3);
+    });
+}
+
+// -- GraphicsServices tap beta -------------------------------------------------
+// New candidate path for iOS 15 tap testing. This intentionally does not call
+// the older IOHID digitizer helpers above.
+
+static UIWindow *g_rcTapTestWindow = nil;
+static UIViewController *g_rcTapTestViewController = nil;
+static UIButton *g_rcTapTestButton = nil;
+static UILabel *g_rcTapTestLabel = nil;
+static id g_rcTapTestTarget = nil;
+static NSInteger g_rcTapTestHitCount = 0;
+static CGPoint g_rcTapTestLastHitPoint = {0, 0};
+static CFAbsoluteTime g_rcTapTestLastHitTime = 0;
+static CGRect g_rcTapTestButtonFrame = {{0, 0}, {0, 0}};
+
+static void rc_taptest_update_label(void);
+
+@interface RCTapTestButtonTarget : NSObject
+- (void)buttonTapped:(UIButton *)sender forEvent:(UIEvent *)event;
+@end
+
+@implementation RCTapTestButtonTarget
+- (void)buttonTapped:(UIButton *)sender forEvent:(UIEvent *)event {
+    (void)sender;
+    UITouch *touch = [[event allTouches] anyObject];
+    if (touch && g_rcTapTestWindow) {
+        g_rcTapTestLastHitPoint = [touch locationInView:g_rcTapTestWindow];
+    } else {
+        g_rcTapTestLastHitPoint = CGPointMake(CGRectGetMidX(g_rcTapTestButtonFrame),
+                                              CGRectGetMidY(g_rcTapTestButtonFrame));
+    }
+    g_rcTapTestHitCount++;
+    g_rcTapTestLastHitTime = CFAbsoluteTimeGetCurrent();
+    SRLog(@"[TapTest] target received tap #%ld at %.1f, %.1f",
+          (long)g_rcTapTestHitCount, g_rcTapTestLastHitPoint.x, g_rcTapTestLastHitPoint.y);
+    rc_taptest_update_label();
+}
+@end
+
+typedef mach_port_t (*RCGSGetPortFn)(void);
+typedef void (*RCGSSendEventFn)(const GSEventRecord *record, mach_port_t port);
+typedef void (*RCGSSendSystemEventFn)(const GSEventRecord *record);
+
+static RCGSSendEventFn g_rcGSSendEvent = NULL;
+static RCGSSendSystemEventFn g_rcGSSendSystemEvent = NULL;
+static RCGSGetPortFn g_rcGSGetSystemEventPort = NULL;
+static RCGSGetPortFn g_rcGSGetApplicationPort = NULL;
+static NSString *g_rcGraphicsServicesLoadError = nil;
+
+static dispatch_queue_t rc_gs_tap_queue(void) {
+    static dispatch_queue_t q;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        q = dispatch_queue_create("com.pizzaman.remotecommand.gstap", DISPATCH_QUEUE_SERIAL);
+    });
+    return q;
+}
+
+static NSArray<NSString *> *rc_split_whitespace(NSString *input) {
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    for (NSString *part in [input componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]) {
+        if (part.length > 0) [parts addObject:part];
+    }
+    return parts;
+}
+
+static void rc_dispatch_sync_main_safe(dispatch_block_t block) {
+    if ([NSThread isMainThread]) {
+        block();
+    } else {
+        dispatch_sync(dispatch_get_main_queue(), block);
+    }
+}
+
+static BOOL rc_load_graphics_services_symbols(NSString **errorOut) {
+    static BOOL loaded = NO;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        void *handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_NOW | RTLD_NOLOAD);
+        if (!handle) {
+            handle = dlopen("/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices", RTLD_NOW);
+        }
+        if (!handle) {
+            const char *err = dlerror();
+            g_rcGraphicsServicesLoadError = [NSString stringWithFormat:@"dlopen GraphicsServices failed: %s", err ? err : "unknown"];
+            SRLog(@"[GSTap] %@", g_rcGraphicsServicesLoadError);
+            return;
+        }
+
+        g_rcGSSendEvent = (RCGSSendEventFn)dlsym(handle, "GSSendEvent");
+        g_rcGSSendSystemEvent = (RCGSSendSystemEventFn)dlsym(handle, "GSSendSystemEvent");
+        g_rcGSGetSystemEventPort = (RCGSGetPortFn)dlsym(handle, "GSGetPurpleSystemEventPort");
+        g_rcGSGetApplicationPort = (RCGSGetPortFn)dlsym(handle, "GSGetPurpleApplicationPort");
+
+        if ((!g_rcGSSendEvent && !g_rcGSSendSystemEvent) ||
+            (!g_rcGSGetSystemEventPort && !g_rcGSGetApplicationPort)) {
+            g_rcGraphicsServicesLoadError = [NSString stringWithFormat:
+                @"missing symbols send=%p systemSend=%p systemPort=%p appPort=%p",
+                g_rcGSSendEvent, g_rcGSSendSystemEvent,
+                g_rcGSGetSystemEventPort, g_rcGSGetApplicationPort];
+            SRLog(@"[GSTap] %@", g_rcGraphicsServicesLoadError);
+            return;
+        }
+
+        loaded = YES;
+        SRLog(@"[GSTap] GraphicsServices loaded send=%p systemSend=%p systemPort=%p appPort=%p",
+              g_rcGSSendEvent, g_rcGSSendSystemEvent,
+              g_rcGSGetSystemEventPort, g_rcGSGetApplicationPort);
+    });
+
+    if (!loaded && errorOut) *errorOut = g_rcGraphicsServicesLoadError ?: @"GraphicsServices unavailable";
+    return loaded;
+}
+
+typedef struct {
+    GSEventRecord record;
+    GSHandInfo handInfo;
+    GSPathInfo pathInfo;
+} RCGSTouchEvent;
+
+static BOOL rc_gs_send_hand_event(CGPoint point, GSHandInfoType type, NSString *mode, NSString **errorOut) {
+    NSString *loadError = nil;
+    if (!rc_load_graphics_services_symbols(&loadError)) {
+        if (errorOut) *errorOut = loadError;
+        return NO;
     }
 
-    usleep(16000);
-    perform_digitizer_touch(x2/s.width, y2/s.height, NO); // touch up
+    RCGSTouchEvent event;
+    memset(&event, 0, sizeof(event));
+
+    event.record.type = kGSEventHand;
+    event.record.subtype = kGSEventSubTypeUnknown;
+    event.record.location = point;
+    event.record.windowLocation = point;
+    event.record.windowContextId = 0;
+    event.record.timestamp = mach_absolute_time();
+    event.record.window = NULL;
+    event.record.flags = 0;
+    event.record.senderPID = (unsigned)getpid();
+    event.record.infoSize = sizeof(GSHandInfo) + sizeof(GSPathInfo);
+
+    event.handInfo.type = type;
+    event.handInfo.deltaX = 0;
+    event.handInfo.deltaY = 0;
+    event.handInfo.width = 1.0f;
+    event.handInfo.height = 1.0f;
+    event.handInfo.pathInfosCount = 1;
+
+    event.pathInfo.pathIndex = 1;
+    event.pathInfo.pathIdentity = 2;
+    event.pathInfo.pathProximity = (type == kGSHandInfoTypeTouchUp) ? 0 : 1;
+    event.pathInfo.pathPressure = (type == kGSHandInfoTypeTouchUp) ? 0.0 : 1.0;
+    event.pathInfo.pathMajorRadius = 4.0;
+    event.pathInfo.pathLocation = point;
+    event.pathInfo.pathWindow = NULL;
+
+    BOOL useApplicationPort = [mode isEqualToString:@"app"] || [mode isEqualToString:@"springboard"];
+    mach_port_t port = MACH_PORT_NULL;
+    if (useApplicationPort && g_rcGSGetApplicationPort) {
+        port = g_rcGSGetApplicationPort();
+    } else if (g_rcGSGetSystemEventPort) {
+        port = g_rcGSGetSystemEventPort();
+    }
+
+    if (g_rcGSSendEvent && port != MACH_PORT_NULL) {
+        g_rcGSSendEvent(&event.record, port);
+        return YES;
+    }
+
+    if (g_rcGSSendSystemEvent) {
+        g_rcGSSendSystemEvent(&event.record);
+        return YES;
+    }
+
+    if (errorOut) *errorOut = @"no GraphicsServices send port available";
+    return NO;
+}
+
+static BOOL rc_gs_send_tap(CGPoint point, NSString *mode, NSString **errorOut) {
+    NSString *downError = nil;
+    if (!rc_gs_send_hand_event(point, kGSHandInfoTypeTouchDown, mode, &downError)) {
+        if (errorOut) *errorOut = downError;
+        return NO;
+    }
+
+    usleep(90000);
+
+    NSString *upError = nil;
+    if (!rc_gs_send_hand_event(point, kGSHandInfoTypeTouchUp, mode, &upError)) {
+        if (errorOut) *errorOut = upError;
+        return NO;
+    }
+
+    return YES;
+}
+
+static void rc_taptest_layout_locked(void) {
+    if (!g_rcTapTestWindow || !g_rcTapTestButton || !g_rcTapTestLabel) return;
+
+    CGRect bounds = [UIScreen mainScreen].bounds;
+    g_rcTapTestWindow.frame = bounds;
+    g_rcTapTestViewController.view.frame = bounds;
+
+    CGFloat buttonWidth = MIN(220.0, MAX(160.0, bounds.size.width - 64.0));
+    CGFloat buttonHeight = 84.0;
+    CGFloat buttonX = round((bounds.size.width - buttonWidth) * 0.5);
+    CGFloat buttonY = round((bounds.size.height - buttonHeight) * 0.5);
+    g_rcTapTestButton.frame = CGRectMake(buttonX, buttonY, buttonWidth, buttonHeight);
+    g_rcTapTestButtonFrame = g_rcTapTestButton.frame;
+
+    g_rcTapTestLabel.frame = CGRectMake(18.0,
+                                        CGRectGetMinY(g_rcTapTestButton.frame) - 112.0,
+                                        bounds.size.width - 36.0,
+                                        86.0);
+}
+
+static void rc_taptest_update_label(void) {
+    if (!g_rcTapTestLabel || !g_rcTapTestButton) return;
+
+    NSString *last = g_rcTapTestLastHitTime > 0
+        ? [NSString stringWithFormat:@"last %.0f, %.0f", g_rcTapTestLastHitPoint.x, g_rcTapTestLastHitPoint.y]
+        : @"last none";
+
+    g_rcTapTestLabel.text = [NSString stringWithFormat:
+        @"RemoteCompanion Tap Test\nhits %ld\n%@",
+        (long)g_rcTapTestHitCount,
+        last];
+    [g_rcTapTestButton setTitle:[NSString stringWithFormat:@"Tap Target (%ld)", (long)g_rcTapTestHitCount]
+                       forState:UIControlStateNormal];
+}
+
+static void rc_taptest_show_locked(BOOL reset) {
+    if (reset) {
+        g_rcTapTestHitCount = 0;
+        g_rcTapTestLastHitPoint = CGPointZero;
+        g_rcTapTestLastHitTime = 0;
+    }
+
+    if (!g_rcTapTestTarget) {
+        g_rcTapTestTarget = [[RCTapTestButtonTarget alloc] init];
+    }
+
+    if (!g_rcTapTestWindow) {
+        CGRect bounds = [UIScreen mainScreen].bounds;
+        g_rcTapTestWindow = [[UIWindow alloc] initWithFrame:bounds];
+        g_rcTapTestWindow.windowLevel = UIWindowLevelAlert + 2500.0;
+        g_rcTapTestWindow.backgroundColor = [UIColor clearColor];
+        g_rcTapTestWindow.userInteractionEnabled = YES;
+
+        g_rcTapTestViewController = [[UIViewController alloc] init];
+        g_rcTapTestViewController.view.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.18];
+        g_rcTapTestWindow.rootViewController = g_rcTapTestViewController;
+
+        g_rcTapTestLabel = [[UILabel alloc] initWithFrame:CGRectZero];
+        g_rcTapTestLabel.textAlignment = NSTextAlignmentCenter;
+        g_rcTapTestLabel.numberOfLines = 0;
+        g_rcTapTestLabel.font = [UIFont monospacedSystemFontOfSize:16.0 weight:UIFontWeightSemibold];
+        g_rcTapTestLabel.textColor = [UIColor whiteColor];
+        g_rcTapTestLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.68];
+        g_rcTapTestLabel.layer.cornerRadius = 12.0;
+        g_rcTapTestLabel.layer.masksToBounds = YES;
+        [g_rcTapTestViewController.view addSubview:g_rcTapTestLabel];
+
+        g_rcTapTestButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        g_rcTapTestButton.backgroundColor = [UIColor colorWithRed:0.10 green:0.72 blue:0.38 alpha:1.0];
+        g_rcTapTestButton.tintColor = [UIColor whiteColor];
+        g_rcTapTestButton.titleLabel.font = [UIFont boldSystemFontOfSize:22.0];
+        g_rcTapTestButton.layer.cornerRadius = 12.0;
+        g_rcTapTestButton.layer.borderColor = [UIColor whiteColor].CGColor;
+        g_rcTapTestButton.layer.borderWidth = 2.0;
+        g_rcTapTestButton.accessibilityIdentifier = @"remotecompanion.taptest.target";
+        [g_rcTapTestButton addTarget:g_rcTapTestTarget
+                              action:@selector(buttonTapped:forEvent:)
+                    forControlEvents:UIControlEventTouchUpInside];
+        [g_rcTapTestViewController.view addSubview:g_rcTapTestButton];
+    }
+
+    rc_taptest_layout_locked();
+    rc_taptest_update_label();
+    g_rcTapTestWindow.hidden = NO;
+    [g_rcTapTestWindow makeKeyAndVisible];
+    SRLog(@"[TapTest] shown target frame %.0f %.0f %.0f %.0f",
+          g_rcTapTestButtonFrame.origin.x, g_rcTapTestButtonFrame.origin.y,
+          g_rcTapTestButtonFrame.size.width, g_rcTapTestButtonFrame.size.height);
+}
+
+static void rc_taptest_hide_locked(void) {
+    if (g_rcTapTestWindow) {
+        g_rcTapTestWindow.hidden = YES;
+        SRLog(@"[TapTest] hidden");
+    }
+}
+
+static NSString *rc_taptest_status_string(void) {
+    __block NSString *status = nil;
+    rc_dispatch_sync_main_safe(^{
+        BOOL visible = g_rcTapTestWindow && !g_rcTapTestWindow.hidden;
+        CGPoint center = CGPointMake(CGRectGetMidX(g_rcTapTestButtonFrame), CGRectGetMidY(g_rcTapTestButtonFrame));
+        NSString *last = g_rcTapTestLastHitTime > 0
+            ? [NSString stringWithFormat:@"%.0f %.0f", g_rcTapTestLastHitPoint.x, g_rcTapTestLastHitPoint.y]
+            : @"none";
+        status = [NSString stringWithFormat:
+            @"taptest visible=%@ hits=%ld button=%.0f %.0f %.0f %.0f center=%.0f %.0f last=%@ backend=IOHIDEvent\n",
+            visible ? @"yes" : @"no",
+            (long)g_rcTapTestHitCount,
+            g_rcTapTestButtonFrame.origin.x,
+            g_rcTapTestButtonFrame.origin.y,
+            g_rcTapTestButtonFrame.size.width,
+            g_rcTapTestButtonFrame.size.height,
+            center.x,
+            center.y,
+            last];
+    });
+    return status ?: @"taptest unavailable\n";
+}
+
+static NSString *rc_handle_taptest_command(NSString *cleanCmd) {
+    NSArray<NSString *> *parts = rc_split_whitespace(cleanCmd);
+    NSString *subcommand = parts.count >= 2 ? [parts[1] lowercaseString] : @"status";
+
+    if ([subcommand isEqualToString:@"show"]) {
+        rc_dispatch_sync_main_safe(^{ rc_taptest_show_locked(NO); });
+        return rc_taptest_status_string();
+    }
+
+    if ([subcommand isEqualToString:@"reset"]) {
+        rc_dispatch_sync_main_safe(^{ rc_taptest_show_locked(YES); });
+        return rc_taptest_status_string();
+    }
+
+    if ([subcommand isEqualToString:@"hide"]) {
+        rc_dispatch_sync_main_safe(^{ rc_taptest_hide_locked(); });
+        return @"taptest hidden\n";
+    }
+
+    if ([subcommand isEqualToString:@"status"]) {
+        return rc_taptest_status_string();
+    }
+
+    if ([subcommand isEqualToString:@"run"]) {
+        NSString *backend = @"iohid";
+        NSString *mode = @"system";
+
+        if (parts.count >= 3) {
+            NSString *p2 = [parts[2] lowercaseString];
+            if ([p2 isEqualToString:@"iohid"] || [p2 isEqualToString:@"gsevent"]) {
+                backend = p2;
+                if (parts.count >= 4) {
+                    mode = [parts[3] lowercaseString];
+                }
+            } else {
+                mode = p2;
+            }
+        }
+
+        if (!([mode isEqualToString:@"system"] ||
+              [mode isEqualToString:@"app"] ||
+              [mode isEqualToString:@"springboard"])) {
+            return @"Usage: taptest run [iohid|gsevent] [system|app]\n";
+        }
+
+        __block CGPoint center = CGPointZero;
+        __block NSInteger startCount = 0;
+        rc_dispatch_sync_main_safe(^{
+            rc_taptest_show_locked(YES);
+            center = CGPointMake(CGRectGetMidX(g_rcTapTestButtonFrame), CGRectGetMidY(g_rcTapTestButtonFrame));
+            startCount = g_rcTapTestHitCount;
+        });
+
+        usleep(180000);
+
+        __block BOOL sent = NO;
+        __block NSString *sendError = nil;
+
+        if ([backend isEqualToString:@"gsevent"]) {
+            dispatch_sync(rc_gs_tap_queue(), ^{
+                sent = rc_gs_send_tap(center, mode, &sendError);
+            });
+        } else {
+            // IOHIDEvent backend
+            rc_load_touch_symbols();
+            dispatch_sync(rc_touch_queue(), ^{
+                perform_digitizer_touch(center.x, center.y, YES);
+                usleep(80000);
+                perform_digitizer_touch(center.x, center.y, NO);
+                sent = YES;
+            });
+        }
+
+        if (!sent) {
+            return [NSString stringWithFormat:@"taptest FAIL send-error=%@ backend=%@ mode=%@\n",
+                    sendError ?: @"unknown", backend, mode];
+        }
+
+        BOOL passed = NO;
+        for (int i = 0; i < 24; i++) {
+            __block NSInteger count = 0;
+            rc_dispatch_sync_main_safe(^{ count = g_rcTapTestHitCount; });
+            if (count > startCount) {
+                passed = YES;
+                break;
+            }
+            usleep(50000);
+        }
+
+        NSString *status = rc_taptest_status_string();
+        return [NSString stringWithFormat:@"taptest %@ backend=%@ mode=%@ target=%.0f %.0f\n%@",
+                passed ? @"PASS" : @"FAIL",
+                backend,
+                mode,
+                center.x,
+                center.y,
+                status];
+    }
+
+    return @"Usage: taptest show|hide|reset|status|run [iohid|gsevent] [system|app]\n";
 }
 
 // ── Lua-callable touch functions ──────────────────────────────────────────────
@@ -2832,6 +4167,20 @@ static NSString *handle_command(NSString *cmd) {
             dispatch_sync(dispatch_get_main_queue(), ccBlock);
         }
         return opened ? @"Control Center opened\n" : @"Failed to open Control Center\n";
+    } else if ([cleanCmd isEqualToString:@"previous app"] || [cleanCmd isEqualToString:@"last app"]) {
+        if (g_previousAppBundleId) {
+            SRLog(@"[RemoteCommand] Returning to previous app: %@", g_previousAppBundleId);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                Class fbsClass = objc_getClass("FBSOpenApplicationService");
+                if (fbsClass) {
+                    id service = [fbsClass serviceWithDefaultShellEndpoint];
+                    [service openApplication:g_previousAppBundleId withOptions:nil completion:nil];
+                }
+            });
+            return [NSString stringWithFormat:@"Switched to previous app: %@", g_previousAppBundleId];
+        } else {
+            return @"No previous app available.";
+        }
     } else if ([cleanCmd isEqualToString:@"switcher"] || [cleanCmd isEqualToString:@"app switcher"]) {
         __block BOOL success = NO;
         SRLog(@"Attempting to toggle App Switcher...");
@@ -4077,16 +5426,46 @@ static NSString *handle_command(NSString *cmd) {
         NSString *scriptPath = [[cleanCmd substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         return execute_lua_script(scriptPath);
 
-    // ── Touch gesture commands ────────────────────────────────────────────────
+    // -- Touch gesture commands ------------------------------------------------
+    // taptest show|hide|reset|status|run [system|app]
+    } else if ([cleanCmd isEqualToString:@"taptest"] || [cleanCmd hasPrefix:@"taptest "]) {
+        return rc_handle_taptest_command(cleanCmd);
+
+    // taprecord
+    } else if ([cleanCmd isEqualToString:@"taprecord"]) {
+        rc_taprecord_start();
+        return @"Tap recording started\n";
+
+    // taprecordstatus
+    } else if ([cleanCmd isEqualToString:@"taprecordstatus"]) {
+        __block NSDictionary *resp = nil;
+        rc_dispatch_sync_main_safe(^{
+            NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+            [dict setObject:@YES forKey:@"ok"];
+            [dict setObject:g_tapRecordStatus forKey:@"status"];
+            if ([g_tapRecordStatus isEqualToString:@"counting"]) {
+                [dict setObject:@(g_tapRecordCountdown) forKey:@"seconds"];
+            } else if ([g_tapRecordStatus isEqualToString:@"recorded"]) {
+                [dict setObject:@(g_tapRecordPoint.x) forKey:@"x"];
+                [dict setObject:@(g_tapRecordPoint.y) forKey:@"y"];
+                g_tapRecordStatus = @"idle";
+            }
+            resp = [dict copy];
+        });
+        NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+        return [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+
     // tap x y
     } else if ([cleanCmd hasPrefix:@"tap "]) {
-        NSArray *parts = [[cleanCmd substringFromIndex:4] componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+        NSArray<NSString *> *parts = rc_split_whitespace([cleanCmd substringFromIndex:4]);
         if (parts.count >= 2) {
             double px = [parts[0] doubleValue];
             double py = [parts[1] doubleValue];
             rc_load_touch_symbols();
-            dispatch_async(rc_touch_queue(), ^{ rc_simulate_tap(px, py); });
-            return @"Tap sent\n";
+            dispatch_async(rc_touch_queue(), ^{
+                rc_simulate_tap(px, py);
+            });
+            return @"Tap sent via IOHIDEvent\n";
         }
         return @"Usage: tap x y\n";
 
@@ -4567,6 +5946,14 @@ static void start_web_server() {
                                             }
                                         }
                                     }
+                            } else if ([path isEqualToString:@"/api/version"] && [method isEqualToString:@"GET"]) {
+                                NSString *plistPath = [NSString stringWithFormat:@"%@/Applications/RemoteCompanion.app/Info.plist", root_prefix()];
+                                NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+                                NSString *version = plist[@"CFBundleShortVersionString"] ?: @"3.3.0";
+                                NSDictionary *resp = @{@"ok": @YES, @"version": version};
+                                NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
+                                responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
                             } else if ([path isEqualToString:@"/api/triggers"] && [method isEqualToString:@"GET"]) {
                                 load_trigger_config();
                                 if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
@@ -4595,6 +5982,30 @@ static void start_web_server() {
                                     NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
                                     // Remove backslash escaping for forward slashes
                                     jsonStr = [jsonStr stringByReplacingOccurrencesOfString:@"\\/" withString:@"/"];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
+                                }
+                            } else if ([path isEqualToString:@"/api/taprecordstatus"] && ([method isEqualToString:@"GET"] || [method isEqualToString:@"POST"])) {
+                                load_trigger_config();
+                                if (![g_triggerConfig[@"webUIEnabled"] boolValue]) {
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 403 Forbidden\r\n%@Content-Length: 17\r\n\r\nWeb UI is disabled", cors];
+                                } else {
+                                    __block NSDictionary *resp = nil;
+                                    rc_dispatch_sync_main_safe(^{
+                                        NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+                                        [dict setObject:@YES forKey:@"ok"];
+                                        [dict setObject:g_tapRecordStatus forKey:@"status"];
+                                        if ([g_tapRecordStatus isEqualToString:@"counting"]) {
+                                            [dict setObject:@(g_tapRecordCountdown) forKey:@"seconds"];
+                                        } else if ([g_tapRecordStatus isEqualToString:@"recorded"]) {
+                                            [dict setObject:@(g_tapRecordPoint.x) forKey:@"x"];
+                                            [dict setObject:@(g_tapRecordPoint.y) forKey:@"y"];
+                                            g_tapRecordStatus = @"idle";
+                                        }
+                                        resp = [dict copy];
+                                    });
+                                    
+                                    NSData *respData = [NSJSONSerialization dataWithJSONObject:resp options:0 error:nil];
+                                    NSString *jsonStr = [[NSString alloc] initWithData:respData encoding:NSUTF8StringEncoding];
                                     responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: application/json\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)[jsonStr lengthOfBytesUsingEncoding:NSUTF8StringEncoding], jsonStr];
                                 }
                             } else if ([path isEqualToString:@"/api/devices"] && [method isEqualToString:@"GET"]) {
@@ -4925,12 +6336,8 @@ static BOOL g_forceSystemLongPress = NO;     // New for dual-stage
 static BOOL g_powerIsDown = NO;
 static BOOL g_powerVolComboTriggered = NO;
 
-// Biometric / Touch ID Globals
-static NSTimeInterval g_bioFingerDownTime = 0;
-static BOOL g_bioHoldTriggered = NO;
-static NSTimer *g_bioWatchdogTimer = nil;
-static NSTimeInterval g_bioIgnoreUntil = 0;
-static BOOL g_bioWasLocked = NO;
+
+
 
 
 // static NSTimeInterval g_lastPowerUpTime = 0; // Removed unused variable
@@ -4982,9 +6389,71 @@ static int g_lastRingerState = -1;
 
 %end
 
+static BOOL iPadHasVolumeButtonsOnTop() {
+    static BOOL onTop = NO;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        struct utsname systemInfo;
+        uname(&systemInfo);
+        NSString *machine = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
+        if ([machine isEqualToString:@"iPad14,1"] || [machine isEqualToString:@"iPad14,2"] || // iPad mini 6
+            [machine isEqualToString:@"iPad16,1"] || [machine isEqualToString:@"iPad16,2"] || // iPad mini 7
+            [machine isEqualToString:@"iPad13,18"] || [machine isEqualToString:@"iPad13,19"]) { // iPad 10
+            onTop = YES;
+        }
+    });
+    return onTop;
+}
+
+static BOOL iPadIsSwappedBySystem() {
+    if ([[UIDevice currentDevice] userInterfaceIdiom] != UIUserInterfaceIdiomPad) {
+        return NO;
+    }
+    
+    SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
+    if ([sb respondsToSelector:@selector(activeInterfaceOrientation)]) {
+        orientation = [sb activeInterfaceOrientation];
+    }
+    
+    BOOL buttonsOnTop = iPadHasVolumeButtonsOnTop();
+    if (buttonsOnTop) {
+        return (orientation == UIInterfaceOrientationPortraitUpsideDown || orientation == UIInterfaceOrientationLandscapeRight);
+    } else {
+        return (orientation == UIInterfaceOrientationPortraitUpsideDown || orientation == UIInterfaceOrientationLandscapeLeft);
+    }
+}
+
+static BOOL should_swap_in_hooks() {
+    load_trigger_config();
+    if (![g_triggerConfig[@"masterEnabled"] boolValue]) return NO;
+    if (![g_triggerConfig[@"fixedVolumeButtons"] boolValue]) return NO;
+    
+    return iPadIsSwappedBySystem();
+}
+
+static BOOL should_swap_in_hid_listener() {
+    load_trigger_config();
+    if (![g_triggerConfig[@"masterEnabled"] boolValue]) return NO;
+    if ([g_triggerConfig[@"fixedVolumeButtons"] boolValue]) {
+        return NO;
+    }
+    
+    return iPadIsSwappedBySystem();
+}
+
+static BOOL g_isSwappingVolume = NO;
+
 %hook SBVolumeHardwareButtonActions
 
 - (void)volumeIncreasePressDownWithModifiers:(long long)arg1 {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeDecreasePressDownWithModifiers:arg1];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
         return;
@@ -5026,6 +6495,13 @@ static int g_lastRingerState = -1;
 }
 
 - (void)volumeIncreasePressUp {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeDecreasePressUp];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     g_volUpIsDown = NO;
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
@@ -5064,6 +6540,13 @@ static int g_lastRingerState = -1;
 }
 
 - (void)volumeDecreasePressDownWithModifiers:(long long)arg1 {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeIncreasePressDownWithModifiers:arg1];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
         return;
@@ -5105,6 +6588,13 @@ static int g_lastRingerState = -1;
 }
 
 - (void)volumeDecreasePressUp {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeIncreasePressUp];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     g_volDownIsDown = NO;
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
@@ -5561,12 +7051,17 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
         
         // Volume Buttons (Page 0x0C, Usage 0xE9/0xEA)
         if (usagePage == kHIDPage_Consumer && (usage == kHIDUsage_Csmr_VolumeIncrement || usage == kHIDUsage_Csmr_VolumeDecrement)) {
-            if (usage == kHIDUsage_Csmr_VolumeIncrement) g_volUpIsDown = !!down;
-            if (usage == kHIDUsage_Csmr_VolumeDecrement) g_volDownIsDown = !!down;
+            uint32_t mappedUsage = usage;
+            if (should_swap_in_hid_listener()) {
+                mappedUsage = (usage == kHIDUsage_Csmr_VolumeIncrement) ? kHIDUsage_Csmr_VolumeDecrement : kHIDUsage_Csmr_VolumeIncrement;
+            }
+
+            if (mappedUsage == kHIDUsage_Csmr_VolumeIncrement) g_volUpIsDown = !!down;
+            if (mappedUsage == kHIDUsage_Csmr_VolumeDecrement) g_volDownIsDown = !!down;
             
             // Check for Power + Volume combination
             if (down && g_powerIsDown) {
-                NSString *triggerKey = (usage == kHIDUsage_Csmr_VolumeIncrement) ? @"power_volume_up" : @"power_volume_down";
+                NSString *triggerKey = (mappedUsage == kHIDUsage_Csmr_VolumeIncrement) ? @"power_volume_up" : @"power_volume_down";
                 load_trigger_config();
                 BOOL masterEnabled = [g_triggerConfig[@"masterEnabled"] boolValue];
                 BOOL enabled = masterEnabled && [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
@@ -5657,24 +7152,6 @@ static void setup_background_hid_listener() {
         }
     }
     return result;
-}
-
-- (void)unlockUIFromSource:(int)source withOptions:(id)options {
-    %orig;
-    SRLog(@"🔓 Device Unlocked via SBLockScreenManager (Source: %d)", source);
-    
-    // Reset biometric state immediately upon unlock to prevent stray triggers
-    g_bioFingerDownTime = 0;
-    g_bioHoldTriggered = NO;
-    
-    if (g_bioWatchdogTimer) {
-        [g_bioWatchdogTimer invalidate];
-        g_bioWatchdogTimer = nil;
-        SRLog(@"🔐 Cancelled pending Biometric trigger due to Unlock");
-    }
-    
-    // Brief suppression after unlock (1.0s)
-    g_bioIgnoreUntil = [[NSDate date] timeIntervalSince1970] + 1.0;
 }
 
 %end
@@ -6347,6 +7824,15 @@ static void update_edge_gestures() {
         if ([self respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
             SBApplication *frontApp = [self _accessibilityFrontMostApplication];
             NSString *bundleId = [frontApp bundleIdentifier];
+            
+            // Track previous app for the 'previous app' action
+            if ((bundleId && ![bundleId isEqualToString:g_currentAppBundleId]) || (!bundleId && g_currentAppBundleId)) {
+                if (g_currentAppBundleId && ![g_currentAppBundleId isEqualToString:@"com.apple.springboard"]) {
+                    g_previousAppBundleId = g_currentAppBundleId;
+                }
+                g_currentAppBundleId = bundleId;
+            }
+            
             static NSString *lastApp = nil;
             if (bundleId && ![bundleId isEqualToString:lastApp]) {
                 lastApp = bundleId;

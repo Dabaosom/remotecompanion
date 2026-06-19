@@ -79,7 +79,9 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
                              @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down",
                              @"volume_both_press", @"touchid_tap",
                              @"power_volume_up", @"power_volume_down", @"shake",
-                             @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle"];
+                             @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle",
+                             @"trigger_device_lock", @"trigger_device_unlock",
+                             @"trigger_media_play", @"trigger_media_pause", @"trigger_media_track_change"];
         
         BOOL needsSave = NO;
         for (NSString *key in allKeys) {
@@ -128,12 +130,23 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         BOOL didChange = NO;
         if (triggers[@"watch_near"]) { [triggers removeObjectForKey:@"watch_near"]; didChange = YES; }
         if (triggers[@"watch_far"]) { [triggers removeObjectForKey:@"watch_far"]; didChange = YES; }
+        
+        // Also cleanup unconfigured device state and media triggers so they don't show up in the main list unless created
+        NSArray *deviceStateKeys = @[@"trigger_device_lock", @"trigger_device_unlock", @"trigger_media_play", @"trigger_media_pause", @"trigger_media_track_change"];
+        for (NSString *key in deviceStateKeys) {
+            NSDictionary *trig = triggers[key];
+            if (trig && (!trig[@"actions"] || [trig[@"actions"] count] == 0)) {
+                [triggers removeObjectForKey:key];
+                didChange = YES;
+            }
+        }
+        
         if (didChange) {
             _config[@"triggers"] = triggers;
             [self saveConfig];
         }
     } else {
-        // Default config with all triggers
+        // Default config with all triggers (excluding system events which are added dynamically)
         NSLog(@"[RCConfigManager] Using default config");
         _config = [@{
             @"masterEnabled": @YES,
@@ -302,7 +315,7 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 }
 
 - (NSArray<NSString *> *)allTriggerKeys {
-    return @[@"volume_up_hold", @"volume_down_hold", @"volume_both_press", @"power_double_tap", @"power_long_press", @"power_triple_click", @"power_quadruple_click", @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click", @"touchid_tap", @"touchid_hold", @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down", @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle", @"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right", @"power_volume_up", @"power_volume_down", @"shake"];
+    return @[@"volume_up_hold", @"volume_down_hold", @"volume_both_press", @"power_double_tap", @"power_long_press", @"power_triple_click", @"power_quadruple_click", @"trigger_statusbar_left_hold", @"trigger_statusbar_center_hold", @"trigger_statusbar_right_hold", @"trigger_statusbar_swipe_left", @"trigger_statusbar_swipe_right", @"trigger_home_triple_click", @"trigger_home_quadruple_click", @"trigger_home_double_click", @"touchid_tap", @"touchid_hold", @"trigger_edge_left_swipe_up", @"trigger_edge_left_swipe_down", @"trigger_edge_right_swipe_up", @"trigger_edge_right_swipe_down", @"trigger_ringer_mute", @"trigger_ringer_unmute", @"trigger_ringer_toggle", @"trigger_bottombar_swipe_left", @"trigger_bottombar_swipe_right", @"power_volume_up", @"power_volume_down", @"shake", @"trigger_device_lock", @"trigger_device_unlock", @"trigger_media_play", @"trigger_media_pause", @"trigger_media_track_change"];
 }
 
 - (NSArray<NSDictionary *> *)notificationTriggers {
@@ -321,6 +334,11 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
 - (NSString *)displayNameForTrigger:(NSString *)triggerKey {
     NSDictionary *names = @{
         @"shake": @"Shake Device",
+        @"trigger_device_lock": @"Device Locked",
+        @"trigger_device_unlock": @"Device Unlocked",
+        @"trigger_media_play": @"Media Playing",
+        @"trigger_media_pause": @"Media Paused",
+        @"trigger_media_track_change": @"Media Track Changed",
         @"volume_up_hold": @"Volume Up Hold",
         @"volume_down_hold": @"Volume Down Hold",
         @"volume_both_press": @"Volume Up + Down (Both)",
@@ -640,6 +658,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"uicache": @"Refresh Icon Cache",
         @"player status": @"Player Status",
         @"switcher": @"App Switcher",
+        @"previous app": @"Previous App",
+        @"last app": @"Previous App",
         // Touch gestures
         @"swipeU": @"Swipe Up",
         @"swipeUp": @"Swipe Up",
@@ -847,6 +867,8 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
         @"vibration ring-toggle": @"bell",
         @"vibration ring-status": @"bell.circle",
         @"switcher": @"square.stack.3d.up.fill",
+        @"previous app": @"arrow.uturn.backward",
+        @"last app": @"arrow.uturn.backward",
         // Touch gestures
         @"swipeU": @"arrow.up.circle.fill",
         @"swipeUp": @"arrow.up.circle.fill",
