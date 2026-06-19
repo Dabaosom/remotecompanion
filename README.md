@@ -9,6 +9,7 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 > - **Previous App Command**: Added `rc previous app` (or `rc last app`) to instantly return to the last active application.
 > - **Web UI & Companion Integration**: Complete support for media and lock status events with custom icons, pickers, and live testing.
 > - **iPad Volume Fix**: Resolved volume button trigger handling issues specific to iPad hardware.
+> - **RootHide Support**: Native compatibility for RootHide-based jailbreaks.
 
 
 <p align="center">
@@ -22,7 +23,7 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 ## Features
 - **Hardware Triggers**: Bind actions to Power/Volume buttons, Home button, Touch ID (Tap/Hold), or the Ringer Switch.
 - **Universal Search**: Instantly find actions, shortcuts, and devices with integrated search bars in every picker.
-- **Cross-Version Support**: Full compatibility for iOS 14 through iOS 16+, supporting both Rootless and Rootful environments.
+- **Cross-Version Support**: Full compatibility for iOS 14 through iOS 16+, supporting Rootless, Rootful, and RootHide environments.
 - **Advanced Automation**: Full support for NFC tags, custom Lua scripts (with `objc_call` support), and native Siri integration.
 - **iPad Experience**: Native landscape orientation and optimized layouts for iPad power users.
 - **Live Discovery**: Discovery-based live lists for nearby AirPlay and Bluetooth hardware.
@@ -175,7 +176,7 @@ Combine status queries with actions for smart automation:
 <details>
 <summary><h3>1. Requirements</h3></summary>
 
-- A **Jailbroken Device** (iOS 14+). Supports both Rootless (iOS 15+) and Rootful (iOS 14) environments.
+- A **Jailbroken Device** (iOS 14+). Supports Rootless (iOS 15+), Rootful (iOS 14), and RootHide environments.
 - The `RemoteCompanion` tweak installed.
 
 </details>
