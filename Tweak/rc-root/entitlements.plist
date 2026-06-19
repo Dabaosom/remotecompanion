@@ -6,5 +6,9 @@
 	<true/>
 	<key>com.apple.private.security.no-container</key>
 	<true/>
+	<key>com.apple.iohid.client.system</key>
+	<true/>
+	<key>com.apple.multitouch.injection</key>
+	<true/>
 </dict>
 </plist>

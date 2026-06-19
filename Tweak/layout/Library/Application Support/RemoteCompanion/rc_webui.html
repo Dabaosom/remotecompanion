@@ -751,6 +751,12 @@
           <input type="checkbox" class="ios-toggle" id="setting-webui" onchange="config.webUIEnabled=this.checked;saveConfig()">
         </div>
       </div>
+      <div class="settings-row">
+        <span class="settings-label">Fixed iPad Volume Buttons</span>
+        <div class="settings-btn">
+          <input type="checkbox" class="ios-toggle" id="setting-fixedvolume" onchange="config.fixedVolumeButtons=this.checked;saveConfig()">
+        </div>
+      </div>
     </div>
 
     <div class="action-list-header">Backup</div>
@@ -899,7 +905,7 @@
 'use strict';
 
 // ── State ────────────────────────────────────────────────────────────────────
-let config = { masterEnabled: true, nfcEnabled: true, webUIEnabled: false, triggers: {}, favoriteTriggers: [] };
+let config = { masterEnabled: true, nfcEnabled: true, webUIEnabled: false, fixedVolumeButtons: false, triggers: {}, favoriteTriggers: [] };
 let hasLoadedData = false;
 let currentKey = null;
 let dialogCallback = null;
@@ -2441,6 +2447,7 @@ function openSettings() {
   document.getElementById('setting-master').checked = !!config.masterEnabled;
   document.getElementById('setting-nfc').checked    = !!config.nfcEnabled;
   document.getElementById('setting-webui').checked  = !!config.webUIEnabled;
+  document.getElementById('setting-fixedvolume').checked = !!config.fixedVolumeButtons;
   document.getElementById('settings-panel').classList.add('active');
   document.getElementById('footer-settings-fixed').style.display = 'block';
 }
@@ -2470,6 +2477,7 @@ function handleImportFile(input) {
       if (imp.triggers) Object.assign(config.triggers, imp.triggers);
       if (imp.masterEnabled !== undefined) config.masterEnabled = imp.masterEnabled;
       if (imp.nfcEnabled !== undefined) config.nfcEnabled = imp.nfcEnabled;
+      if (imp.fixedVolumeButtons !== undefined) config.fixedVolumeButtons = imp.fixedVolumeButtons;
       saveConfig(); renderAll();
       showToast('✓ Import successful');
     } catch { showToast('⚠ Invalid config file'); }

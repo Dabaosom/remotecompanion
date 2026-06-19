@@ -9,6 +9,7 @@
 #import <spawn.h>
 #import <notify.h>
 #import <sys/wait.h>
+#import <sys/utsname.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import <AudioToolbox/AudioToolbox.h>
@@ -2058,6 +2059,277 @@ static uint64_t rc_get_digitizer_sender_id(void) {
     return savedSenderID;
 }
 
+static uint32_t rc_resolve_target_context(double x, double y) {
+    __block uint32_t contextID = 0;
+    __block uint32_t testWindowContextID = 0;
+    __block uint32_t recordWindowContextID = 0;
+    rc_dispatch_sync_main_safe(^{
+        if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
+            testWindowContextID = [g_rcTapTestWindow _contextId];
+            contextID = testWindowContextID;
+        } else if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
+            recordWindowContextID = [g_rcTapRecordWindow _contextId];
+            contextID = recordWindowContextID;
+        } else {
+            // Resolve contextID via FBSceneManager from the frontmost application scene
+            NSString *frontBundleID = nil;
+            SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+            if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+                id frontApp = [sb _accessibilityFrontMostApplication];
+                if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
+                    frontBundleID = [frontApp bundleIdentifier];
+                }
+            }
+            
+            if (frontBundleID) {
+                Class managerClass = NSClassFromString(@"FBSceneManager");
+                id manager = nil;
+                if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+                    manager = [managerClass performSelector:@selector(sharedInstance)];
+                }
+                
+                if (manager) {
+                    id workspace = nil;
+                    @try {
+                        workspace = [manager valueForKey:@"_workspace"];
+                    } @catch (NSException *e) {}
+                    
+                    if (workspace) {
+                        id scenes = nil;
+                        if ([workspace respondsToSelector:@selector(scenes)]) {
+                            scenes = [workspace performSelector:@selector(scenes)];
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"_scenes"]; } @catch (NSException *e) {}
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"_scenesByID"]; } @catch (NSException *e) {}
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"allScenes"]; } @catch (NSException *e) {}
+                        }
+                        
+                        NSArray *sceneArray = nil;
+                        if ([scenes isKindOfClass:[NSDictionary class]]) {
+                            sceneArray = [scenes allValues];
+                        } else if ([scenes isKindOfClass:[NSSet class]]) {
+                            sceneArray = [scenes allObjects];
+                        } else if ([scenes isKindOfClass:[NSArray class]]) {
+                            sceneArray = scenes;
+                        }
+                        
+                        for (id scene in sceneArray) {
+                            @try {
+                                id sceneID = nil;
+                                if ([scene respondsToSelector:@selector(identifier)]) {
+                                    sceneID = [scene performSelector:@selector(identifier)];
+                                }
+                                if (![sceneID isKindOfClass:[NSString class]]) {
+                                    continue;
+                                }
+                                
+                                // Check if the scene identifier contains the frontBundleID
+                                if ([sceneID rangeOfString:frontBundleID options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                                    id layerManager = nil;
+                                    if ([scene respondsToSelector:@selector(layerManager)]) {
+                                        layerManager = [scene performSelector:@selector(layerManager)];
+                                    }
+                                    if (!layerManager) {
+                                        @try { layerManager = [scene valueForKey:@"_layerManager"]; } @catch (NSException *e) {}
+                                    }
+                                    
+                                    id layers = nil;
+                                    if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
+                                        layers = [layerManager performSelector:@selector(layers)];
+                                    }
+                                    if (!layers && layerManager) {
+                                        @try { layers = [layerManager valueForKey:@"_layers"]; } @catch (NSException *e) {}
+                                    }
+                                    
+                                    NSArray *layerArray = nil;
+                                    if ([layers isKindOfClass:[NSSet class]]) {
+                                        layerArray = [layers allObjects];
+                                    } else if ([layers isKindOfClass:[NSArray class]]) {
+                                        layerArray = layers;
+                                    } else if ([layers isKindOfClass:[NSOrderedSet class]]) {
+                                        layerArray = [layers array];
+                                    }
+                                    
+                                    for (id layer in layerArray) {
+                                        if ([layer respondsToSelector:@selector(contextID)]) {
+                                            NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
+                                            if (sig) {
+                                                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                                                [inv setSelector:@selector(contextID)];
+                                                [inv setTarget:layer];
+                                                [inv invoke];
+                                                uint32_t cid = 0;
+                                                [inv getReturnValue:&cid];
+                                                if (cid > 0) {
+                                                    contextID = cid;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } @catch (NSException *e) {}
+                        }
+                    }
+                }
+            }
+            
+            // Fallback 1: Local SpringBoard Windows
+            if (contextID == 0) {
+                Class windowClass = NSClassFromString(@"UIWindow");
+                if (windowClass && [windowClass respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
+                    NSArray *allWindows = [windowClass allWindowsIncludingInternalWindows:YES onlyVisibleWindows:YES];
+                    for (UIWindow *window in [allWindows reverseObjectEnumerator]) {
+                        if (window.userInteractionEnabled && !window.hidden) {
+                            CGPoint localPt = [window convertPoint:CGPointMake(x, y) fromWindow:nil];
+                            if ([window pointInside:localPt withEvent:nil]) {
+                                uint32_t cid = 0;
+                                if ([window respondsToSelector:@selector(_contextId)]) {
+                                    cid = [window _contextId];
+                                }
+                                if (cid > 0) {
+                                    contextID = cid;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Fallback 2: Any active foreground scene
+            if (contextID == 0) {
+                Class managerClass = NSClassFromString(@"FBSceneManager");
+                id manager = nil;
+                if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
+                    manager = [managerClass performSelector:@selector(sharedInstance)];
+                }
+                if (manager) {
+                    id workspace = nil;
+                    @try { workspace = [manager valueForKey:@"_workspace"]; } @catch (NSException *e) {}
+                    if (workspace) {
+                        id scenes = nil;
+                        if ([workspace respondsToSelector:@selector(scenes)]) {
+                            scenes = [workspace performSelector:@selector(scenes)];
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"_scenes"]; } @catch (NSException *e) {}
+                        }
+                        if (!scenes) {
+                            @try { scenes = [workspace valueForKey:@"allScenes"]; } @catch (NSException *e) {}
+                        }
+                        NSArray *sceneArray = nil;
+                        if ([scenes isKindOfClass:[NSDictionary class]]) {
+                            sceneArray = [scenes allValues];
+                        } else if ([scenes isKindOfClass:[NSSet class]]) {
+                            sceneArray = [scenes allObjects];
+                        } else if ([scenes isKindOfClass:[NSArray class]]) {
+                            sceneArray = scenes;
+                        }
+                        
+                        for (id scene in sceneArray) {
+                            @try {
+                                id settings = nil;
+                                if ([scene respondsToSelector:@selector(settings)]) {
+                                    settings = [scene performSelector:@selector(settings)];
+                                }
+                                BOOL isForeground = NO;
+                                if (settings && [settings respondsToSelector:NSSelectorFromString(@"isForeground")]) {
+                                    SEL isFgSel = NSSelectorFromString(@"isForeground");
+                                    NSMethodSignature *fgSig = [settings methodSignatureForSelector:isFgSel];
+                                    if (fgSig) {
+                                        NSInvocation *fgInv = [NSInvocation invocationWithMethodSignature:fgSig];
+                                        [fgInv setSelector:isFgSel];
+                                        [fgInv setTarget:settings];
+                                        [fgInv invoke];
+                                        [fgInv getReturnValue:&isForeground];
+                                    }
+                                }
+                                if (isForeground) {
+                                    id layerManager = nil;
+                                    if ([scene respondsToSelector:@selector(layerManager)]) {
+                                        layerManager = [scene performSelector:@selector(layerManager)];
+                                    }
+                                    if (!layerManager) {
+                                        @try { layerManager = [scene valueForKey:@"_layerManager"]; } @catch (NSException *e) {}
+                                    }
+                                    id layers = nil;
+                                    if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
+                                        layers = [layerManager performSelector:@selector(layers)];
+                                    }
+                                    if (!layers && layerManager) {
+                                        @try { layers = [layerManager valueForKey:@"_layers"]; } @catch (NSException *e) {}
+                                    }
+                                    NSArray *layerArray = nil;
+                                    if ([layers isKindOfClass:[NSSet class]]) {
+                                        layerArray = [layers allObjects];
+                                    } else if ([layers isKindOfClass:[NSArray class]]) {
+                                        layerArray = layers;
+                                    }
+                                    for (id layer in layerArray) {
+                                        if ([layer respondsToSelector:@selector(contextID)]) {
+                                            NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
+                                            if (sig) {
+                                                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                                                [inv setSelector:@selector(contextID)];
+                                                [inv setTarget:layer];
+                                                [inv invoke];
+                                                uint32_t cid = 0;
+                                                [inv getReturnValue:&cid];
+                                                if (cid > 0) {
+                                                    contextID = cid;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (contextID > 0) break;
+                                }
+                            } @catch (NSException *e) {}
+                        }
+                    }
+                }
+            }
+        }
+    });
+    return contextID;
+}
+
+#include <spawn.h>
+#include <sys/wait.h>
+
+static void rc_spawn_root_iohid(NSString *subcommand, NSArray *args) {
+    extern char **environ;
+    NSString *rcRootPath = @"/var/jb/usr/bin/rc-root";
+    if (![[NSFileManager defaultManager] fileExistsAtPath:rcRootPath]) {
+        rcRootPath = @"/usr/bin/rc-root";
+    }
+    
+    int argc = (int)args.count + 3;
+    char **argv = malloc((argc + 1) * sizeof(char *));
+    argv[0] = (char *)[rcRootPath UTF8String];
+    argv[1] = "iohid";
+    argv[2] = (char *)[subcommand UTF8String];
+    for (int i = 0; i < (int)args.count; i++) {
+        argv[3 + i] = (char *)[args[i] UTF8String];
+    }
+    argv[argc] = NULL;
+    
+    pid_t pid;
+    int status = posix_spawn(&pid, [rcRootPath UTF8String], NULL, NULL, argv, environ);
+    if (status == 0) {
+        int exit_status;
+        waitpid(pid, &exit_status, 0);
+    } else {
+        SRLog(@"[Touch] posix_spawn failed for rc-root: %d", status);
+    }
+    free(argv);
+}
 
 static void perform_digitizer_touch(double x, double y, BOOL down) {
     if (!_IOHIDEventCreateDigitizerEvent || !_IOHIDEventCreateDigitizerFingerEvent ||
@@ -2066,11 +2338,20 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
         return;
     }
 
+    __block NSString *loggedBundleID = nil;
     __block CGSize s = CGSizeZero;
     __block CGFloat scale = 1.0;
     rc_dispatch_sync_main_safe(^{
         s = [UIScreen mainScreen].bounds.size;
         scale = [UIScreen mainScreen].scale;
+        
+        SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+        if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
+            id frontApp = [sb _accessibilityFrontMostApplication];
+            if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
+                loggedBundleID = [frontApp bundleIdentifier];
+            }
+        }
     });
 
     double screenWidth = MIN(s.width, s.height);
@@ -2085,285 +2366,8 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
     SRLog(@"[Touch] Simulated touch: raw(%.1f, %.1f) screen(%.1f, %.1f) scale=%.1f -> normalized(%.4f, %.4f) down=%d",
           x, y, screenWidth, screenHeight, scale, rx, ry, down);
 
-    // Find context ID at the touch location to route the touch event correctly
-    __block uint32_t contextID = 0;
-    __block uint32_t testWindowContextID = 0;
-    __block uint32_t recordWindowContextID = 0;
-    __block NSString *loggedBundleID = nil;
-    rc_dispatch_sync_main_safe(^{
-        if (g_rcTapTestWindow && !g_rcTapTestWindow.hidden) {
-            testWindowContextID = [g_rcTapTestWindow _contextId];
-            contextID = testWindowContextID;
-        } else if (g_rcTapRecordWindow && !g_rcTapRecordWindow.hidden) {
-            recordWindowContextID = [g_rcTapRecordWindow _contextId];
-            contextID = recordWindowContextID;
-        } else {
-            // 1. Primary Method: CAWindowServer contextIdAtPosition:
-            dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_NOW);
-            id server = [NSClassFromString(@"CAWindowServer") performSelector:@selector(serverIfRunning)];
-            id display = [server performSelector:@selector(displayWithName:) withObject:@"LCD"];
-            if (display) {
-                CGPoint ptUnscaled = CGPointMake(x, y);
-                typedef unsigned int (*ContextIdAtPosFn)(id, SEL, CGPoint);
-                ContextIdAtPosFn fn = (ContextIdAtPosFn)[display methodForSelector:@selector(contextIdAtPosition:)];
-                if (fn) {
-                    contextID = fn(display, @selector(contextIdAtPosition:), ptUnscaled);
-                    if (contextID > 0) {
-                        SRLog(@"[Touch] CAWindowServer resolved contextID: %u using unscaled coords (%.1f, %.1f)", contextID, x, y);
-                    } else if (scale > 1.0) {
-                        CGPoint ptScaled = CGPointMake(x * scale, y * scale);
-                        contextID = fn(display, @selector(contextIdAtPosition:), ptScaled);
-                        if (contextID > 0) {
-                            SRLog(@"[Touch] CAWindowServer resolved contextID: %u using scaled coords (%.1f, %.1f)", contextID, ptScaled.x, ptScaled.y);
-                        }
-                    }
-                }
-            }
-
-            // 2. Secondary Fallback: FBSceneManager scene traversal + window lists
-            if (contextID == 0) {
-                // Resolve contextID via FBSceneManager from the frontmost application scene
-                NSString *frontBundleID = nil;
-                SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
-                if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
-                    id frontApp = [sb _accessibilityFrontMostApplication];
-                    if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
-                        frontBundleID = [frontApp bundleIdentifier];
-                    }
-                }
-                loggedBundleID = frontBundleID;
-                
-                if (frontBundleID) {
-                    Class managerClass = NSClassFromString(@"FBSceneManager");
-                    id manager = nil;
-                    if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
-                        manager = [managerClass performSelector:@selector(sharedInstance)];
-                    }
-                    
-                    if (manager) {
-                        id workspace = nil;
-                        @try {
-                            workspace = [manager valueForKey:@"_workspace"];
-                        } @catch (NSException *e) {}
-                        
-                        if (workspace) {
-                            id scenes = nil;
-                            if ([workspace respondsToSelector:@selector(scenes)]) {
-                                scenes = [workspace performSelector:@selector(scenes)];
-                            }
-                            if (!scenes) {
-                                @try {
-                                    scenes = [workspace valueForKey:@"_scenes"];
-                                } @catch (NSException *e) {}
-                            }
-                            if (!scenes) {
-                                @try {
-                                    scenes = [workspace valueForKey:@"_scenesByID"];
-                                } @catch (NSException *e) {}
-                            }
-                            if (!scenes) {
-                                @try {
-                                    scenes = [workspace valueForKey:@"allScenes"];
-                                } @catch (NSException *e) {}
-                            }
-                            
-                            NSArray *sceneArray = nil;
-                            if ([scenes isKindOfClass:[NSDictionary class]]) {
-                                sceneArray = [scenes allValues];
-                            } else if ([scenes isKindOfClass:[NSSet class]]) {
-                                sceneArray = [scenes allObjects];
-                            } else if ([scenes isKindOfClass:[NSArray class]]) {
-                                sceneArray = scenes;
-                            }
-                            
-                            for (id scene in sceneArray) {
-                                @try {
-                                    id sceneID = nil;
-                                    if ([scene respondsToSelector:@selector(identifier)]) {
-                                        sceneID = [scene performSelector:@selector(identifier)];
-                                    }
-                                    if (![sceneID isKindOfClass:[NSString class]]) {
-                                        continue;
-                                    }
-                                    
-                                    // Check if the scene identifier contains the frontBundleID
-                                    if ([sceneID rangeOfString:frontBundleID options:NSCaseInsensitiveSearch].location != NSNotFound) {
-                                        id layerManager = nil;
-                                        if ([scene respondsToSelector:@selector(layerManager)]) {
-                                            layerManager = [scene performSelector:@selector(layerManager)];
-                                        }
-                                        if (!layerManager) {
-                                            @try {
-                                                layerManager = [scene valueForKey:@"_layerManager"];
-                                            } @catch (NSException *e) {}
-                                        }
-                                        
-                                        id layers = nil;
-                                        if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
-                                            layers = [layerManager performSelector:@selector(layers)];
-                                        }
-                                        if (!layers && layerManager) {
-                                            @try {
-                                                layers = [layerManager valueForKey:@"_layers"];
-                                            } @catch (NSException *e) {}
-                                        }
-                                        
-                                        NSArray *layerArray = nil;
-                                        if ([layers isKindOfClass:[NSSet class]]) {
-                                            layerArray = [layers allObjects];
-                                        } else if ([layers isKindOfClass:[NSArray class]]) {
-                                            layerArray = layers;
-                                        } else if ([layers isKindOfClass:[NSOrderedSet class]]) {
-                                            layerArray = [layers array];
-                                        }
-                                        
-                                        for (id layer in layerArray) {
-                                            if ([layer respondsToSelector:@selector(contextID)]) {
-                                                NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
-                                                if (sig) {
-                                                    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                                                    [inv setSelector:@selector(contextID)];
-                                                    [inv setTarget:layer];
-                                                    [inv invoke];
-                                                    uint32_t cid = 0;
-                                                    [inv getReturnValue:&cid];
-                                                    if (cid > 0) {
-                                                        contextID = cid;
-                                                        SRLog(@"[Touch] FBSceneManager resolved contextID: %u for frontApp: %@", contextID, frontBundleID);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } @catch (NSException *e) {}
-                            }
-                        }
-                    }
-                }
-                
-                // Fallback 1: Local SpringBoard Windows
-                if (contextID == 0) {
-                    Class windowClass = NSClassFromString(@"UIWindow");
-                    if (windowClass && [windowClass respondsToSelector:@selector(allWindowsIncludingInternalWindows:onlyVisibleWindows:)]) {
-                        NSArray *allWindows = [windowClass allWindowsIncludingInternalWindows:YES onlyVisibleWindows:YES];
-                        for (UIWindow *window in [allWindows reverseObjectEnumerator]) {
-                            if (window.userInteractionEnabled && !window.hidden) {
-                                CGPoint localPt = [window convertPoint:CGPointMake(x, y) fromWindow:nil];
-                                if ([window pointInside:localPt withEvent:nil]) {
-                                    uint32_t cid = 0;
-                                    if ([window respondsToSelector:@selector(_contextId)]) {
-                                        cid = [window _contextId];
-                                    }
-                                    if (cid > 0) {
-                                        contextID = cid;
-                                        SRLog(@"[Touch] SpringBoard window list resolved contextID: %u", contextID);
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                // Fallback 2: Any active foreground scene
-                if (contextID == 0) {
-                    Class managerClass = NSClassFromString(@"FBSceneManager");
-                    id manager = nil;
-                    if (managerClass && [managerClass respondsToSelector:@selector(sharedInstance)]) {
-                        manager = [managerClass performSelector:@selector(sharedInstance)];
-                    }
-                    if (manager) {
-                        id workspace = nil;
-                        @try {
-                            workspace = [manager valueForKey:@"_workspace"];
-                        } @catch (NSException *e) {}
-                        if (workspace) {
-                            id scenes = nil;
-                            if ([workspace respondsToSelector:@selector(scenes)]) {
-                                scenes = [workspace performSelector:@selector(scenes)];
-                            }
-                            if (!scenes) {
-                                @try { scenes = [workspace valueForKey:@"_scenes"]; } @catch (NSException *e) {}
-                            }
-                            if (!scenes) {
-                                @try { scenes = [workspace valueForKey:@"allScenes"]; } @catch (NSException *e) {}
-                            }
-                            NSArray *sceneArray = nil;
-                            if ([scenes isKindOfClass:[NSDictionary class]]) {
-                                sceneArray = [scenes allValues];
-                            } else if ([scenes isKindOfClass:[NSSet class]]) {
-                                sceneArray = [scenes allObjects];
-                            } else if ([scenes isKindOfClass:[NSArray class]]) {
-                                sceneArray = scenes;
-                            }
-                            
-                            for (id scene in sceneArray) {
-                                @try {
-                                    id settings = nil;
-                                    if ([scene respondsToSelector:@selector(settings)]) {
-                                        settings = [scene performSelector:@selector(settings)];
-                                    }
-                                    BOOL isForeground = NO;
-                                    if (settings && [settings respondsToSelector:NSSelectorFromString(@"isForeground")]) {
-                                        SEL isFgSel = NSSelectorFromString(@"isForeground");
-                                        NSMethodSignature *fgSig = [settings methodSignatureForSelector:isFgSel];
-                                        if (fgSig) {
-                                            NSInvocation *fgInv = [NSInvocation invocationWithMethodSignature:fgSig];
-                                            [fgInv setSelector:isFgSel];
-                                            [fgInv setTarget:settings];
-                                            [fgInv invoke];
-                                            [fgInv getReturnValue:&isForeground];
-                                        }
-                                    }
-                                    if (isForeground) {
-                                        id layerManager = nil;
-                                        if ([scene respondsToSelector:@selector(layerManager)]) {
-                                            layerManager = [scene performSelector:@selector(layerManager)];
-                                        }
-                                        if (!layerManager) {
-                                            @try { layerManager = [scene valueForKey:@"_layerManager"]; } @catch (NSException *e) {}
-                                        }
-                                        id layers = nil;
-                                        if (layerManager && [layerManager respondsToSelector:@selector(layers)]) {
-                                            layers = [layerManager performSelector:@selector(layers)];
-                                        }
-                                        if (!layers && layerManager) {
-                                            @try { layers = [layerManager valueForKey:@"_layers"]; } @catch (NSException *e) {}
-                                        }
-                                        NSArray *layerArray = nil;
-                                        if ([layers isKindOfClass:[NSSet class]]) {
-                                            layerArray = [layers allObjects];
-                                        } else if ([layers isKindOfClass:[NSArray class]]) {
-                                            layerArray = layers;
-                                        }
-                                        for (id layer in layerArray) {
-                                            if ([layer respondsToSelector:@selector(contextID)]) {
-                                                NSMethodSignature *sig = [layer methodSignatureForSelector:@selector(contextID)];
-                                                if (sig) {
-                                                    NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                                                    [inv setSelector:@selector(contextID)];
-                                                    [inv setTarget:layer];
-                                                    [inv invoke];
-                                                    uint32_t cid = 0;
-                                                    [inv getReturnValue:&cid];
-                                                    if (cid > 0) {
-                                                        contextID = cid;
-                                                        SRLog(@"[Touch] Foreground scene resolved contextID: %u", contextID);
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        if (contextID > 0) break;
-                                    }
-                                } @catch (NSException *e) {}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    });
+    uint32_t contextID = rc_resolve_target_context(x, y);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
 
     uint32_t transducerType = 3;
     uint32_t parentIndex = 0;
@@ -2386,11 +2390,11 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
         0, 0, 0);
 
     if (parentGlobal) {
-        // Path 1 system-wide event: BackBoard/IOHIDFamily always expects normalized coordinates (rx, ry) in [0.0, 1.0].
+        // Path 1 system-wide event: BackBoard/IOHIDFamily expects absolute coordinates (x, y) in points.
         IOHIDEventRef fingerGlobal = _IOHIDEventCreateDigitizerFingerEvent(
             kCFAllocatorDefault, ts,
             fingerIndex, fingerIdentity, fingerEventMask,
-            rx, ry, 0.0, pressure, 0.0,
+            x, y, 0.0, pressure, 0.0,
             (boolean_t)down, (boolean_t)down, 0);
 
         if (fingerGlobal) {
@@ -2432,7 +2436,6 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
     }
 
     // Path 2: Local SpringBoard Window enqueue (Absolute Coordinates)
-    BOOL targetIsLocal = rc_is_springboard_context(contextID);
 
     if (targetIsLocal) {
         IOHIDEventRef parentLocal = _IOHIDEventCreateDigitizerEvent(
@@ -2489,44 +2492,114 @@ static void perform_digitizer_touch(double x, double y, BOOL down) {
 // Simulate a tap at absolute pixel coordinates (x, y).
 // MUST be called from rc_touch_queue.
 static void rc_simulate_tap(double px, double py) {
-    SRLog(@"[Touch] tap at pixel (%.0f,%.0f)", px, py);
-    perform_digitizer_touch(px, py, YES);   // finger down
-    usleep(80000);                          // 80 ms contact
-    perform_digitizer_touch(px, py, NO);    // finger up
+    uint32_t contextID = rc_resolve_target_context(px, py);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
+    SRLog(@"[Touch] tap at pixel (%.0f,%.0f) contextID=%u targetIsLocal=%d", px, py, contextID, targetIsLocal);
+    
+    if (targetIsLocal) {
+        perform_digitizer_touch(px, py, YES);   // finger down
+        usleep(80000);                          // 80 ms contact
+        perform_digitizer_touch(px, py, NO);    // finger up
+    } else {
+        __block CGSize s = CGSizeZero;
+        rc_dispatch_sync_main_safe(^{
+            s = [UIScreen mainScreen].bounds.size;
+        });
+        double screenWidth = MIN(s.width, s.height);
+        double screenHeight = MAX(s.width, s.height);
+        if (screenWidth == 0) screenWidth = 375.0;
+        if (screenHeight == 0) screenHeight = 667.0;
+
+        SRLog(@"[Touch] non-local tap -> spawning rc-root iohid tap (%.1f, %.1f) contextID=%u screen=%.0fx%.0f", px, py, contextID, screenWidth, screenHeight);
+        rc_spawn_root_iohid(@"tap", @[
+            [NSString stringWithFormat:@"%.1f", px],
+            [NSString stringWithFormat:@"%.1f", py],
+            [NSString stringWithFormat:@"%u", contextID],
+            [NSString stringWithFormat:@"%.1f", screenWidth],
+            [NSString stringWithFormat:@"%.1f", screenHeight]
+        ]);
+    }
 }
 
 // Simulate a hold at absolute pixel coordinates for `durationMs` milliseconds.
 // MUST be called from rc_touch_queue.
 static void rc_simulate_hold(double px, double py, int durationMs) {
+    uint32_t contextID = rc_resolve_target_context(px, py);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
     int clampedMs = MAX(50, MIN(durationMs, 10000));
-    SRLog(@"[Touch] hold at pixel (%.0f,%.0f) for %d ms", px, py, clampedMs);
+    SRLog(@"[Touch] hold at pixel (%.0f,%.0f) for %d ms contextID=%u targetIsLocal=%d", px, py, clampedMs, contextID, targetIsLocal);
 
-    perform_digitizer_touch(px, py, YES);
-    usleep((useconds_t)(clampedMs * 1000));
-    perform_digitizer_touch(px, py, NO);
+    if (targetIsLocal) {
+        perform_digitizer_touch(px, py, YES);
+        usleep((useconds_t)(clampedMs * 1000));
+        perform_digitizer_touch(px, py, NO);
+    } else {
+        __block CGSize s = CGSizeZero;
+        rc_dispatch_sync_main_safe(^{
+            s = [UIScreen mainScreen].bounds.size;
+        });
+        double screenWidth = MIN(s.width, s.height);
+        double screenHeight = MAX(s.width, s.height);
+        if (screenWidth == 0) screenWidth = 375.0;
+        if (screenHeight == 0) screenHeight = 667.0;
+
+        SRLog(@"[Touch] non-local hold -> spawning rc-root iohid hold (%.1f, %.1f, %d) contextID=%u screen=%.0fx%.0f", px, py, clampedMs, contextID, screenWidth, screenHeight);
+        rc_spawn_root_iohid(@"hold", @[
+            [NSString stringWithFormat:@"%.1f", px],
+            [NSString stringWithFormat:@"%.1f", py],
+            [NSString stringWithFormat:@"%d", clampedMs],
+            [NSString stringWithFormat:@"%u", contextID],
+            [NSString stringWithFormat:@"%.1f", screenWidth],
+            [NSString stringWithFormat:@"%.1f", screenHeight]
+        ]);
+    }
 }
 
 // Simulate a swipe from (x1,y1) to (x2,y2) over ~600ms with smooth interpolation.
 // MUST be called from rc_touch_queue.
 static void rc_simulate_swipe(double x1, double y1, double x2, double y2) {
-    const int steps = 40;
-    const int stepDelayUs = 15000; // 15 ms per step → ~600 ms total
+    uint32_t contextID = rc_resolve_target_context(x1, y1);
+    BOOL targetIsLocal = rc_is_springboard_context(contextID);
+    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f) contextID=%u targetIsLocal=%d", x1, y1, x2, y2, contextID, targetIsLocal);
 
-    SRLog(@"[Touch] swipe (%.0f,%.0f)→(%.0f,%.0f)", x1, y1, x2, y2);
+    if (targetIsLocal) {
+        const int steps = 40;
+        const int stepDelayUs = 15000; // 15 ms per step → ~600 ms total
 
-    perform_digitizer_touch(x1, y1, YES); // touch down
-    usleep(16000); // brief settle
+        perform_digitizer_touch(x1, y1, YES); // touch down
+        usleep(16000); // brief settle
 
-    for (int i = 1; i <= steps; i++) {
-        double t = (double)i / steps;
-        double cx = x1 + (x2 - x1) * t;
-        double cy = y1 + (y2 - y1) * t;
-        perform_digitizer_touch(cx, cy, YES); // move
-        usleep((useconds_t)stepDelayUs);
+        for (int i = 1; i <= steps; i++) {
+            double t = (double)i / steps;
+            double cx = x1 + (x2 - x1) * t;
+            double cy = y1 + (y2 - y1) * t;
+            perform_digitizer_touch(cx, cy, YES); // move
+            usleep((useconds_t)stepDelayUs);
+        }
+
+        usleep(16000);
+        perform_digitizer_touch(x2, y2, NO); // touch up
+    } else {
+        __block CGSize s = CGSizeZero;
+        rc_dispatch_sync_main_safe(^{
+            s = [UIScreen mainScreen].bounds.size;
+        });
+        double screenWidth = MIN(s.width, s.height);
+        double screenHeight = MAX(s.width, s.height);
+        if (screenWidth == 0) screenWidth = 375.0;
+        if (screenHeight == 0) screenHeight = 667.0;
+
+        SRLog(@"[Touch] non-local swipe -> spawning rc-root iohid swipe (%.1f, %.1f)→(%.1f, %.1f) contextID=%u screen=%.0fx%.0f", x1, y1, x2, y2, contextID, screenWidth, screenHeight);
+        rc_spawn_root_iohid(@"swipe", @[
+            [NSString stringWithFormat:@"%.1f", x1],
+            [NSString stringWithFormat:@"%.1f", y1],
+            [NSString stringWithFormat:@"%.1f", x2],
+            [NSString stringWithFormat:@"%.1f", y2],
+            [NSString stringWithFormat:@"%u", contextID],
+            [NSString stringWithFormat:@"%.1f", screenWidth],
+            [NSString stringWithFormat:@"%.1f", screenHeight]
+        ]);
     }
-
-    usleep(16000);
-    perform_digitizer_touch(x2, y2, NO); // touch up
 }
 
 // ── Tap Recording Overlay ───────────────────────────────────────────────────
@@ -6316,9 +6389,71 @@ static int g_lastRingerState = -1;
 
 %end
 
+static BOOL iPadHasVolumeButtonsOnTop() {
+    static BOOL onTop = NO;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        struct utsname systemInfo;
+        uname(&systemInfo);
+        NSString *machine = [NSString stringWithCString:systemInfo.machine encoding:NSUTF8StringEncoding];
+        if ([machine isEqualToString:@"iPad14,1"] || [machine isEqualToString:@"iPad14,2"] || // iPad mini 6
+            [machine isEqualToString:@"iPad16,1"] || [machine isEqualToString:@"iPad16,2"] || // iPad mini 7
+            [machine isEqualToString:@"iPad13,18"] || [machine isEqualToString:@"iPad13,19"]) { // iPad 10
+            onTop = YES;
+        }
+    });
+    return onTop;
+}
+
+static BOOL iPadIsSwappedBySystem() {
+    if ([[UIDevice currentDevice] userInterfaceIdiom] != UIUserInterfaceIdiomPad) {
+        return NO;
+    }
+    
+    SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
+    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
+    if ([sb respondsToSelector:@selector(activeInterfaceOrientation)]) {
+        orientation = [sb activeInterfaceOrientation];
+    }
+    
+    BOOL buttonsOnTop = iPadHasVolumeButtonsOnTop();
+    if (buttonsOnTop) {
+        return (orientation == UIInterfaceOrientationPortraitUpsideDown || orientation == UIInterfaceOrientationLandscapeRight);
+    } else {
+        return (orientation == UIInterfaceOrientationPortraitUpsideDown || orientation == UIInterfaceOrientationLandscapeLeft);
+    }
+}
+
+static BOOL should_swap_in_hooks() {
+    load_trigger_config();
+    if (![g_triggerConfig[@"masterEnabled"] boolValue]) return NO;
+    if (![g_triggerConfig[@"fixedVolumeButtons"] boolValue]) return NO;
+    
+    return iPadIsSwappedBySystem();
+}
+
+static BOOL should_swap_in_hid_listener() {
+    load_trigger_config();
+    if (![g_triggerConfig[@"masterEnabled"] boolValue]) return NO;
+    if ([g_triggerConfig[@"fixedVolumeButtons"] boolValue]) {
+        return NO;
+    }
+    
+    return iPadIsSwappedBySystem();
+}
+
+static BOOL g_isSwappingVolume = NO;
+
 %hook SBVolumeHardwareButtonActions
 
 - (void)volumeIncreasePressDownWithModifiers:(long long)arg1 {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeDecreasePressDownWithModifiers:arg1];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
         return;
@@ -6360,6 +6495,13 @@ static int g_lastRingerState = -1;
 }
 
 - (void)volumeIncreasePressUp {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeDecreasePressUp];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     g_volUpIsDown = NO;
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
@@ -6398,6 +6540,13 @@ static int g_lastRingerState = -1;
 }
 
 - (void)volumeDecreasePressDownWithModifiers:(long long)arg1 {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeIncreasePressDownWithModifiers:arg1];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
         return;
@@ -6439,6 +6588,13 @@ static int g_lastRingerState = -1;
 }
 
 - (void)volumeDecreasePressUp {
+    if (!g_isSwappingVolume && should_swap_in_hooks()) {
+        g_isSwappingVolume = YES;
+        [self volumeIncreasePressUp];
+        g_isSwappingVolume = NO;
+        return;
+    }
+
     g_volDownIsDown = NO;
     if (g_volIsReplaying || RC_IsForegroundAppExcluded()) {
         %orig;
@@ -6895,12 +7051,17 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
         
         // Volume Buttons (Page 0x0C, Usage 0xE9/0xEA)
         if (usagePage == kHIDPage_Consumer && (usage == kHIDUsage_Csmr_VolumeIncrement || usage == kHIDUsage_Csmr_VolumeDecrement)) {
-            if (usage == kHIDUsage_Csmr_VolumeIncrement) g_volUpIsDown = !!down;
-            if (usage == kHIDUsage_Csmr_VolumeDecrement) g_volDownIsDown = !!down;
+            uint32_t mappedUsage = usage;
+            if (should_swap_in_hid_listener()) {
+                mappedUsage = (usage == kHIDUsage_Csmr_VolumeIncrement) ? kHIDUsage_Csmr_VolumeDecrement : kHIDUsage_Csmr_VolumeIncrement;
+            }
+
+            if (mappedUsage == kHIDUsage_Csmr_VolumeIncrement) g_volUpIsDown = !!down;
+            if (mappedUsage == kHIDUsage_Csmr_VolumeDecrement) g_volDownIsDown = !!down;
             
             // Check for Power + Volume combination
             if (down && g_powerIsDown) {
-                NSString *triggerKey = (usage == kHIDUsage_Csmr_VolumeIncrement) ? @"power_volume_up" : @"power_volume_down";
+                NSString *triggerKey = (mappedUsage == kHIDUsage_Csmr_VolumeIncrement) ? @"power_volume_up" : @"power_volume_down";
                 load_trigger_config();
                 BOOL masterEnabled = [g_triggerConfig[@"masterEnabled"] boolValue];
                 BOOL enabled = masterEnabled && [g_triggerConfig[@"triggers"][triggerKey][@"enabled"] boolValue];
