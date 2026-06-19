@@ -8,7 +8,6 @@ RemoteCompanion provides fast, scriptable system control for modern rootless jai
 > - **Media Playback Triggers**: Observers for media events (Media Playing, Media Paused, and Media Track Changed).
 > - **Previous App Command**: Added `rc previous app` (or `rc last app`) to instantly return to the last active application.
 > - **Web UI & Companion Integration**: Complete support for media and lock status events with custom icons, pickers, and live testing.
-> - **iPad Volume Fix**: Resolved volume button trigger handling issues specific to iPad hardware.
 > - **RootHide Support**: Native compatibility for RootHide-based jailbreaks.
 
 
