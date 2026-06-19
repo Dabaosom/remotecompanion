@@ -69,6 +69,23 @@ SHA256: 6a64c8d91db7f0f3cfc220a10cdcba344328b386dfede702ddcdc741ab88573a
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
+Depends: mobilesubstrate
+Description: A modern Activator replacement for rootless and rootful jailbreaks. Bind triggers like Touch ID, Power/Volume buttons, and Status Bar gestures to system actions, Siri automation, and custom TCP commands. Includes native arm64e support for iOS 14. https://github.com/saihgupr/RemoteCompanion
+Icon: https://saihgupr.github.io/remotecompanion/CydiaIcon.png
+Maintainer: Saihgupr
+Author: Saihgupr
+Section: Tweaks
+Architecture: iphoneos-arm64
+Version: 3.3.1
+Installed-Size: 2308
+Filename: ./com.saihgupr.remotecompanion_3.3.1_iphoneos-arm64.deb
+Size: 862570
+MD5sum: 2b4b2cd6f11860afc07b8fb8b672811c
+SHA1: 0a8307b1a8db7623e9ca64c7989787f5fe5ca5df
+SHA256: 87608fb4e0ce4041cd43c1d87befb5417a020a0f1572723a18ef1a49cf549c73
+
+Package: com.saihgupr.remotecompanion
+Name: RemoteCompanion
 Depends: mobilesubstrate, firmware (>= 15.0), netcat
 Description: Remote Companion App & Tweak
 Maintainer: Saihgupr
@@ -399,6 +416,23 @@ Size: 618510
 MD5sum: 841498d3a7ac09301487e3247dff3d68
 SHA1: a6f74872dcbeb5f9f0e8397d687fe85bf9d9ed63
 SHA256: fcecff8b46a7b4a4c0155f4dd41812827c7546ae494e2cf999312f43901a23a7
+
+Package: com.saihgupr.remotecompanion
+Name: RemoteCompanion
+Depends: mobilesubstrate
+Description: A modern Activator replacement for rootless and rootful jailbreaks. Bind triggers like Touch ID, Power/Volume buttons, and Status Bar gestures to system actions, Siri automation, and custom TCP commands. Includes native arm64e support for iOS 14. https://github.com/saihgupr/RemoteCompanion
+Icon: https://saihgupr.github.io/remotecompanion/CydiaIcon.png
+Maintainer: Saihgupr
+Author: Saihgupr
+Section: Tweaks
+Architecture: iphoneos-arm
+Version: 3.3.1
+Installed-Size: 2308
+Filename: ./com.saihgupr.remotecompanion_3.3.1_iphoneos-arm.deb
+Size: 862376
+MD5sum: 9e652097a542dcc401e74747f8f0050e
+SHA1: d3379e19935ffd446c200a2b246fa9bdcf90007b
+SHA256: 99deacba38062973d7360a289c867bd800e95fa5d1a832ebf2cb1ae7c2749657
 
 Package: com.saihgupr.remotecompanion
 Name: RemoteCompanion
