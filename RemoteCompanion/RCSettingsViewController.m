@@ -115,6 +115,15 @@
     [self.tableView reloadData];
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            [self applyTweaks];
+        }
+    }
+}
+
 - (void)dismissSettings {
     [self dismissViewControllerAnimated:YES completion:nil];
 }
@@ -172,6 +181,8 @@
     cell.contentView.backgroundColor = [UIColor clearColor];
     
     cell.layer.masksToBounds = YES;
+    
+    cell.textLabel.textColor = [UIColor labelColor];
     
     if (indexPath.section == 0) {
         if (indexPath.row == 0) {

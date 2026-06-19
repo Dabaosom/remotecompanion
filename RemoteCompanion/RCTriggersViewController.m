@@ -124,6 +124,15 @@
     [self.tableView reloadData];
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            [self applyTweaks];
+        }
+    }
+}
+
 - (void)setupFooterView {
     UIView *footerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, self.view.bounds.size.width, 60)];
     footerView.autoresizingMask = UIViewAutoresizingFlexibleWidth;

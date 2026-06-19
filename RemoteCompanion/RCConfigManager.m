@@ -507,13 +507,72 @@ NSString *const RCConfigChangedNotification = @"RCConfigChangedNotification";
     if (tweaks[key] != nil) {
         return [tweaks[key] floatValue];
     }
+    
+    // Fallback to mode-specific defaults if no user-defined tweak exists
+    BOOL isDarkMode = YES;
+    if (@available(iOS 13.0, *)) {
+        if ([UITraitCollection currentTraitCollection].userInterfaceStyle == UIUserInterfaceStyleLight) {
+            isDarkMode = NO;
+        }
+    }
+    
+    if (!isDarkMode) {
+        // Return light mode defaults
+        if ([key isEqualToString:@"mainBackground"] ||
+            [key isEqualToString:@"settingsBackground"] ||
+            [key isEqualToString:@"actionPickerBackground"] ||
+            [key isEqualToString:@"navBar"]) {
+            return 0.94f;
+        } else if ([key isEqualToString:@"blockBackground"]) {
+            return 1.0f;
+        } else if ([key isEqualToString:@"separators"]) {
+            return 0.85f;
+        } else if ([key isEqualToString:@"borders"]) {
+            return 0.88f;
+        } else if ([key isEqualToString:@"selectionHighlight"]) {
+            return 0.90f;
+        }
+    }
+    
     return defaultVal;
 }
 
 - (UIColor *)tweakColorForKey:(NSString *)key defaultVal:(CGFloat)defaultVal {
-    CGFloat val = [self tweakValueForKey:key defaultVal:defaultVal];
-    // We are working with monochrome, so we just use the val as white
-    return [UIColor colorWithWhite:val alpha:1.0];
+    if (@available(iOS 13.0, *)) {
+        return [UIColor colorWithDynamicProvider:^UIColor * _Nonnull(UITraitCollection * _Nonnull traitCollection) {
+            BOOL isDarkMode = (traitCollection.userInterfaceStyle != UIUserInterfaceStyleLight);
+            
+            NSDictionary *tweaks = [self colorTweaks];
+            if (tweaks[key] != nil) {
+                CGFloat val = [tweaks[key] floatValue];
+                return [UIColor colorWithWhite:val alpha:1.0];
+            }
+            
+            if (!isDarkMode) {
+                // Return light mode defaults
+                if ([key isEqualToString:@"mainBackground"] ||
+                    [key isEqualToString:@"settingsBackground"] ||
+                    [key isEqualToString:@"actionPickerBackground"] ||
+                    [key isEqualToString:@"navBar"]) {
+                    return [UIColor colorWithWhite:0.94f alpha:1.0];
+                } else if ([key isEqualToString:@"blockBackground"]) {
+                    return [UIColor colorWithWhite:1.0f alpha:1.0];
+                } else if ([key isEqualToString:@"separators"]) {
+                    return [UIColor colorWithWhite:0.85f alpha:1.0];
+                } else if ([key isEqualToString:@"borders"]) {
+                    return [UIColor colorWithWhite:0.88f alpha:1.0];
+                } else if ([key isEqualToString:@"selectionHighlight"]) {
+                    return [UIColor colorWithWhite:0.90f alpha:1.0];
+                }
+            }
+            
+            // Return dark mode default (defaultVal)
+            return [UIColor colorWithWhite:defaultVal alpha:1.0];
+        }];
+    } else {
+        CGFloat val = [self tweakValueForKey:key defaultVal:defaultVal];
+        return [UIColor colorWithWhite:val alpha:1.0];
+    }
 }
 
 

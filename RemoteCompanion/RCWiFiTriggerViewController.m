@@ -57,6 +57,15 @@
     [self.tableView reloadData];
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            [self applyTweaks];
+        }
+    }
+}
+
 
 - (NSString *)currentWiFiSSID {
     NSArray *ifs = (__bridge_transfer NSArray *)CNCopySupportedInterfaces();

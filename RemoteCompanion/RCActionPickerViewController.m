@@ -169,6 +169,15 @@
     [self.tableView reloadData];
 }
 
+- (void)traitCollectionDidChange:(UITraitCollection *)previousTraitCollection {
+    [super traitCollectionDidChange:previousTraitCollection];
+    if (@available(iOS 13.0, *)) {
+        if ([self.traitCollection hasDifferentColorAppearanceComparedToTraitCollection:previousTraitCollection]) {
+            [self applyTweaks];
+        }
+    }
+}
+
 #pragma mark - Table View Data Source
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
@@ -227,6 +236,8 @@
     cell.layer.borderWidth = 1.0;
     cell.contentView.backgroundColor = [UIColor clearColor];
     cell.layer.masksToBounds = YES; // Ensure content doesn't overflow rounded corners if any
+    
+    cell.textLabel.textColor = [UIColor labelColor];
     
     if (action[@"icon"]) {
         NSString *iconName = action[@"icon"];
