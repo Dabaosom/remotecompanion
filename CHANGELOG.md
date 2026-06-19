@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [3.3.1] - 2026-06-19
+
+### Fixed
+- **Light Mode Support**: Fixed settings and action picker views rendering with incorrect background colors in Light Mode. All view controllers now dynamically adapt to system appearance changes via `traitCollectionDidChange:`.
+
 ## [3.3.0] - 2026-06-13
 
 ### Added
