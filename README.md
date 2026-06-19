@@ -3,12 +3,12 @@
 RemoteCompanion provides fast, scriptable system control for modern rootless jailbreaks. It lets you bind physical gestures and hardware buttons, or send commands remotely from your computer, to trigger system actions, control media playback, and run custom scripts.
 
 > [!IMPORTANT]
-> **What’s New in v3.0**
-> - **Web UI**: A desktop-style automation hub with iOS-inspired design. Includes live search pickers for apps, WiFi, and Bluetooth devices, full workflow editing, and one-tap API URL copy.
-> - **Automations API**: Fast remote control system. Run triggers and system commands using simple HTTP GET or POST requests.
-> - **Scheduled Triggers**: Execute action sequences at specific times and days.
-> - **Notification Triggers**: Trigger actions from incoming app notifications with precise title and message filtering, plus a searchable app picker.
-> - **Flashlight Intensity Control**: The `rc flashlight` command now supports values from 1 to 100 for adjustable torch brightness (example: `rc flashlight 50`).
+> **What’s New in v3.3.0**
+> - **Device Lock/Unlock Triggers**: Fire custom action sequences automatically when locking or unlocking the screen.
+> - **Media Playback Triggers**: Observers for media events (Media Playing, Media Paused, and Media Track Changed).
+> - **Previous App Command**: Added `rc previous app` (or `rc last app`) to instantly return to the last active application.
+> - **Web UI & Companion Integration**: Complete support for media and lock status events with custom icons, pickers, and live testing.
+> - **iPad Volume Fix**: Resolved volume button trigger handling issues specific to iPad hardware.
 
 
 <p align="center">
