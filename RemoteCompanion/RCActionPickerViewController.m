@@ -62,7 +62,7 @@
     
     // Categories and actions
     // Each action: @{ @"name": display name, @"command": rc command }
-    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Audio", @"Touch Gestures", @"Scripting & Logic"];
+    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Audio", @"Scripting & Logic"];
     
     _sections = @[
         // Media
@@ -128,7 +128,7 @@
             // System Vibration
             @{ @"name": @"Silent Vibrate Toggle", @"command": @"vibration silent-toggle", @"icon": @"bell.slash" },
             @{ @"name": @"Ring Vibrate Toggle", @"command": @"vibration ring-toggle", @"icon": @"bell" },
-
+ 
             @{ @"name": @"Low Power Mode On", @"command": @"low power on", @"icon": @"battery.25" },
             @{ @"name": @"Low Power Mode Off", @"command": @"low power off", @"icon": @"battery.100" },
             @{ @"name": @"Low Power Mode Toggle", @"command": @"low power toggle", @"icon": @"battery.25" }
@@ -138,16 +138,6 @@
             @{ @"name": @"ANC On", @"command": @"anc on", @"icon": @"ear.badge.checkmark" },
             @{ @"name": @"ANC Off", @"command": @"anc off", @"icon": @"ear" },
             @{ @"name": @"Transparency Mode", @"command": @"anc transparency", @"icon": @"waveform.circle.fill" }
-        ],
-        // Touch Gestures
-        @[
-            @{ @"name": @"Tap...",          @"command": @"__TAP__",    @"icon": @"hand.tap.fill" },
-            @{ @"name": @"Hold...",         @"command": @"__HOLD__",   @"icon": @"hand.tap.fill" },
-            @{ @"name": @"Swipe Up",        @"command": @"swipeU",     @"icon": @"arrow.up" },
-            @{ @"name": @"Swipe Down",      @"command": @"swipeD",     @"icon": @"arrow.down" },
-            @{ @"name": @"Swipe Left",      @"command": @"swipeL",     @"icon": @"arrow.left" },
-            @{ @"name": @"Swipe Right",     @"command": @"swipeR",     @"icon": @"arrow.right" },
-            @{ @"name": @"Custom Swipe...", @"command": @"__SWIPE__",  @"icon": @"hand.draw.fill" }
         ],
         // Scripting & Logic
         @[
