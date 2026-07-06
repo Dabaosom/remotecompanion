@@ -6914,12 +6914,12 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                         }
 
                         // Touch ID Single Tap REMOVED - Incompatible with iOS 17
-                        /*
+#if 0
                         if ([g_triggerConfig[@"triggers"][@"touchid_tap"][@"enabled"] boolValue]) {
                             trigger_haptic();
                             RCExecuteTrigger(@"touchid_tap");
                         }
-                        */
+#endif
                     }
                     g_bioFingerDownTime = 0; // Reset State to UP.
                     g_bioHoldTriggered = NO;
@@ -6969,7 +6969,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                         }
 
                         // Touch ID Hold REMOVED - Incompatible with iOS 17
-                        /*
+#if 0
                         // Check if trigger is enabled and has actions BEFORE firing haptics
                         if (g_triggerConfig) {
                             NSDictionary *holdTrigger = g_triggerConfig[@"triggers"][@"touchid_hold"];
@@ -6978,7 +6978,7 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                                 RCExecuteTrigger(@"touchid_hold");
                             }
                         }
-                        */
+#endif
                     });
                 }];
             }
