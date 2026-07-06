@@ -25,8 +25,9 @@ jobs:
 
     - name: Install iOS 17.0 SDK
       run: |
-        git clone https://github.com/aricbat/iOSSDKs.git $HOME/iOSSDKs
-        cp -r $HOME/iOSSDKs/iPhoneOS17.0.sdk $HOME/theos/sdks/
+        mkdir -p $HOME/theos/sdks
+        curl -L -o /tmp/sdk.tar.gz https://github.com/xybp888/iOS-SDKs/releases/download/17.0/iPhoneOS17.0.sdk.tar.gz
+        tar -xzf /tmp/sdk.tar.gz -C $HOME/theos/sdks/
 
     - name: Build for rootless
       run: |
