@@ -1,0 +1,71 @@
+name: Build RemoteCompanion iOS 17
+
+on:
+  push:
+    branches: [ main, ios17 ]
+  pull_request:
+    branches: [ main, ios17 ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Tweak
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Theos
+      run: |
+        git clone --recursive https://github.com/theos/theos.git $HOME/theos
+        echo "export THEOS=$HOME/theos" >> $GITHUB_ENV
+
+    - name: Install iOS 17.0 SDK
+      run: |
+        git clone https://github.com/aricbat/iOSSDKs.git $HOME/iOSSDKs
+        cp -r $HOME/iOSSDKs/iPhoneOS17.0.sdk $HOME/theos/sdks/
+
+    - name: Build for rootless
+      run: |
+        cd Tweak
+        export THEOS=$HOME/theos
+        make package THEOS_PACKAGE_SCHEME=rootless
+        
+    - name: Build for roothide
+      run: |
+        cd Tweak
+        export THEOS=$HOME/theos
+        make package THEOS_PACKAGE_SCHEME=roothide
+        
+    - name: Upload deb packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: remotecompanion-debs
+        path: Tweak/packages/*.deb
+        
+    - name: Create GitHub Release
+      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: Tweak/packages/*.deb
+        tag_name: v3.4.0-ios17
+        name: RemoteCompanion v3.4.0 iOS 17 Edition
+        body: |
+          ## RemoteCompanion v3.4.0 iOS 17 Compatible Edition
+          
+          ### Changes:
+          - Added Siri Actions Daemon injection support
+          - Removed Touch ID Single Tap (incompatible with iOS 17)
+          - Removed Touch ID Hold (incompatible with iOS 17)
+          - Fixed Low Power Mode toggle for iOS 17 (uses NSUserDefaults)
+          - Added simulated screen tap/swipe/long-press functions
+          - Updated for iOS 17 rootless (Dopamine) and roothide support
+          
+          ### Compatible with:
+          - iOS 14.0 - 17.x
+          - Rootful jailbreaks
+          - Rootless jailbreaks (Dopamine)
+          - Roothide jailbreaks

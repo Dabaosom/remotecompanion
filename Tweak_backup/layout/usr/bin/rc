@@ -1,0 +1,115 @@
+#!/bin/bash
+
+# Configuration
+IP="${RC_IPHONE_IP:-iphone.local}"
+SOCKET_PATH="/var/mobile/Documents/rc.sock"
+
+# If on device, try to read config for IP if we are default
+if [[ "$IP" == "iphone.local" && -f "/var/mobile/Documents/rc_triggers.plist" ]]; then
+    # We are on the device, use localhost
+    IP="127.0.0.1"
+fi
+
+# Parse global options (must come before command)
+ROOT_CMD=0
+while [[ "$1" =~ ^- ]]; do
+    case "$1" in
+        -r|--root)
+            ROOT_CMD=1
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+if [ -z "$1" ]; then
+    echo "Usage: rc [-r] <command> [arg]"
+    echo ""
+    echo "Implemented Commands:"
+    echo "  -r, --root        - Run command as root"
+    echo "  play, pause       - Media Control"
+    echo "  vol-up, vol-down  - Volume Control"
+    echo "  set-vol <0-100>   - Set Volume"
+    echo "  shortcut \"Name\"   - Run a Shortcut"
+    echo "  ping              - Play Alert Sound"
+    echo "  respring          - Restart SpringBoard"
+    echo "  bt on/off         - Turn Bluetooth On/Off"
+    echo "  wifi on/off       - Turn WiFi On/Off"
+    echo "  airplane on/off   - Turn Airplane Mode On/Off"
+    echo "  brightness <0-100> - Set screen brightness"
+    echo "  haptic            - Trigger haptic tap"
+    echo "  tap <x> <y>       - Tap screen coordinates using beta backend"
+    echo "  taptest run       - Show test target, tap it, and report PASS/FAIL"
+    echo "  taprecord         - Record a screen tap location after 3s delay"
+    echo "  flash on/off      - Turn flashlight on/off"
+    echo "  rotate lock/unlock - Toggle orientation lock"
+    echo "  is-locked         - Check if device is locked"
+    echo "  dnd on/off/debug   - Toggle Do Not Disturb or inspect state"
+    echo "  blacklist <list|add|remove|reset> - Manage app exclusion"
+    echo "  log               - Stream device logs"
+    echo ""
+    exit 1
+fi
+
+# Construct the command string
+_CMD=""
+if [ "$#" -eq 1 ]; then
+    _CMD="$1"
+else
+    # Correctly handle spaces and arguments
+    for arg in "$@"; do
+        if [[ "$arg" == *" "* ]]; then
+            _CMD="$_CMD \"$arg\""
+        else
+            _CMD="$_CMD $arg"
+        fi
+    done
+    _CMD=$(echo "$_CMD" | sed 's/^ //')
+fi
+
+# Prepend root if requested
+if [ "$ROOT_CMD" -eq 1 ]; then
+    _CMD="root $_CMD"
+fi
+
+# Map user-friendly commands
+if [[ "$_CMD" == "vol-up" || "$_CMD" == "volup" ]]; then
+    _CMD="button volup"
+elif [[ "$_CMD" == "vol-down" || "$_CMD" == "voldown" ]]; then
+    _CMD="button voldown"
+elif [[ "$_CMD" == "respring" ]]; then
+    echo "Respringing device..."
+    ssh -o StrictHostKeyChecking=no mobile@$IP "sbreload"
+    exit 0
+elif [[ "$_CMD" == "shortcut "* ]]; then
+    _CMD="shortcut:${_CMD#shortcut }"
+elif [[ "$_CMD" == "log" ]]; then
+    ssh -o StrictHostKeyChecking=no mobile@$IP "tail -f /tmp/remotecommand.log"
+    exit 0
+fi
+
+# Command delivery logic (SSH + UNIX Socket)
+if [[ "$IP" == "127.0.0.1" ]]; then
+    # Local execution (running on device)
+    # Try rc-client first (optimized), fallback to nc -U
+    RESPONSE=$(echo -n "$_CMD" | rc-client 2>/dev/null || echo -n "$_CMD" | nc -U "$SOCKET_PATH" 2>/dev/null)
+else
+    # Remote execution via SSH
+    # Tunnel to the unix socket on the device
+    # We try /var/jb/usr/bin/rc-client (rootless) then rootful path, then nc -U as final fallback
+    REMOTE_CMD="echo -n '$_CMD' | /var/jb/usr/bin/rc-client 2>/dev/null || echo -n '$_CMD' | /usr/bin/rc-client 2>/dev/null || echo -n '$_CMD' | nc -U $SOCKET_PATH 2>/dev/null"
+    RESPONSE=$(ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no mobile@$IP "$REMOTE_CMD" 2>/dev/null)
+fi
+
+# Output handling
+if [ $? -eq 0 ]; then
+    if [ ! -z "$RESPONSE" ]; then
+        echo "$RESPONSE"
+    fi
+    exit 0
+else
+    echo "Error: Cannot connect to iPhone at $IP via SSH/Socket." >&2
+    exit 1
+fi

@@ -3,7 +3,7 @@ THEOS_PACKAGE_COMPRESSION = gzip
 THEOS ?= /opt/theos
 THEOS_DEVICE_IP = iphone.local
 INSTALL_TARGET_USER = mobile
-TARGET := iphone:clang:17.0:14.0
+TARGET := iphone:clang:latest:14.0
 INSTALL_TARGET_PROCESSES = SpringBoard
 
 # Support for both rootless and roothide
@@ -27,8 +27,8 @@ LUA_FILES = $(wildcard lua/*.c)
 RemoteCommand_FILES = Tweak.x RCNFCManager.x $(LUA_FILES)
 RemoteCommand_CFLAGS = -fobjc-arc -Ilua -DLUA_USE_IOS
 RemoteCommand_FRAMEWORKS = UIKit CoreNFC IOKit QuartzCore
-RemoteCommand_PRIVATE_FRAMEWORKS = AppSupport MediaRemote MobileCoreServices FrontBoardServices BackBoardServices MediaPlayer DoNotDisturb BiometricKit AccessibilityUtilities CoreDuet
-RemoteCommand_LDFLAGS += -F/opt/theos/sdks/iPhoneOS17.0.sdk/System/Library/PrivateFrameworks
+RemoteCommand_PRIVATE_FRAMEWORKS = AppSupport MediaRemote MobileCoreServices FrontBoardServices BackBoardServices MediaPlayer DoNotDisturb BiometricKit AccessibilityUtilities
+RemoteCommand_LDFLAGS += -F/opt/theos/sdks/iPhoneOS16.5.sdk/System/Library/PrivateFrameworks
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 

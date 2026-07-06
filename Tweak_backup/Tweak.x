@@ -381,29 +381,7 @@ extern CFStringRef kMRMediaRemoteNowPlayingInfoArtist;
 - (id)activeModeAssertionWithError:(NSError **)error;
 @end
 
-// Siri Actions Daemon - For iOS 15+
-@interface SRISiriActionsDaemonConnection : NSObject
-+ (instancetype)sharedInstance;
-- (void)executeActionWithIdentifier:(NSString *)identifier 
-                             input:(NSData *)input 
-                  completionHandler:(void (^)(NSData *, NSError *))handler;
-@end
-
-@interface SiriActionsDConnection : NSObject
-+ (SiriActionsDConnection *)sharedConnection;
-- (void)executeActionNamed:(NSString *)actionName 
-                  arguments:(NSDictionary *)arguments 
-                 completion:(void (^)(NSDictionary *, NSError *))completion;
-@end
-
-// WorkflowKit for Shortcuts execution (iOS 15+)
-@interface WFWorkflowRunningClient : NSObject
-- (void)runWorkflowWithIdentifier:(NSString *)identifier 
-                        input:(NSDictionary *)input 
-                   completion:(void (^)(NSDictionary *, NSError *))completion;
-@end
-
-// CoreDuet - Low Power Mode (deprecated iOS 15+, kept for fallback)
+// CoreDuet - Low Power Mode
 @interface _CDBatterySaver : NSObject
 + (instancetype)batterySaver;
 - (long long)getPowerMode;
@@ -598,34 +576,27 @@ static void toggle_dnd(BOOL state) {
 static void toggle_lpm(BOOL state) {
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
-            SRLog(@"Toggle LPM: %@", state ? @"ON" : @"OFF");
-            
-            // iOS 17+ method: Use NSUserDefaults (works on most iOS 15+)
-            NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-            [defaults setBool:state forKey:@"LowPowerMode"];
-            [defaults synchronize];
-            SRLog(@"Set LowPowerMode via NSUserDefaults: %d", state);
-            
-            // Post notification for system to react
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"com.apple.remotecompanion.lowpowermode.changed" 
-                                                                object:nil 
-                                                              userInfo:@{@"state": @(state)}];
-            
-            // Fallback: Try _CDBatterySaver for older iOS versions
             Class BatterySaverClass = objc_getClass("_CDBatterySaver");
-            if (BatterySaverClass) {
-                id saver = [BatterySaverClass batterySaver];
-                if (saver && [saver respondsToSelector:@selector(setPowerMode:error:)]) {
-                    NSError *err = nil;
-                    [saver setPowerMode:(state ? 1 : 0) error:&err];
-                    if (err) {
-                        SRLog(@"_CDBatterySaver fallback failed: %@", err);
-                    } else {
-                        SRLog(@"_CDBatterySaver fallback succeeded");
-                    }
-                }
+            if (!BatterySaverClass) {
+                SRLog(@"_CDBatterySaver class not found");
+                return;
             }
             
+            id saver = [BatterySaverClass batterySaver];
+            if (!saver) {
+                SRLog(@"Failed to get batterySaver instance");
+                return;
+            }
+            
+            NSError *err = nil;
+            // Power mode: 0 = normal, 1 = low power
+            BOOL result = [saver setPowerMode:(state ? 1 : 0) error:&err];
+            
+            if (err) {
+                SRLog(@"Failed to set LPM: %@", err);
+            } else {
+                SRLog(@"LPM %@. Result: %d", state ? @"Enabled" : @"Disabled", result);
+            }
         } @catch (NSException *e) {
             SRLog(@"EXCEPTION in toggle_lpm: %@", e);
         }
@@ -634,13 +605,6 @@ static void toggle_lpm(BOOL state) {
 
 // State detection helpers
 static BOOL get_lpm_state() {
-    // iOS 17+: Check via NSUserDefaults first
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    if ([defaults objectForKey:@"LowPowerMode"]) {
-        return [defaults boolForKey:@"LowPowerMode"];
-    }
-    
-    // Fallback: Try _CDBatterySaver for older iOS
     Class BatterySaverClass = objc_getClass("_CDBatterySaver");
     if (BatterySaverClass) {
         id saver = [BatterySaverClass batterySaver];
@@ -1045,8 +1009,8 @@ static NSString *get_human_name_for_trigger(NSString *key, NSDictionary *trigger
             @"trigger_home_triple_click": @"Home Button (Triple Click)",
             @"trigger_home_quadruple_click": @"Home Button (Quadruple Click)",
             @"trigger_home_double_click": @"Home Button (Double Click)",
-            // @"touchid_hold": @"Touch ID Hold (Rest Finger)" [REMOVED - iOS 17 incompatible]
-            // @"touchid_tap": @"Touch ID Single Tap" [REMOVED - iOS 17 incompatible]
+            @"touchid_hold": @"Touch ID Hold (Rest Finger)",
+            @"touchid_tap": @"Touch ID Single Tap",
             @"trigger_edge_left_swipe_up": @"Left Edge Swipe Up",
             @"trigger_edge_left_swipe_down": @"Left Edge Swipe Down",
             @"trigger_edge_right_swipe_up": @"Right Edge Swipe Up",
@@ -1495,12 +1459,6 @@ static void register_simulation_observers() {
 
 // Execute all actions for a trigger
 void RCExecuteTrigger(NSString *triggerKey) {
-    // REMOVED: Touch ID triggers are no longer supported in iOS 17
-    if ([triggerKey isEqualToString:@"touchid_tap"] || [triggerKey isEqualToString:@"touchid_hold"]) {
-        SRLog(@"[TouchID] Trigger '%@' ignored - removed for iOS 17 compatibility", triggerKey);
-        return;
-    }
-    
     // Check for foreground exclusions (Safety/Blacklist)
     if (RC_IsForegroundAppExcluded()) {
         SRLog(@"Triggers SUPPRESSED for frontmost application (Excluded/Blacklisted)");
@@ -6856,15 +6814,12 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            // Touch ID triggers REMOVED for iOS 17 compatibility
-            // Biometric event handler kept for logging but no longer fires triggers
-            /*
             load_trigger_config();
             BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
                 ([g_triggerConfig[@"triggers"][@"touchid_hold"][@"enabled"] boolValue] || 
                  [g_triggerConfig[@"triggers"][@"touchid_tap"][@"enabled"] boolValue]);
             if (!enabled) return;
-            
+
             // DEBOUNCE CHECK:
             if (now < g_bioIgnoreUntil) {
                 // SRLog(@"[Bio] Ignoring Event (Debounce)");
@@ -6913,13 +6868,10 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                             return;
                         }
 
-                        // Touch ID Single Tap REMOVED - Incompatible with iOS 17
-                        /*
                         if ([g_triggerConfig[@"triggers"][@"touchid_tap"][@"enabled"] boolValue]) {
                             trigger_haptic();
                             RCExecuteTrigger(@"touchid_tap");
                         }
-                        */
                     }
                     g_bioFingerDownTime = 0; // Reset State to UP.
                     g_bioHoldTriggered = NO;
@@ -6968,8 +6920,6 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                             return;
                         }
 
-                        // Touch ID Hold REMOVED - Incompatible with iOS 17
-                        /*
                         // Check if trigger is enabled and has actions BEFORE firing haptics
                         if (g_triggerConfig) {
                             NSDictionary *holdTrigger = g_triggerConfig[@"triggers"][@"touchid_hold"];
@@ -6978,11 +6928,9 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                                 RCExecuteTrigger(@"touchid_hold");
                             }
                         }
-                        */
                     });
                 }];
             }
-            */  // Close the main Touch ID removal comment block
         });
 
     }
@@ -7854,102 +7802,9 @@ static void update_edge_gestures() {
         } else {
             // SRLog(@"Edge gestures not needed and not registered");
         }
-
-// ============================================
-// iOS 17 Compatibility Helpers
-// ============================================
-
-/**
- * Get frontmost app bundle ID - iOS 17 compatible
- * Falls back through multiple methods for maximum compatibility
- */
-static NSString* get_frontmost_bundle_id() {
-    @autoreleasepool {
-        SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
-        
-        // Method 1: Standard accessibility API (works on rootful)
-        if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
-            SBApplication *frontApp = [sb _accessibilityFrontMostApplication];
-            if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
-                return [frontApp bundleIdentifier];
-            }
-        }
-        
-        // Method 2: Try via FBSScene (iOS 15+)
-        Class FBSSceneMonitor = objc_getClass("FBSSceneMonitor");
-        if (FBSSceneMonitor) {
-            // Best effort - Scene API is complex and varies by iOS version
-        }
-        
-        return nil;
+    } @catch (NSException *e) {
+        SRLog(@"ERROR in update_edge_gestures: %@", e);
     }
-}
-
-/**
- * Simulated Screen Tap - iOS 17 Compatible
- * Uses GraphicsServices for reliable touch injection
- */
-static void simulate_screen_tap(double x, double y, BOOL down) {
-    SRLog(@"[SimTap] Tap at (%.2f, %.2f) %s", x, y, down ? @"DOWN" : @"UP");
-    
-    // Normalize coordinates to screen size
-    CGSize screenSize = [UIScreen mainScreen].bounds.size;
-    double normX = x * screenSize.width;
-    double normY = y * screenSize.height;
-    
-    CGPoint point = CGPointMake(normX, normY);
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        @try {
-            // Method 1: GraphicsServices (most reliable for iOS 14+)
-            NSString *gsError = nil;
-            if (rc_gs_send_tap(point, @"springboard", &gsError)) {
-                SRLog(@"[SimTap] Used GraphicsServices method successfully");
-                return;
-            }
-            SRLog(@"[SimTap] GraphicsServices failed: %@", gsError);
-            
-            // Method 2: Fallback to HID event (less reliable)
-            inject_hid_event(kHIDPage_Digitizer, kHIDUsage_Digitizer_Touch, 1000000, 0);
-            
-        } @catch (NSException *e) {
-            SRLog(@"[SimTap] Exception: %@", e);
-        }
-    });
-}
-
-/**
- * Simulate a swipe gesture from (startX, startY) to (endX, endY)
- * Coordinates are normalized (0.0-1.0)
- */
-static void simulate_swipe(double startX, double startY, double endX, double endY, double durationSeconds) {
-    SRLog(@"[SimSwipe] From (%.2f, %.2f) to (%.2f, %.2f) over %.2fs", 
-          startX, startY, endX, endY, durationSeconds);
-    
-    int steps = MAX(10, (int)(durationSeconds * 30));
-    for (int i = 0; i <= steps; i++) {
-        double t = (double)i / steps;
-        double x = startX + (endX - startX) * t;
-        double y = startY + (endY - startY) * t;
-        BOOL isDown = (i == 0);
-        BOOL isUp = (i == steps);
-        if (!isUp) {
-            simulate_screen_tap(x, y, isDown);
-        } else {
-            simulate_screen_tap(x, y, NO);
-        }
-        usleep((useconds_t)(durationSeconds * 1000000.0 / steps));
-    }
-}
-
-/**
- * Simulate a long press gesture
- */
-static void simulate_long_press(double x, double y, double durationSeconds) {
-    SRLog(@"[SimLongPress] Long press at (%.2f, %.2f) for %.2fs", x, y, durationSeconds);
-    simulate_screen_tap(x, y, YES);
-    usleep((useconds_t)(durationSeconds * 1000000));
-    simulate_screen_tap(x, y, NO);
 }
 
 
