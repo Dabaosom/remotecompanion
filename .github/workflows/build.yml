@@ -50,11 +50,20 @@ jobs:
           SDK_VERSION: ${{ steps.sdk.outputs.version }}
           PATH: "/opt/homebrew/bin:$HOME/bin:$PATH"
         run: |
-          # Verify ldid is available
-          which ldid || brew install ldid
+          set -e
+          # Install ldid directly in this step (ensures it runs)
+          brew install ldid xz
+          export PATH="/opt/homebrew/bin:$PATH"
+          which ldid
+
+          # Install THEOS
+          if [ ! -d "$THEOS" ]; then
+            git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
+          fi
+          "$THEOS/bin/update-theos" || true
 
           # Symlink SDK with exact name THEOS expects
-          mkdir -p $THEOS/sdks
+          mkdir -p "$THEOS/sdks"
           ln -sfn "$SDK_PATH" "$THEOS/sdks/iPhoneOS$SDK_VERSION.sdk"
 
           cd Tweak
@@ -67,17 +76,21 @@ jobs:
 
           make clean 2>/dev/null || true
           make -j$(sysctl -n hw.ncpu) \
-            THEOS=$THEOS \
+            THEOS="$THEOS" \
             THEOS_DEVICE_IP=127.0.0.1 \
             THEOS_PACKAGE_SCHEME=$THEOS_PACKAGE_SCHEME
 
       - name: Package .deb
         env:
           SDK_VERSION: ${{ steps.sdk.outputs.version }}
+          PATH: "/opt/homebrew/bin:$HOME/bin:$PATH"
         run: |
+          set -e
+          brew install ldid xz
+          export PATH="/opt/homebrew/bin:$PATH"
           cd Tweak
           make package FINALPACKAGE=1 \
-            THEOS=$THEOS \
+            THEOS="$THEOS" \
             THEOS_PACKAGE_SCHEME=$THEOS_PACKAGE_SCHEME
           ls -lh packages/*.deb 2>/dev/null && mv packages/*.deb . 2>/dev/null || ls -lh *.deb 2>/dev/null || echo "no deb found"
 
