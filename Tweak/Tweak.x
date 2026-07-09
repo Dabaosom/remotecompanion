@@ -1,4 +1,4 @@
-﻿// Preprocessor macros required for THEOS SDK headers on Linux cross-compiler
+// Preprocessor macros required for THEOS SDK headers on Linux cross-compiler
 #ifndef __LP64__
 #define __LP64__ 1
 #endif
