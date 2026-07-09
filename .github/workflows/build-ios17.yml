@@ -56,24 +56,14 @@ jobs:
         cd Tweak
         make package THEOS_PACKAGE_SCHEME=rootless
         
-    - name: Build for roothide
-      env:
-        PATH: "/opt/homebrew/bin:$HOME/bin:$PATH"
-      run: |
-        export PATH="/opt/homebrew/bin:$PATH"
-        export THEOS=$HOME/theos
-        which ldid || brew install ldid
-        cd Tweak
-        make package THEOS_PACKAGE_SCHEME=roothide
-        
     - name: Upload deb packages
       uses: actions/upload-artifact@v4
       with:
-        name: remotecompanion-debs
+        name: remotecompanion-debs-rootless
         path: Tweak/packages/*.deb
         
     - name: Create GitHub Release
-      if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+      if: github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v1
       with:
         files: Tweak/packages/*.deb
