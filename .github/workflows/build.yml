@@ -43,6 +43,17 @@ jobs:
           $THEOS/bin/update-theos
           echo "$THEOS/bin" >> $GITHUB_PATH
 
+      - name: Debug SDK frameworks
+        run: |
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "SDK: $SDK_PATH"
+          echo "=== AppSupport ==="
+          find "$SDK_PATH" -name "AppSupport*" -type d 2>/dev/null | head -5
+          echo "=== PrivateFrameworks dirs ==="
+          ls "$SDK_PATH/System/Library/PrivateFrameworks/" 2>/dev/null | grep -i appsupp || echo "not in PrivateFrameworks"
+          echo "=== Main Frameworks dirs ==="
+          ls "$SDK_PATH/System/Library/Frameworks/" 2>/dev/null | grep -i appsupp || echo "not in Frameworks"
+
       - name: Build tweak
         env:
           SDK_PATH: ${{ steps.sdk.outputs.sdk }}
