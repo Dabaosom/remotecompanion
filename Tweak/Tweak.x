@@ -251,7 +251,14 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 - (void)unlockUIFromSource:(int)source withOptions:(id)options;
 - (void)_setUILocked:(BOOL)locked animated:(BOOL)animated withReason:(id)reason;
 - (BOOL)isUILocked;
+- (BOOL)isLockScreenActive;
 - (id)lockScreenViewController;
+@end
+
+// BiometricMatch - private biometric authentication interface
+@interface BiometricMatch : NSObject
++ (instancetype)sharedInstance;
+- (void)lockDevice;
 @end
 
 @interface SBBacklightController : NSObject
@@ -426,10 +433,9 @@ extern CFStringRef kMRMediaRemoteNowPlayingInfoArtist;
 // IOPMSetLowPowerModeEnabled(CFTypeRef, bool) from libIOKit
 // Declaration only; actual function resolved at runtime via dlsym
 
-// WFWorkflowRunnerClient - Workflow execution
-@interface WFWorkflowRunnerClient : NSObject
-- (void)start;
-@end
+// WFWorkflowRunnerClient - REMOVED: SDK's WorkflowKit.tbd provides this class
+// Private selectors called via objc_msgSend at runtime
+// (removed duplicate @interface block to resolve conflict)
 
 // WFAction - Shortcuts action
 @interface WFAction : NSObject
@@ -446,6 +452,11 @@ extern void BKSTerminateApplicationForReasonAndReportWithDescription(NSString *b
 // SpringBoard Interfaces
 @interface SBApplication : NSObject
 - (NSString *)bundleIdentifier;
+@end
+
+@interface SBApplicationController : NSObject
++ (instancetype)sharedInstance;
+- (NSString *)foregroundApplicationIdentifier;
 @end
 
 @interface SBVolumeHardwareButton : NSObject
@@ -6511,7 +6522,10 @@ static NSString *handle_command(NSString *cmd) {
             for (NSString *killallPath in paths) {
                 if ([[NSFileManager defaultManager] fileExistsAtPath:killallPath]) {
                     // iOS 17: main UI process is SpringBoard (not backboardd)
+                    #pragma clang diagnostic push
+                    #pragma clang diagnostic ignored "-Wincompatible-pointer-types"
                     const char *args[] = { [killallPath UTF8String], @"-9", @"SpringBoard", NULL };
+                    #pragma clang diagnostic pop
                     posix_spawn(&pid, [killallPath UTF8String], NULL, NULL, (char *const *)args, NULL);
                     SRLog(@"[RC] Respring: spawned killall from %@", killallPath);
                     return;
@@ -6537,7 +6551,10 @@ static NSString *handle_command(NSString *cmd) {
                 if ([[NSFileManager defaultManager] fileExistsAtPath:binPath]) {
                     if ([binPath hasSuffix:@"killall"]) {
                         // Kill SpringBoard as soft restart
+                        #pragma clang diagnostic push
+                        #pragma clang diagnostic ignored "-Wincompatible-pointer-types"
                         const char *args[] = { [binPath UTF8String], @"-9", @"SpringBoard", NULL };
+                        #pragma clang diagnostic pop
                         posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char *const *)args, NULL);
                     } else {
                         const char *args[] = { [binPath UTF8String], NULL };
@@ -6803,7 +6820,10 @@ static NSString *handle_command(NSString *cmd) {
                     };
                     for (int i = 0; i < 3; i++) {
                         if ([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithUTF8String:paths[i]]]) {
+                            #pragma clang diagnostic push
+                            #pragma clang diagnostic ignored "-Wincompatible-pointer-types"
                             const char *args[] = { paths[i], @"-9", @"SpringBoard", NULL };
+                            #pragma clang diagnostic pop
                             posix_spawn(&pid, paths[i], NULL, NULL, (char *const *)args, NULL);
                             return;
                         }
@@ -6836,7 +6856,10 @@ static NSString *handle_command(NSString *cmd) {
                     const char *paths[] = { "/var/jb/usr/bin/killall", "/usr/bin/killall" };
                     for (int i = 0; i < 2; i++) {
                         if ([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithUTF8String:paths[i]]]) {
+                            #pragma clang diagnostic push
+                            #pragma clang diagnostic ignored "-Wincompatible-pointer-types"
                             const char *args[] = { paths[i], @"-9", @"SpringBoard", NULL };
+                            #pragma clang diagnostic pop
                             posix_spawn(&pid, paths[i], NULL, NULL, (char *const *)args, NULL);
                             return;
                         }
@@ -6850,7 +6873,10 @@ static NSString *handle_command(NSString *cmd) {
                     for (NSString *binPath in paths) {
                         if ([[NSFileManager defaultManager] fileExistsAtPath:binPath]) {
                             pid_t pid;
+                            #pragma clang diagnostic push
+                            #pragma clang diagnostic ignored "-Wincompatible-pointer-types"
                             const char *args[] = { [binPath UTF8String], @"-a", NULL };
+                            #pragma clang diagnostic pop
                             posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char *const *)args, NULL);
                             send_notification(@"RemoteCompanion", @"Icon cache refreshed", NO);
                             return;
