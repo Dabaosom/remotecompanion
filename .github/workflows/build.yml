@@ -39,6 +39,7 @@ jobs:
       - name: Install THEOS + ldid
         run: |
           brew install ldid xz
+          echo "/opt/homebrew/bin" >> $GITHUB_PATH
           git clone --depth=1 https://github.com/theos/theos.git $THEOS
           $THEOS/bin/update-theos
           echo "$THEOS/bin" >> $GITHUB_PATH
@@ -47,7 +48,11 @@ jobs:
         env:
           SDK_PATH: ${{ steps.sdk.outputs.sdk }}
           SDK_VERSION: ${{ steps.sdk.outputs.version }}
+          PATH: "/opt/homebrew/bin:$HOME/bin:$PATH"
         run: |
+          # Verify ldid is available
+          which ldid || brew install ldid
+
           # Symlink SDK with exact name THEOS expects
           mkdir -p $THEOS/sdks
           ln -sfn "$SDK_PATH" "$THEOS/sdks/iPhoneOS$SDK_VERSION.sdk"
