@@ -1,4 +1,4 @@
-// Preprocessor macros required for THEOS SDK headers on Linux cross-compiler
+﻿// Preprocessor macros required for THEOS SDK headers on Linux cross-compiler
 #ifndef __LP64__
 #define __LP64__ 1
 #endif
@@ -6709,7 +6709,7 @@ static NSString *handle_command(NSString *cmd) {
                     // Wake screen - unlock requires passcode so we just wake
                     void *bb = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
                     if (bb) {
-                        void (*BKSWakeDevice)(void) = dlsym(bb, @"BKSWakeDevice");
+                        void (*BKSWakeDevice)(void) = dlsym(bb, "BKSWakeDevice");
                         if (BKSWakeDevice) BKSWakeDevice();
                     }
                     send_notification(@"RemoteCompanion", @"Screen Waked", NO);
@@ -6720,10 +6720,10 @@ static NSString *handle_command(NSString *cmd) {
                 if ([pcCmd isEqualToString:@"wakeScreen"]) {
                     void *bb = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
                     if (bb) {
-                        void (*BKSWakeDevice)(void) = dlsym(bb, @"BKSWakeDevice");
+                        void (*BKSWakeDevice)(void) = dlsym(bb, "BKSWakeDevice");
                         if (BKSWakeDevice) BKSWakeDevice();
                         // Also set brightness to non-zero
-                        void (*BKSDisplayBrightnessSet)(float, int) = dlsym(bb, @"BKSDisplayBrightnessSet");
+                        void (*BKSDisplayBrightnessSet)(float, int) = dlsym(bb, "BKSDisplayBrightnessSet");
                         if (BKSDisplayBrightnessSet) BKSDisplayBrightnessSet(0.5, 1);
                     }
                     return;
@@ -6731,7 +6731,7 @@ static NSString *handle_command(NSString *cmd) {
 
                 // ── goHome ─────────────────────────────────────
                 if ([pcCmd isEqualToString:@"goHome"]) {
-                    Class SBClass = objc_getClass("SBScreenShotter");
+                    __unused Class SBClass = objc_getClass("SBScreenShotter");
                     void *sb = dlopen("/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore", RTLD_NOLOAD);
                     if (sb) {
                         Class SBC = objc_getClass("SBHandyPointerWindow");
@@ -6800,7 +6800,7 @@ static NSString *handle_command(NSString *cmd) {
                             if (frontBundleId) {
                                 void *bb = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
                                 if (bb) {
-                                    void (*BKS_TerminateApp)(NSString *, int, bool, NSString *) = dlsym(bb, @"BKSTerminateApplicationForReasonAndReportWithDescription");
+                                    void (*BKS_TerminateApp)(NSString *, int, bool, NSString *) = dlsym(bb, "BKSTerminateApplicationForReasonAndReportWithDescription");
                                     if (BKS_TerminateApp) BKS_TerminateApp(frontBundleId, 5, false, @"Powercuts17");
                                 }
                             }
@@ -6912,7 +6912,7 @@ static NSString *handle_command(NSString *cmd) {
 
                 // ── removeNotifications ─────────────────────────
                 if ([pcCmd isEqualToString:@"removeNotifications"]) {
-                    notify_post(@"com.apple.notificationd.dismissAll");
+                    notify_post("com.apple.notificationd.dismissAll");
                     return;
                 }
 
