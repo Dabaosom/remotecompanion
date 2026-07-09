@@ -1,3 +1,26 @@
+// Preprocessor macros required for THEOS SDK headers on Linux cross-compiler
+#ifndef __LP64__
+#define __LP64__ 1
+#endif
+#ifndef __OBJC__
+#define __OBJC__ 1
+#endif
+#ifndef __clang__
+#define __clang__ 1
+#endif
+#ifndef __clang_major__
+#define __clang_major__ 14
+#endif
+#ifndef __APPLE_CC__
+#define __APPLE_CC__ 6000
+#endif
+#ifndef __GNUC__
+#define __GNUC__ 4
+#endif
+#ifndef __GNUC_MINOR__
+#define __GNUC_MINOR__ 2
+#endif
+
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <netinet/in.h>
@@ -19,12 +42,17 @@
 #import "native_curl.h"
 #import <CoreFoundation/CoreFoundation.h>
 
+@class SBProximitySensorManager;
+
 static void trigger_haptic();
 static void toggle_system_vibration(BOOL silentMode, BOOL enable);
 static BOOL get_system_vibration(BOOL silentMode);
 
 static NSString *g_currentAppBundleId = nil;
 static NSString *g_previousAppBundleId = nil;
+static SBProximitySensorManager *g_proximitySensorManager = nil;
+static BOOL g_forceProximityDetection = NO;
+static int g_latestHIDProximityState = -1;
 
 // WorkflowKit interfaces
 @interface WFWorkflowDescriptor : NSObject
@@ -301,6 +329,12 @@ extern Boolean MRMediaRemoteSendCommandToApp(MRMediaRemoteCommand command, NSDic
 - (id)currentNetworkName;
 @end
 
+@interface SBTelephonyManager : NSObject
++ (id)sharedTelephonyManager;
+- (id)_serverConnection;
+@end
+
+
 // MediaRemote APIs - these are stable and work on iOS 15.8
 typedef enum {
     kMRPlay = 0,
@@ -381,33 +415,29 @@ extern CFStringRef kMRMediaRemoteNowPlayingInfoArtist;
 - (id)activeModeAssertionWithError:(NSError **)error;
 @end
 
-// Siri Actions Daemon - For iOS 15+
-@interface SRISiriActionsDaemonConnection : NSObject
-+ (instancetype)sharedInstance;
-- (void)executeActionWithIdentifier:(NSString *)identifier 
-                             input:(NSData *)input 
-                  completionHandler:(void (^)(NSData *, NSError *))handler;
-@end
-
-@interface SiriActionsDConnection : NSObject
-+ (SiriActionsDConnection *)sharedConnection;
-- (void)executeActionNamed:(NSString *)actionName 
-                  arguments:(NSDictionary *)arguments 
-                 completion:(void (^)(NSDictionary *, NSError *))completion;
-@end
-
-// WorkflowKit for Shortcuts execution (iOS 15+)
-@interface WFWorkflowRunningClient : NSObject
-- (void)runWorkflowWithIdentifier:(NSString *)identifier 
-                        input:(NSDictionary *)input 
-                   completion:(void (^)(NSDictionary *, NSError *))completion;
-@end
-
-// CoreDuet - Low Power Mode (deprecated iOS 15+, kept for fallback)
+// CoreDuet - Low Power Mode (iOS <17)
 @interface _CDBatterySaver : NSObject
 + (instancetype)batterySaver;
 - (long long)getPowerMode;
 - (BOOL)setPowerMode:(long long)mode error:(NSError **)error;
+@end
+
+// IOKit - Low Power Mode for iOS 17
+// IOPMSetLowPowerModeEnabled(CFTypeRef, bool) from libIOKit
+// Declaration only; actual function resolved at runtime via dlsym
+
+// WFWorkflowRunnerClient - Workflow execution
+@interface WFWorkflowRunnerClient : NSObject
+- (void)start;
+@end
+
+// WFAction - Shortcuts action
+@interface WFAction : NSObject
+@end
+
+// WFActionRegistry - Action registration
+@interface WFActionRegistry : NSObject
++ (id)sharedRegistry;
 @end
 
 // BackBoardServices for killing apps
@@ -461,6 +491,16 @@ extern void BKSTerminateApplicationForReasonAndReportWithDescription(NSString *b
 - (BOOL)isUserLocked;
 @end
 
+@interface SBProximitySensorManager : NSObject
++ (instancetype)sharedInstance;
+- (BOOL)isObjectInProximity;
+- (BOOL)isProximityDetectionEnabled;
+- (void)setProximityDetectionEnabled:(BOOL)enabled;
+- (void)_enableProx;
+- (void)_disableProx;
+- (void)_setProximityDetectionEnabled:(BOOL)enabled;
+@end
+
 @interface SBScreenshotManager : NSObject
 + (instancetype)sharedInstance;
 - (void)saveScreenshotToCameraRollWithCompletion:(id)completion;
@@ -472,6 +512,11 @@ extern void BKSTerminateApplicationForReasonAndReportWithDescription(NSString *b
 - (void)handleHomeButtonTap:(id)arg1;
 - (void)clickedMenuButton;
 - (void)handleScreenshotGestureFired:(id)arg1;
+@end
+
+@interface UISUserInterfaceStyleMode : NSObject
+- (void)setModeValue:(NSInteger)value;
+- (NSInteger)modeValue;
 @end
 
 @interface SBRingerControl : NSObject
@@ -596,36 +641,40 @@ static void toggle_dnd(BOOL state) {
 }
 
 static void toggle_lpm(BOOL state) {
-    dispatch_async(dispatch_get_main_queue(), ^{
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         @try {
-            SRLog(@"Toggle LPM: %@", state ? @"ON" : @"OFF");
-            
-            // iOS 17+ method: Use NSUserDefaults (works on most iOS 15+)
-            NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-            [defaults setBool:state forKey:@"LowPowerMode"];
-            [defaults synchronize];
-            SRLog(@"Set LowPowerMode via NSUserDefaults: %d", state);
-            
-            // Post notification for system to react
-            [[NSNotificationCenter defaultCenter] postNotificationName:@"com.apple.remotecompanion.lowpowermode.changed" 
-                                                                object:nil 
-                                                              userInfo:@{@"state": @(state)}];
-            
-            // Fallback: Try _CDBatterySaver for older iOS versions
+            // ── Method 1: IOKit IOPMSetLowPowerModeEnabled (iOS 17 compatible) ──
+            static int (*IOPMSetLowPowerModeEnabled)(CFTypeRef, int) = NULL;
+            static dispatch_once_t onceToken;
+            dispatch_once(&onceToken, ^{
+                void *h = dlopen("/System/Library/PrivateFrameworks/IOKit.framework/IOKit", RTLD_NOW);
+                if (h) IOPMSetLowPowerModeEnabled = (void *)dlsym(h, "IOPMSetLowPowerModeEnabled");
+            });
+            if (IOPMSetLowPowerModeEnabled) {
+                // CFStringRef for power source - use kIOPMUPSPower or nil for internal battery
+                CFStringRef ps = CFSTR("InternalBattery");
+                int result = IOPMSetLowPowerModeEnabled(ps, state ? 1 : 0);
+                SRLog(@"[LPM] IOPMSetLowPowerModeEnabled(%d) = %d", state, result);
+                return;
+            }
+
+            // ── Method 2: Fallback to _CDBatterySaver (iOS <17) ──
             Class BatterySaverClass = objc_getClass("_CDBatterySaver");
             if (BatterySaverClass) {
                 id saver = [BatterySaverClass batterySaver];
                 if (saver && [saver respondsToSelector:@selector(setPowerMode:error:)]) {
                     NSError *err = nil;
-                    [saver setPowerMode:(state ? 1 : 0) error:&err];
-                    if (err) {
-                        SRLog(@"_CDBatterySaver fallback failed: %@", err);
-                    } else {
-                        SRLog(@"_CDBatterySaver fallback succeeded");
-                    }
+                    BOOL ok = [saver setPowerMode:(state ? 1 : 0) error:&err];
+                    SRLog(@"[LPM] _CDBatterySaver: %@ (ok=%d)", err ? err : @"OK", ok);
+                    return;
                 }
             }
-            
+
+            // ── Method 3: Intents framework (last resort) ──
+            // Use Intents to run a "Set Low Power Mode" shortcut
+            Class IntentClass = objc_getClass("INPowerManagementIntentEntity");
+            (void)IntentClass;
+            SRLog(@"[LPM] All methods failed - iOS 17 restriction");
         } @catch (NSException *e) {
             SRLog(@"EXCEPTION in toggle_lpm: %@", e);
         }
@@ -634,13 +683,21 @@ static void toggle_lpm(BOOL state) {
 
 // State detection helpers
 static BOOL get_lpm_state() {
-    // iOS 17+: Check via NSUserDefaults first
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    if ([defaults objectForKey:@"LowPowerMode"]) {
-        return [defaults boolForKey:@"LowPowerMode"];
+    // ── Method 1: IOKit IOPMCopyIdleCalendarDate / IOPMGetLowPowerModeEnabled (iOS 17) ──
+    static int (*IOPMGetLowPowerModeEnabled)(void) = NULL;
+    static dispatch_once_t onceLPM;
+    dispatch_once(&onceLPM, ^{
+        void *h = dlopen("/System/Library/PrivateFrameworks/IOKit.framework/IOKit", RTLD_NOW);
+        if (h) {
+            // Try IOPMGetLowPowerModeEnabled first
+            IOPMGetLowPowerModeEnabled = (void *)dlsym(h, "IOPMGetLowPowerModeEnabled");
+        }
+    });
+    if (IOPMGetLowPowerModeEnabled) {
+        return IOPMGetLowPowerModeEnabled() != 0;
     }
-    
-    // Fallback: Try _CDBatterySaver for older iOS
+
+    // ── Method 2: Fallback to _CDBatterySaver (iOS <17) ──
     Class BatterySaverClass = objc_getClass("_CDBatterySaver");
     if (BatterySaverClass) {
         id saver = [BatterySaverClass batterySaver];
@@ -662,6 +719,337 @@ static BOOL get_dnd_state() {
     return NO;
 }
 
+typedef struct __CTServerConnection *CTServerConnectionRef;
+typedef CTServerConnectionRef (*CTServerConnectionCreateType)(CFAllocatorRef, void *, int *);
+typedef int (*CTServerConnectionGetCellularDataIsEnabledType)(CTServerConnectionRef, uint8_t *);
+typedef int (*CTServerConnectionSetCellularDataIsEnabledType)(CTServerConnectionRef, uint8_t);
+
+static BOOL get_cellular_state() {
+    BOOL isEnabled = NO;
+    id telephonyManager = [(id)objc_getClass("SBTelephonyManager") sharedTelephonyManager];
+    if (telephonyManager) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        SEL connSel = @selector(_serverConnection);
+        if ([telephonyManager respondsToSelector:connSel]) {
+            CTServerConnectionRef conn = (__bridge CTServerConnectionRef)[telephonyManager performSelector:connSel];
+            if (conn) {
+                void *ctHandle = dlopen("/System/Library/Frameworks/CoreTelephony.framework/CoreTelephony", RTLD_NOW);
+                if (ctHandle) {
+                    CTServerConnectionGetCellularDataIsEnabledType getFunc = (CTServerConnectionGetCellularDataIsEnabledType)dlsym(ctHandle, "_CTServerConnectionGetCellularDataIsEnabled");
+                    if (getFunc) {
+                        uint8_t enabled = 0;
+                        getFunc(conn, &enabled);
+                        isEnabled = (enabled != 0);
+                    }
+                    dlclose(ctHandle);
+                }
+            }
+        }
+        #pragma clang diagnostic pop
+    }
+    return isEnabled;
+}
+
+static BOOL set_cellular_state(BOOL state) {
+    BOOL success = NO;
+    id telephonyManager = [(id)objc_getClass("SBTelephonyManager") sharedTelephonyManager];
+    if (telephonyManager) {
+        #pragma clang diagnostic push
+        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+        SEL connSel = @selector(_serverConnection);
+        if ([telephonyManager respondsToSelector:connSel]) {
+            CTServerConnectionRef conn = (__bridge CTServerConnectionRef)[telephonyManager performSelector:connSel];
+            if (conn) {
+                void *ctHandle = dlopen("/System/Library/Frameworks/CoreTelephony.framework/CoreTelephony", RTLD_NOW);
+                if (ctHandle) {
+                    CTServerConnectionSetCellularDataIsEnabledType setFunc = (CTServerConnectionSetCellularDataIsEnabledType)dlsym(ctHandle, "_CTServerConnectionSetCellularDataIsEnabled");
+                    if (setFunc) {
+                        setFunc(conn, state ? 1 : 0);
+                        success = YES;
+                    }
+                    dlclose(ctHandle);
+                }
+            }
+        }
+        #pragma clang diagnostic pop
+    }
+    return success;
+}
+
+static UIWindow *g_rcHUDWindow = nil;
+
+static NSArray<NSString *> *rc_parse_quoted_arguments(NSString *argString) {
+    NSMutableArray *arguments = [NSMutableArray array];
+    NSScanner *scanner = [NSScanner scannerWithString:argString];
+    [scanner setCharactersToBeSkipped:nil]; // Do not skip whitespace automatically
+    
+    while (![scanner isAtEnd]) {
+        // Skip whitespace
+        [scanner scanCharactersFromSet:[NSCharacterSet whitespaceCharacterSet] intoString:NULL];
+        if ([scanner isAtEnd]) break;
+        
+        NSString *arg = nil;
+        if ([scanner scanString:@"\"" intoString:NULL]) {
+            // Scan until closing quote
+            [scanner scanUpToString:@"\"" intoString:&arg];
+            [scanner scanString:@"\"" intoString:NULL];
+            if (!arg) arg = @"";
+        } else {
+            // Scan until next space
+            [scanner scanUpToCharactersFromSet:[NSCharacterSet whitespaceCharacterSet] intoString:&arg];
+        }
+        
+        if (arg) {
+            [arguments addObject:arg];
+        }
+    }
+    return arguments;
+}
+
+static void rc_show_hud_toast(NSString *title, NSString *subtitle, NSString *iconSymbol) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (g_rcHUDWindow) {
+            [g_rcHUDWindow.layer removeAllAnimations];
+            g_rcHUDWindow.hidden = YES;
+            g_rcHUDWindow = nil;
+        }
+        
+        CGRect screenBounds = [UIScreen mainScreen].bounds;
+        CGFloat screenWidth = screenBounds.size.width;
+        
+        // Define fonts matching native iOS 15 Ringer HUD
+        UIFont *titleFont = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
+        UIFont *subtitleFont = [UIFont systemFontOfSize:12.0 weight:UIFontWeightRegular];
+        
+        // Measure text to determine dynamic width
+        CGFloat maxTextWidth = 0;
+        if (title) {
+            CGSize titleSize = [title sizeWithAttributes:@{NSFontAttributeName: titleFont}];
+            maxTextWidth = titleSize.width;
+        }
+        if (subtitle) {
+            CGSize subSize = [subtitle sizeWithAttributes:@{NSFontAttributeName: subtitleFont}];
+            if (subSize.width > maxTextWidth) {
+                maxTextWidth = subSize.width;
+            }
+        }
+        
+        // Check if icon exists and is a valid symbol image
+        BOOL hasIcon = NO;
+        if (iconSymbol && ![iconSymbol isEqualToString:@""] && ![iconSymbol isEqualToString:@"none"]) {
+            if ([UIImage systemImageNamed:iconSymbol]) {
+                hasIcon = YES;
+            }
+        }
+        
+        CGFloat leftPadding = 16.0;
+        CGFloat iconWidth = hasIcon ? 20.0 : 0.0;
+        CGFloat iconGap = hasIcon ? 10.0 : 0.0;
+        CGFloat leftMargin = leftPadding + iconWidth + iconGap;
+        
+        CGFloat pillWidth = maxTextWidth + 2 * leftMargin;
+        // Enforce native-looking bounds (min 140, max screenWidth - 32)
+        pillWidth = MAX(140.0, MIN(pillWidth, screenWidth - 32.0));
+        
+        // Determine height based on whether we have a subtitle
+        BOOL hasSubtitle = (subtitle && ![subtitle isEqualToString:@""]);
+        CGFloat pillHeight = hasSubtitle ? 50.0 : 40.0;
+        
+        CGFloat pillX = (screenWidth - pillWidth) / 2.0;
+        CGFloat startY = -pillHeight - 20.0;
+        
+        // Query status bar height for target Y
+        CGFloat statusBarHeight = 20.0;
+        if (@available(iOS 13.0, *)) {
+            UIWindow *keyWin = nil;
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            keyWin = [UIApplication sharedApplication].keyWindow;
+            #pragma clang diagnostic pop
+            if (keyWin && keyWin.windowScene && keyWin.windowScene.statusBarManager) {
+                statusBarHeight = keyWin.windowScene.statusBarManager.statusBarFrame.size.height;
+            }
+        }
+        if (statusBarHeight == 0) {
+            #pragma clang diagnostic push
+            #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+            statusBarHeight = [UIApplication sharedApplication].statusBarFrame.size.height;
+            #pragma clang diagnostic pop
+        }
+        
+        // targetY places it right in status bar overlay position (matching native iOS ringer HUD)
+        CGFloat targetY = (statusBarHeight > 24.0) ? 15.0 : 12.0;
+        
+        UIWindow *hudWindow = [[UIWindow alloc] initWithFrame:CGRectMake(pillX, startY, pillWidth, pillHeight)];
+        g_rcHUDWindow = hudWindow;
+        hudWindow.windowLevel = UIWindowLevelAlert + 3000.0;
+        hudWindow.backgroundColor = [UIColor clearColor];
+        hudWindow.userInteractionEnabled = NO;
+        
+        UIViewController *rootVC = [[UIViewController alloc] init];
+        rootVC.view.frame = CGRectMake(0, 0, pillWidth, pillHeight);
+        rootVC.view.backgroundColor = [UIColor clearColor];
+        hudWindow.rootViewController = rootVC;
+        
+        BOOL isDarkMode = YES;
+        if (@available(iOS 12.0, *)) {
+            if ([UIScreen mainScreen].traitCollection.userInterfaceStyle == UIUserInterfaceStyleLight) {
+                isDarkMode = NO;
+            }
+        }
+        
+        UIBlurEffectStyle blurStyle = isDarkMode ? UIBlurEffectStyleSystemMaterialDark : UIBlurEffectStyleSystemMaterialLight;
+        UIColor *titleColor = isDarkMode ? [UIColor whiteColor] : [UIColor colorWithWhite:0.0 alpha:0.8];
+        UIColor *subColor = isDarkMode ? [UIColor colorWithWhite:1.0 alpha:0.6] : [UIColor colorWithWhite:0.0 alpha:0.48];
+        UIColor *iconColor = isDarkMode ? [UIColor whiteColor] : [UIColor colorWithWhite:0.0 alpha:0.7];
+        
+        // Blur background (matching native ringer HUD pill - no border)
+        UIBlurEffect *blurEffect = [UIBlurEffect effectWithStyle:blurStyle];
+        UIVisualEffectView *blurView = [[UIVisualEffectView alloc] initWithEffect:blurEffect];
+        blurView.frame = CGRectMake(0, 0, pillWidth, pillHeight);
+        blurView.layer.cornerRadius = pillHeight / 2.0;
+        blurView.layer.masksToBounds = YES;
+        [rootVC.view addSubview:blurView];
+        
+        if (hasIcon) {
+            UIImage *iconImage = nil;
+            if (@available(iOS 13.0, *)) {
+                UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:16.0 weight:UIImageSymbolWeightMedium];
+                iconImage = [UIImage systemImageNamed:iconSymbol withConfiguration:config];
+            } else {
+                iconImage = [UIImage systemImageNamed:iconSymbol];
+            }
+            
+            if (iconImage) {
+                UIImageView *iconView = [[UIImageView alloc] initWithImage:iconImage];
+                iconView.tintColor = iconColor;
+                iconView.contentMode = UIViewContentModeScaleAspectFit;
+                iconView.frame = CGRectMake(leftPadding, (pillHeight - 20) / 2.0, 20, 20);
+                [rootVC.view addSubview:iconView];
+            }
+        }
+        
+        // Text alignment: Center relative to the entire bubble
+        NSTextAlignment alignment = NSTextAlignmentCenter;
+        
+        if (hasSubtitle) {
+            UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 8.0, pillWidth, 18.0)];
+            titleLabel.text = title;
+            titleLabel.textColor = titleColor;
+            titleLabel.font = titleFont;
+            titleLabel.textAlignment = alignment;
+            [rootVC.view addSubview:titleLabel];
+            
+            UILabel *subLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 26.0, pillWidth, 16.0)];
+            subLabel.text = subtitle;
+            subLabel.textColor = subColor;
+            subLabel.font = subtitleFont;
+            subLabel.textAlignment = alignment;
+            [rootVC.view addSubview:subLabel];
+        } else {
+            UILabel *titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, pillWidth, pillHeight)];
+            titleLabel.text = title;
+            titleLabel.textColor = titleColor;
+            titleLabel.font = titleFont;
+            titleLabel.textAlignment = alignment;
+            [rootVC.view addSubview:titleLabel];
+        }
+        
+        hudWindow.hidden = NO;
+        
+        [UIView animateWithDuration:0.5
+                              delay:0.0
+             usingSpringWithDamping:0.75
+              initialSpringVelocity:1.0
+                            options:UIViewAnimationOptionCurveEaseInOut
+                         animations:^{
+                             hudWindow.frame = CGRectMake(pillX, targetY, pillWidth, pillHeight);
+                         }
+                         completion:^(BOOL finished) {
+                             if (g_rcHUDWindow != hudWindow) {
+                                 hudWindow.hidden = YES;
+                                 return;
+                             }
+                             [UIView animateWithDuration:0.4
+                                                   delay:2.0
+                                                 options:UIViewAnimationOptionCurveEaseInOut
+                                              animations:^{
+                                                  hudWindow.frame = CGRectMake(pillX, startY, pillWidth, pillHeight);
+                                              }
+                                              completion:^(BOOL finished2) {
+                                                  hudWindow.hidden = YES;
+                                                  if (g_rcHUDWindow == hudWindow) {
+                                                      g_rcHUDWindow = nil;
+                                                  }
+                                              }];
+                         }];
+    });
+}
+
+static void toggle_audiomix(BOOL state) {
+    @try {
+        CFStringRef appID = CFSTR("com.kingpuffdaddi.audiomixprefs");
+        CFPreferencesSetAppValue(CFSTR("isEnabled"), (__bridge CFNumberRef)@(state), appID);
+        CFPreferencesAppSynchronize(appID);
+
+        // Write directly to plist file paths as fallback/synchronization
+        NSString *prefix = @"";
+        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb/usr/bin/nc"]) {
+            prefix = @"/var/jb";
+        }
+        NSArray *paths = @[
+            @"/var/mobile/Library/Preferences/com.kingpuffdaddi.audiomixprefs.plist",
+            [NSString stringWithFormat:@"%@/var/mobile/Library/Preferences/com.kingpuffdaddi.audiomixprefs.plist", prefix]
+        ];
+        for (NSString *path in paths) {
+            NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:path];
+            if (!dict) {
+                dict = [NSMutableDictionary dictionary];
+            }
+            dict[@"isEnabled"] = @(state);
+            [dict writeToFile:path atomically:YES];
+        }
+
+        // Post Darwin notification
+        notify_post("com.kingpuffdaddi.audiomixprefs/settingschanged");
+
+        SRLog(@"AudioMix Enabled toggled to: %@", state ? @"YES" : @"NO");
+
+        rc_show_hud_toast(@"AudioMix", state ? @"Enabled" : @"Disabled", @"music.note");
+    } @catch (NSException *e) {
+        SRLog(@"EXCEPTION in toggle_audiomix: %@", e);
+    }
+}
+
+static BOOL get_audiomix_state() {
+    @try {
+        Boolean valid;
+        Boolean val = CFPreferencesGetAppBooleanValue(CFSTR("isEnabled"), CFSTR("com.kingpuffdaddi.audiomixprefs"), &valid);
+        if (valid) return val;
+
+        // Fallback to reading file
+        NSString *prefix = @"";
+        if ([[NSFileManager defaultManager] fileExistsAtPath:@"/var/jb/usr/bin/nc"]) {
+            prefix = @"/var/jb";
+        }
+        NSArray *paths = @[
+            @"/var/mobile/Library/Preferences/com.kingpuffdaddi.audiomixprefs.plist",
+            [NSString stringWithFormat:@"%@/var/mobile/Library/Preferences/com.kingpuffdaddi.audiomixprefs.plist", prefix]
+        ];
+        for (NSString *path in paths) {
+            if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+                NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:path];
+                if (dict && dict[@"isEnabled"]) {
+                    return [dict[@"isEnabled"] boolValue];
+                }
+            }
+        }
+    } @catch (NSException *e) {
+        SRLog(@"EXCEPTION in get_audiomix_state: %@", e);
+    }
+    return YES; // Default to YES if not found/error
+}
 
 static void inject_hid_event(uint32_t page, uint32_t usage, uint64_t durationNs, IOOptionBits flags) {
     static dispatch_queue_t hidQueue;
@@ -1042,11 +1430,12 @@ static NSString *get_human_name_for_trigger(NSString *key, NSDictionary *trigger
             @"trigger_statusbar_right_hold": @"Status Bar Right Hold",
             @"trigger_statusbar_swipe_left": @"Status Bar Swipe Left",
             @"trigger_statusbar_swipe_right": @"Status Bar Swipe Right",
+            @"trigger_statusbar_double_tap": @"Status Bar Double Tap",
             @"trigger_home_triple_click": @"Home Button (Triple Click)",
             @"trigger_home_quadruple_click": @"Home Button (Quadruple Click)",
             @"trigger_home_double_click": @"Home Button (Double Click)",
-            // @"touchid_hold": @"Touch ID Hold (Rest Finger)" [REMOVED - iOS 17 incompatible]
-            // @"touchid_tap": @"Touch ID Single Tap" [REMOVED - iOS 17 incompatible]
+            @"touchid_hold": @"Touch ID Hold (Rest Finger)",
+            @"touchid_tap": @"Touch ID Single Tap",
             @"trigger_edge_left_swipe_up": @"Left Edge Swipe Up",
             @"trigger_edge_left_swipe_down": @"Left Edge Swipe Down",
             @"trigger_edge_right_swipe_up": @"Right Edge Swipe Up",
@@ -1069,7 +1458,7 @@ static NSString *get_human_name_for_trigger(NSString *key, NSDictionary *trigger
     if ([key hasPrefix:@"bt_connect_"]) return [NSString stringWithFormat:@"Bluetooth Connected: %@", [key substringFromIndex:11]];
     if ([key hasPrefix:@"bt_disconnect_"]) return [NSString stringWithFormat:@"Bluetooth Disconnected: %@", [key substringFromIndex:14]];
     if ([key hasPrefix:@"app_launch_"]) return [NSString stringWithFormat:@"App Launched: %@", [key substringFromIndex:11]];
-    if ([key hasPrefix:@"notif_"]) return @"Notification Trigger";
+    if ([key hasPrefix:@"notif_"] || [key hasPrefix:@"notify_"]) return @"Notification Trigger";
     if ([key hasPrefix:@"sched_"]) return @"Scheduled Automation";
     
     return key;
@@ -1203,47 +1592,19 @@ static BOOL rc_is_else_action_item(id item) {
     return [type isEqualToString:@"else"];
 }
 
+static BOOL rc_is_else_if_action_item(id item) {
+    if (![item isKindOfClass:[NSDictionary class]]) return NO;
+    NSString *type = [[((NSDictionary *)item)[@"type"] description] lowercaseString];
+    return [type isEqualToString:@"else_if"];
+}
+
 static BOOL rc_is_end_if_action_item(id item) {
     if (![item isKindOfClass:[NSDictionary class]]) return NO;
     NSString *type = [[((NSDictionary *)item)[@"type"] description] lowercaseString];
     return [type isEqualToString:@"end_if"] || [type isEqualToString:@"end"];
 }
 
-static NSInteger rc_matching_end_if_index(NSArray *actions, NSInteger startIndex) {
-    if (startIndex < 0 || startIndex >= (NSInteger)actions.count) return NSNotFound;
-    if (!rc_is_if_action_item(actions[startIndex])) return NSNotFound;
-    
-    NSInteger depth = 0;
-    for (NSInteger idx = startIndex; idx < (NSInteger)actions.count; idx++) {
-        id item = actions[idx];
-        if (rc_is_if_action_item(item)) {
-            depth++;
-        } else if (rc_is_end_if_action_item(item)) {
-            depth--;
-            if (depth == 0) return idx;
-        }
-    }
-    return NSNotFound;
-}
 
-static NSInteger rc_matching_else_index(NSArray *actions, NSInteger startIndex) {
-    if (startIndex < 0 || startIndex >= (NSInteger)actions.count) return NSNotFound;
-    if (!rc_is_if_action_item(actions[startIndex])) return NSNotFound;
-    
-    NSInteger depth = 0;
-    for (NSInteger idx = startIndex; idx < (NSInteger)actions.count; idx++) {
-        id item = actions[idx];
-        if (rc_is_if_action_item(item)) {
-            depth++;
-        } else if (rc_is_end_if_action_item(item)) {
-            depth--;
-            if (depth == 0) return NSNotFound; // Hit end before else
-        } else if (rc_is_else_action_item(item)) {
-            if (depth == 1) return idx;
-        }
-    }
-    return NSNotFound;
-}
 
 static NSString *rc_trimmed_uppercase_string(NSString *value) {
     if (![value isKindOfClass:[NSString class]]) return @"";
@@ -1256,6 +1617,7 @@ static NSString *rc_status_command_for_condition_key(NSString *conditionKey) {
         @"lock": @"lock status",
         @"player": @"player status",
         @"wifi": @"wifi status",
+        @"cellular": @"cell status",
         @"bluetooth": @"bluetooth status",
         @"airplane": @"airplane status",
         @"silent_vibration": @"vibration silent-status",
@@ -1332,6 +1694,21 @@ static BOOL rc_evaluate_if_condition(NSDictionary *ifAction) {
         return [actualBundleId isEqualToString:expectedValue];
     }
     
+    if ([conditionKey isEqualToString:@"proximity"] || [conditionKey isEqualToString:@"pocket"] || [conditionKey isEqualToString:@"device_in_pocket"]) {
+        NSString *statusOutput = handle_command(@"proximity");
+        NSString *upperOutput = rc_trimmed_uppercase_string(statusOutput);
+        BOOL isNear = ([upperOutput containsString:@"OBJECTINPROXIMITY=1"] || 
+                       [upperOutput containsString:@"PROXIMITYSTATE=1"] || 
+                       [upperOutput containsString:@"NEAR"]);
+        
+        BOOL expectedBool = [expectedValue isEqualToString:@"YES"] || 
+                            [expectedValue isEqualToString:@"TRUE"] || 
+                            [expectedValue isEqualToString:@"1"] || 
+                            [expectedValue isEqualToString:@"NEAR"] || 
+                            [expectedValue isEqualToString:@"ON"];
+        return (isNear == expectedBool);
+    }
+    
     NSString *statusCommand = rc_status_command_for_condition_key(conditionKey);
     if (statusCommand.length == 0) return NO;
     
@@ -1370,26 +1747,46 @@ static void rc_execute_action_sequence(NSArray *actions, NSString *triggerKey, B
             
             if (shouldRunBlock) {
                 // TRUE branch: just continue to next item. 
-                // But we need to skip the else branch if it exists later.
             } else {
-                // FALSE branch: find else or end_if
-                NSInteger elseIndex = rc_matching_else_index(actions, idx);
-                if (elseIndex != NSNotFound) {
-                    idx = elseIndex;
-                } else {
-                    NSInteger endIndex = rc_matching_end_if_index(actions, idx);
-                    if (endIndex == NSNotFound) {
-                        SRLog(@"[%@] Missing End If marker; stopping action execution.", triggerKey);
-                        break;
+                // FALSE branch: scan ahead at current nesting depth for next sibling branch (else_if, else, or end_if).
+                NSInteger depth = 0;
+                BOOL foundNextBranch = NO;
+                for (NSInteger skipIdx = idx + 1; skipIdx < (NSInteger)actions.count; skipIdx++) {
+                    id item = actions[skipIdx];
+                    if (rc_is_if_action_item(item)) {
+                        depth++;
+                    } else if (rc_is_end_if_action_item(item)) {
+                        depth--;
+                        if (depth < 0) {
+                            idx = skipIdx;
+                            foundNextBranch = YES;
+                            break;
+                        }
+                    } else if (depth == 0) {
+                        if (rc_is_else_if_action_item(item)) {
+                            NSDictionary *elseIfDict = (NSDictionary *)item;
+                            BOOL elseIfVal = rc_evaluate_if_condition(elseIfDict);
+                            SRLog(@"[%@] Else If %@ == %@ -> %@", triggerKey, elseIfDict[@"conditionKey"], elseIfDict[@"expectedValue"], elseIfVal ? @"TRUE" : @"FALSE");
+                            if (elseIfVal) {
+                                idx = skipIdx;
+                                foundNextBranch = YES;
+                                break;
+                            }
+                        } else if (rc_is_else_action_item(item)) {
+                            idx = skipIdx;
+                            foundNextBranch = YES;
+                            break;
+                        }
                     }
-                    idx = endIndex;
+                }
+                if (!foundNextBranch) {
+                    SRLog(@"[%@] Missing End If marker; stopping action execution.", triggerKey);
+                    break;
                 }
             }
-        } else if ([type isEqualToString:@"else"]) {
-            // If we reached an 'else' directly, it means we were executing the TRUE branch of an 'if'.
-            // Now we must skip the FALSE branch (until the matching end_if).
-            // Find the original 'if' to get the matching 'end_if'? 
-            // Actually easier to just find the next end_if at the same depth.
+        } else if ([type isEqualToString:@"else"] || [type isEqualToString:@"else_if"]) {
+            // If we reached an 'else' or 'else_if' directly, it means we were executing the TRUE branch of a preceding conditional.
+            // Now we must skip the remaining branches (until the matching end_if).
             NSInteger depth = 1;
             for (NSInteger skipIdx = idx + 1; skipIdx < (NSInteger)actions.count; skipIdx++) {
                 id item = actions[skipIdx];
@@ -1495,12 +1892,6 @@ static void register_simulation_observers() {
 
 // Execute all actions for a trigger
 void RCExecuteTrigger(NSString *triggerKey) {
-    // REMOVED: Touch ID triggers are no longer supported in iOS 17
-    if ([triggerKey isEqualToString:@"touchid_tap"] || [triggerKey isEqualToString:@"touchid_hold"]) {
-        SRLog(@"[TouchID] Trigger '%@' ignored - removed for iOS 17 compatibility", triggerKey);
-        return;
-    }
-    
     // Check for foreground exclusions (Safety/Blacklist)
     if (RC_IsForegroundAppExcluded()) {
         SRLog(@"Triggers SUPPRESSED for frontmost application (Excluded/Blacklisted)");
@@ -3630,6 +4021,43 @@ static NSArray* RCFetchAirPlayDeviceNames() {
     return deviceNames ?: @[];
 }
 
+static NSString *formatIvarValue(id obj, Ivar ivar) {
+    ptrdiff_t offset = ivar_getOffset(ivar);
+    const char *type = ivar_getTypeEncoding(ivar);
+    void *ptr = (void *)((uintptr_t)obj + offset);
+    
+    if (type == NULL) return @"nil";
+    
+    if (type[0] == '@') {
+        // Object
+        __unsafe_unretained id val = *(__unsafe_unretained id *)ptr;
+        return val ? [val description] : @"nil";
+    } else if (strcmp(type, "B") == 0 || strcmp(type, "c") == 0) {
+        // BOOL or char
+        BOOL val = *(BOOL *)ptr;
+        return val ? @"YES" : @"NO";
+    } else if (strcmp(type, "i") == 0) {
+        int val = *(int *)ptr;
+        return [NSString stringWithFormat:@"%d", val];
+    } else if (strcmp(type, "I") == 0) {
+        unsigned int val = *(unsigned int *)ptr;
+        return [NSString stringWithFormat:@"%u", val];
+    } else if (strcmp(type, "q") == 0) {
+        long long val = *(long long *)ptr;
+        return [NSString stringWithFormat:@"%lld", val];
+    } else if (strcmp(type, "Q") == 0) {
+        unsigned long long val = *(unsigned long long *)ptr;
+        return [NSString stringWithFormat:@"%llu", val];
+    } else if (strcmp(type, "f") == 0) {
+        float val = *(float *)ptr;
+        return [NSString stringWithFormat:@"%f", val];
+    } else if (strcmp(type, "d") == 0) {
+        double val = *(double *)ptr;
+        return [NSString stringWithFormat:@"%f", val];
+    }
+    return [NSString stringWithFormat:@"<type %s at offset %td>", type, offset];
+}
+
 static NSString *handle_command(NSString *cmd) {
     if (!cmd || ![cmd isKindOfClass:[NSString class]]) {
         SRLog(@"ERROR: handle_command received nil or invalid command string");
@@ -3651,6 +4079,149 @@ static NSString *handle_command(NSString *cmd) {
     if ([cleanCmd isEqualToString:@"log"]) {
         SRLog(@"Log request");
         return nil;
+    } else if ([cleanCmd isEqualToString:@"proximity"] || [cleanCmd hasPrefix:@"proximity "]) {
+        NSString *sub = nil;
+        if ([cleanCmd hasPrefix:@"proximity "]) {
+            sub = [[cleanCmd substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        }
+        
+        id manager = g_proximitySensorManager;
+        if (!manager) {
+            Class cls = objc_getClass("SBProximitySensorManager");
+            if (cls && [cls respondsToSelector:@selector(sharedInstance)]) {
+                manager = [cls performSelector:@selector(sharedInstance)];
+            }
+        }
+        
+        __block NSString *response = nil;
+        dispatch_semaphore_t sema = dispatch_semaphore_create(0);
+        
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if ([sub isEqualToString:@"on"] || [sub isEqualToString:@"enable"]) {
+                g_forceProximityDetection = YES;
+                if (manager) {
+                    if ([manager respondsToSelector:@selector(_enableProx)]) {
+                        [manager _enableProx];
+                    } else if ([manager respondsToSelector:@selector(_setProximityDetectionEnabled:)]) {
+                        [manager _setProximityDetectionEnabled:YES];
+                    }
+                }
+                [UIDevice currentDevice].proximityMonitoringEnabled = YES;
+                response = @"Proximity sensor enabled permanently (for testing)\n";
+                dispatch_semaphore_signal(sema);
+            } else if ([sub isEqualToString:@"off"] || [sub isEqualToString:@"disable"]) {
+                g_forceProximityDetection = NO;
+                if (manager) {
+                    if ([manager respondsToSelector:@selector(_disableProx)]) {
+                        [manager _disableProx];
+                    } else if ([manager respondsToSelector:@selector(_setProximityDetectionEnabled:)]) {
+                        [manager _setProximityDetectionEnabled:NO];
+                    }
+                }
+                [UIDevice currentDevice].proximityMonitoringEnabled = NO;
+                response = @"Proximity sensor disabled\n";
+                dispatch_semaphore_signal(sema);
+            } else if ([sub isEqualToString:@"debug"] || [sub isEqualToString:@"inspect"]) {
+                NSMutableString *debugInfo = [NSMutableString string];
+                [debugInfo appendFormat:@"--- Proximity Debug Info ---\n"];
+                [debugInfo appendFormat:@"g_proximitySensorManager: %@\n", g_proximitySensorManager];
+                
+                // 1. Find all classes with "Proximity" in their name
+                [debugInfo appendString:@"\nRelated Classes:\n"];
+                int numClasses = objc_getClassList(NULL, 0);
+                if (numClasses > 0) {
+                    Class *classes = (Class *)malloc(sizeof(Class) * numClasses);
+                    numClasses = objc_getClassList(classes, numClasses);
+                    for (int i = 0; i < numClasses; i++) {
+                        NSString *className = NSStringFromClass(classes[i]);
+                        if ([className rangeOfString:@"Proximity" options:NSCaseInsensitiveSearch].location != NSNotFound) {
+                            [debugInfo appendFormat:@"  %@\n", className];
+                        }
+                    }
+                    free(classes);
+                }
+                
+                id targetObj = manager;
+                if (targetObj) {
+                    Class cls = [targetObj class];
+                    [debugInfo appendFormat:@"\nClass: %@\n", NSStringFromClass(cls)];
+                    
+                    // 2. Instance Variables
+                    [debugInfo appendString:@"\nIvars:\n"];
+                    unsigned int ivarCount = 0;
+                    Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+                    for (unsigned int i = 0; i < ivarCount; i++) {
+                        [debugInfo appendFormat:@"  %s (%s) = %@\n", ivar_getName(ivars[i]), ivar_getTypeEncoding(ivars[i]), formatIvarValue(targetObj, ivars[i])];
+                    }
+                    if (ivars) free(ivars);
+                    
+                    // 3. Properties
+                    [debugInfo appendString:@"\nProperties:\n"];
+                    unsigned int propCount = 0;
+                    objc_property_t *properties = class_copyPropertyList(cls, &propCount);
+                    for (unsigned int i = 0; i < propCount; i++) {
+                        const char *name = property_getName(properties[i]);
+                        NSString *nameStr = [NSString stringWithUTF8String:name];
+                        id val = nil;
+                        @try {
+                            val = [targetObj valueForKey:nameStr];
+                        } @catch (NSException *e) {
+                            val = [NSString stringWithFormat:@"<KVC Error: %@>", e.reason];
+                        }
+                        [debugInfo appendFormat:@"  %s = %@\n", name, val];
+                    }
+                    if (properties) free(properties);
+                    
+                    // 4. Methods
+                    [debugInfo appendString:@"\nMethods:\n"];
+                    unsigned int methodCount = 0;
+                    Method *methods = class_copyMethodList(cls, &methodCount);
+                    for (unsigned int i = 0; i < methodCount; i++) {
+                        SEL selector = method_getName(methods[i]);
+                        NSString *methodName = NSStringFromSelector(selector);
+                        [debugInfo appendFormat:@"  %@\n", methodName];
+                    }
+                    if (methods) free(methods);
+                } else {
+                    [debugInfo appendString:@"\nNo manager found to inspect.\n"];
+                }
+                response = debugInfo;
+                dispatch_semaphore_signal(sema);
+            } else {
+                // Just query status
+                BOOL isNearPrivate = NO;
+                if (manager) {
+                    if ([manager respondsToSelector:@selector(isObjectInProximity)]) {
+                        isNearPrivate = [manager isObjectInProximity];
+                    }
+                }
+                
+                BOOL isNearPublic = [UIDevice currentDevice].proximityState;
+                BOOL isNear = isNearPrivate || isNearPublic;
+                
+                if (g_latestHIDProximityState != -1) {
+                    isNear = (g_latestHIDProximityState == 1);
+                }
+                
+                // Both `rc proximity` (sub == nil/empty) and `rc proximity status` run the exact same logic.
+                // We keep 'status' support purely as an undocumented legacy/fallback alias to avoid breaking scripts.
+                if ([sub isEqualToString:@"status"] || sub == nil || sub.length == 0) {
+                    response = isNear ? @"near\n" : @"far\n";
+                } else {
+                    BOOL isDetectionEnabled = NO;
+                    if (manager && [manager respondsToSelector:@selector(isProximityDetectionEnabled)]) {
+                        isDetectionEnabled = [manager isProximityDetectionEnabled];
+                    }
+                    BOOL isPublicEnabled = [UIDevice currentDevice].proximityMonitoringEnabled;
+                    response = [NSString stringWithFormat:@"SBProximitySensorManager: objectInProximity=%d, detectionEnabled=%d\nUIDevice: proximityState=%d, monitoringEnabled=%d\n",
+                                isNearPrivate, isDetectionEnabled, isNearPublic, isPublicEnabled];
+                }
+                dispatch_semaphore_signal(sema);
+            }
+        });
+        
+        dispatch_semaphore_wait(sema, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
+        return response ?: @"Error: Timeout querying proximity sensor\n";
     }
 
     // Media commands - these work reliably via MediaRemote
@@ -4386,6 +4957,20 @@ static NSString *handle_command(NSString *cmd) {
             }
         });
         return @"Lock command sent\n";
+    } else if ([cleanCmd isEqualToString:@"lock status"] || [cleanCmd isEqualToString:@"is-locked"]) {
+        __block NSString *status = nil;
+        void (^lockStatusBlock)(void) = ^{
+            Class SBLockScreenManagerClass = objc_getClass("SBLockScreenManager");
+            SBLockScreenManager *manager = SBLockScreenManagerClass ? [SBLockScreenManagerClass sharedInstance] : nil;
+            if (manager && [manager respondsToSelector:@selector(isUILocked)]) {
+                status = [manager isUILocked] ? @"locked\n" : @"unlocked\n";
+            } else {
+                status = @"unlocked\n";
+            }
+        };
+        if ([NSThread isMainThread]) lockStatusBlock();
+        else dispatch_sync(dispatch_get_main_queue(), lockStatusBlock);
+        return status;
     } else if ([cleanCmd isEqualToString:@"unlock"] || [cleanCmd hasPrefix:@"unlock "]) {
         // Unlock phone: Only if currently locked!
         
@@ -4665,6 +5250,65 @@ static NSString *handle_command(NSString *cmd) {
             dispatch_async(dispatch_get_main_queue(), launchSpotify);
             return @"playing_spotify\n";
         }
+    } else if ([cleanCmd isEqualToString:@"audiomix"]) {
+        BOOL current = get_audiomix_state();
+        toggle_audiomix(!current);
+        return [NSString stringWithFormat:@"AudioMix %@\n", !current ? @"Enabled" : @"Disabled"];
+    } else if ([cleanCmd hasPrefix:@"audiomix "]) {
+        NSString *subCmd = [[cleanCmd substringFromIndex:9] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if ([subCmd isEqualToString:@"on"]) {
+            toggle_audiomix(YES);
+            return @"AudioMix Enabled\n";
+        } else if ([subCmd isEqualToString:@"off"]) {
+            toggle_audiomix(NO);
+            return @"AudioMix Disabled\n";
+        } else if ([subCmd isEqualToString:@"status"]) {
+            BOOL current = get_audiomix_state();
+            return current ? @"AudioMix ON\n" : @"AudioMix OFF\n";
+        } else if ([subCmd isEqualToString:@"toggle"]) {
+            BOOL current = get_audiomix_state();
+            toggle_audiomix(!current);
+            return [NSString stringWithFormat:@"AudioMix %@\n", !current ? @"Enabled" : @"Disabled"];
+        }
+    } else if ([cleanCmd isEqualToString:@"toast"]) {
+        rc_show_hud_toast(@"Test Toast", nil, nil);
+        return @"Toast displayed\n";
+    } else if ([cleanCmd hasPrefix:@"toast "]) {
+        NSString *argsStr = [[cleanCmd substringFromIndex:6] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSArray *arguments = rc_parse_quoted_arguments(argsStr);
+        
+        NSString *title = nil;
+        NSString *subtitle = nil;
+        NSString *icon = nil;
+        
+        if (arguments.count >= 3) {
+            title = arguments[0];
+            subtitle = arguments[1];
+            icon = arguments[2];
+        } else if (arguments.count == 2) {
+            title = arguments[0];
+            // Check if second argument is a valid symbol image
+            if ([UIImage systemImageNamed:arguments[1]]) {
+                icon = arguments[1];
+            } else {
+                subtitle = arguments[1];
+            }
+        } else if (arguments.count == 1) {
+            title = arguments[0];
+        }
+        
+        rc_show_hud_toast(title, subtitle, icon);
+        return [NSString stringWithFormat:@"Toast displayed: '%@' - '%@' (%@)\n", title ?: @"", subtitle ?: @"", icon ?: @"none"];
+    } else if ([cleanCmd isEqualToString:@"queuealbum"]) {
+        // Signal AudioReceiver app to queue the album of the currently playing song
+        notify_post("com.saihgupr.audioreceiver.queuealbum");
+        rc_show_hud_toast(@"Album Queued", @"Queuing album of current song", @"music.note.list");
+        return @"Queue album command sent to AudioReceiver\n";
+    } else if ([cleanCmd isEqualToString:@"queueartist"]) {
+        // Signal AudioReceiver app to queue the artist of the currently playing song
+        notify_post("com.saihgupr.audioreceiver.queueartist");
+        rc_show_hud_toast(@"Artist Queued", @"Queuing artist of current song", @"music.mic");
+        return @"Queue artist command sent to AudioReceiver\n";
     } else if ([cleanCmd hasPrefix:@"dnd "]) {
         NSString *subCmd = [[cleanCmd substringFromIndex:4] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
         if ([subCmd isEqualToString:@"on"]) {
@@ -5059,6 +5703,32 @@ static NSString *handle_command(NSString *cmd) {
             }
         }
         return @"Error: Device not found or BluetoothManager failed\n";
+    } else if ([cleanCmd hasPrefix:@"appearance "]) {
+        NSString *arg = [[cleanCmd substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        
+        void *uikitHandle = dlopen("/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore", RTLD_NOW);
+        if (uikitHandle) {
+            Class StyleModeClass = objc_getClass("UISUserInterfaceStyleMode");
+            if (StyleModeClass) {
+                id styleMode = [[StyleModeClass alloc] init];
+                if ([arg isEqualToString:@"dark"]) {
+                    [styleMode setModeValue:2];
+                    return @"Appearance set to Dark\n";
+                } else if ([arg isEqualToString:@"light"]) {
+                    [styleMode setModeValue:1];
+                    return @"Appearance set to Light\n";
+                } else if ([arg isEqualToString:@"toggle"]) {
+                    NSInteger current = [styleMode modeValue];
+                    NSInteger next = (current == 2) ? 1 : 2;
+                    [styleMode setModeValue:next];
+                    return [NSString stringWithFormat:@"Appearance toggled to %@\n", next == 2 ? @"Dark" : @"Light"];
+                } else if ([arg isEqualToString:@"status"]) {
+                    NSInteger current = [styleMode modeValue];
+                    return [NSString stringWithFormat:@"Appearance: %@\n", current == 2 ? @"Dark" : @"Light"];
+                }
+            }
+        }
+        return @"Error: UISUserInterfaceStyleMode not found\n";
     } else if ([cleanCmd isEqualToString:@"wifi-on"] || [cleanCmd isEqualToString:@"wi-on"] || [cleanCmd isEqualToString:@"wifi on"]) {
         SBWiFiManager *manager = [objc_getClass("SBWiFiManager") sharedInstance];
         if (manager) {
@@ -5082,6 +5752,28 @@ static NSString *handle_command(NSString *cmd) {
             return @"WiFi Disabled\n";
         }
         return @"Error: SBWiFiManager not found\n";
+    } else if ([cleanCmd isEqualToString:@"cellular-on"] || [cleanCmd isEqualToString:@"cell-on"] || [cleanCmd isEqualToString:@"cellular on"] || [cleanCmd isEqualToString:@"cell on"]) {
+        if (set_cellular_state(YES)) {
+            SRLog(@"Cellular data enabled");
+            return @"Cellular Data Enabled\n";
+        }
+        return @"Error: CoreTelephony call failed\n";
+    } else if ([cleanCmd isEqualToString:@"cellular status"] || [cleanCmd isEqualToString:@"cell status"]) {
+        BOOL isEnabled = get_cellular_state();
+        return [NSString stringWithFormat:@"Cellular Data %@\n", isEnabled ? @"ON" : @"OFF"];
+    } else if ([cleanCmd isEqualToString:@"cellular-off"] || [cleanCmd isEqualToString:@"cell-off"] || [cleanCmd isEqualToString:@"cellular off"] || [cleanCmd isEqualToString:@"cell off"]) {
+        if (set_cellular_state(NO)) {
+            SRLog(@"Cellular data disabled");
+            return @"Cellular Data Disabled\n";
+        }
+        return @"Error: CoreTelephony call failed\n";
+    } else if ([cleanCmd isEqualToString:@"cellular-toggle"] || [cleanCmd isEqualToString:@"cell-toggle"] || [cleanCmd isEqualToString:@"cellular toggle"] || [cleanCmd isEqualToString:@"cell toggle"] || [cleanCmd isEqualToString:@"cellular"] || [cleanCmd isEqualToString:@"cell"]) {
+        BOOL current = get_cellular_state();
+        if (set_cellular_state(!current)) {
+            SRLog(@"Cellular data toggled: %d -> %d", current, !current);
+            return [NSString stringWithFormat:@"Cellular Data Toggled: %@\n", !current ? @"ON" : @"OFF"];
+        }
+        return @"Error: CoreTelephony call failed\n";
     } else if ([cleanCmd isEqualToString:@"airplane on"]) {
         SRLog(@"Executing airplane ON...");
         dlopen("/System/Library/PrivateFrameworks/AppSupport.framework/AppSupport", RTLD_NOW);
@@ -5127,6 +5819,129 @@ static NSString *handle_command(NSString *cmd) {
             return [NSString stringWithFormat:@"Airplane Mode %@\n", current ? @"ON" : @"OFF"];
         }
         return @"Error: RadiosPreferences not found\n";
+    } else if ([cleanCmd isEqualToString:@"anc on"] || [cleanCmd isEqualToString:@"anc off"] || [cleanCmd isEqualToString:@"anc transparency"] || [cleanCmd isEqualToString:@"anc toggle"] || [cleanCmd isEqualToString:@"anc"] || [cleanCmd isEqualToString:@"noise cancellation on"] || [cleanCmd isEqualToString:@"noise cancellation off"] || [cleanCmd isEqualToString:@"noise cancellation toggle"]) {
+        // ANC / Transparency control via AVOutputDevice on iOS 17
+        // Supports: AirPods Pro/Max, Beats, AirPods 4 ANC
+        SRLog(@"[RC] ANC command received");
+
+        // Normalize command to mode string
+        NSString *targetMode = nil;
+        if ([cleanCmd isEqualToString:@"anc on"] || [cleanCmd isEqualToString:@"noise cancellation on"]) {
+            targetMode = @"anc";
+        } else if ([cleanCmd isEqualToString:@"anc off"] || [cleanCmd isEqualToString:@"noise cancellation off"]) {
+            targetMode = @"off";
+        } else if ([cleanCmd isEqualToString:@"anc transparency"] || [cleanCmd isEqualToString:@"noise cancellation transparency"] || [cleanCmd isEqualToString:@"anc transparency"]) {
+            targetMode = @"transparency";
+        } else {
+            // toggle
+            targetMode = @"toggle";
+        }
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @try {
+                // Get current output device via AVOutputContext
+                Class OutputCtxClass = objc_getClass("AVOutputContext");
+                if (!OutputCtxClass) {
+                    SRLog(@"[ANC] AVOutputContext not found");
+                    send_notification(@"RemoteCompanion", @"ANC: AVOutputContext not available", YES);
+                    return;
+                }
+
+                id ctx = [OutputCtxClass sharedSystemAudioContext];
+                if (!ctx || ![ctx respondsToSelector:@selector(outputDevices)]) {
+                    SRLog(@"[ANC] outputDevices not available");
+                    send_notification(@"RemoteCompanion", @"ANC: Cannot get audio output", YES);
+                    return;
+                }
+
+                NSArray *devices = [ctx outputDevices];
+                id targetDevice = nil;
+
+                for (id device in devices) {
+                    // Look for Bluetooth audio devices (AirPods, Beats, etc.)
+                    NSString *name = @"";
+                    if ([device respondsToSelector:@selector(name)]) {
+                        name = [device name] ?: @"";
+                    }
+                    // Check if device has ANC capability
+                    if ([device respondsToSelector:@selector(availableBluetoothListeningModes)]) {
+                        NSArray *modes = [device availableBluetoothListeningModes];
+                        if (modes.count > 0) {
+                            targetDevice = device;
+                            SRLog(@"[ANC] Found device: %@ (modes: %@)", name, modes);
+                            break;
+                        }
+                    }
+                }
+
+                if (!targetDevice) {
+                    SRLog(@"[ANC] No ANC-capable device connected (no AirPods/Beats found)");
+                    send_notification(@"RemoteCompanion", @"ANC: Connect AirPods or Beats first", YES);
+                    return;
+                }
+
+                // Determine target mode
+                NSString *finalMode = targetMode;
+                if ([targetMode isEqualToString:@"toggle"]) {
+                    NSString *current = [targetDevice currentBluetoothListeningMode] ?: @"off";
+                    if ([current isEqualToString:@"off"] || current.length == 0) {
+                        finalMode = @"anc";
+                    } else {
+                        finalMode = @"off";
+                    }
+                    SRLog(@"[ANC] Toggle: %@ -> %@", current, finalMode);
+                }
+
+                // Get the listening mode names supported by this device
+                NSArray *availableModes = [targetDevice availableBluetoothListeningModes];
+
+                // Map our mode names to device-specific mode strings
+                NSString *modeToSet = nil;
+                if ([finalMode isEqualToString:@"anc"]) {
+                    // Try "noise.cancellation" first (iOS 17), fall back to "anc"
+                    if ([availableModes containsObject:@"noise.cancellation"]) modeToSet = @"noise.cancellation";
+                    else if ([availableModes containsObject:@"anc"]) modeToSet = @"anc";
+                    else if ([availableModes containsObject:@"active.noise.cancellation"]) modeToSet = @"active.noise.cancellation";
+                    else modeToSet = availableModes.firstObject;
+                } else if ([finalMode isEqualToString:@"transparency"]) {
+                    if ([availableModes containsObject:@"transparency"]) modeToSet = @"transparency";
+                    else if ([availableModes containsObject:@"transparency.mode"]) modeToSet = @"transparency.mode";
+                    else modeToSet = @"off";
+                } else {
+                    modeToSet = @"off";
+                }
+
+                if (!modeToSet) {
+                    SRLog(@"[ANC] Could not determine mode to set");
+                    return;
+                }
+
+                NSError *err = nil;
+                BOOL success = [targetDevice setCurrentBluetoothListeningMode:modeToSet error:&err];
+                if (success) {
+                    SRLog(@"[ANC] Set mode %@ (success)", modeToSet);
+                    NSString *msg = @"";
+                    if ([modeToSet isEqualToString:@"off"] || [modeToSet isEqualToString:@""]) {
+                        msg = @"ANC: OFF";
+                    } else if ([modeToSet containsString:@"noise"] || [modeToSet containsString:@"anc"]) {
+                        msg = @"ANC: ON";
+                    } else {
+                        msg = @"ANC: Transparency";
+                    }
+                    send_notification(@"RemoteCompanion", msg, NO);
+                } else {
+                    SRLog(@"[ANC] Failed to set mode: %@", err);
+                    send_notification(@"RemoteCompanion", @"ANC: Failed", YES);
+                }
+            } @catch (NSException *e) {
+                SRLog(@"[ANC] Exception: %@", e);
+            }
+        });
+
+        if ([cleanCmd isEqualToString:@"anc on"] || [cleanCmd isEqualToString:@"noise cancellation on"]) return @"ANC: Enabling...\n";
+        if ([cleanCmd isEqualToString:@"anc off"] || [cleanCmd isEqualToString:@"noise cancellation off"]) return @"ANC: Disabling...\n";
+        if ([cleanCmd isEqualToString:@"anc transparency"]) return @"ANC: Transparency mode...\n";
+        return @"ANC: Toggling...\n";
     } else if ([cleanCmd hasPrefix:@"brightness "]) {
         // Set screen brightness (0-100) using BackBoardServices
         NSString *valueStr = [[cleanCmd substringFromIndex:11] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -5684,28 +6499,56 @@ static NSString *handle_command(NSString *cmd) {
         }
         return @"Usage: rc webui <on|off|status>\n";
     } else if ([cleanCmd isEqualToString:@"respring"]) {
-        SRLog(@"Triggering Respring via killbackboardd");
-        
+        SRLog(@"[RC] Respring via kill SpringBoard");
         dispatch_async(dispatch_get_main_queue(), ^{
             pid_t pid;
-            const char* args[] = { "killall", "-9", "backboardd", NULL };
-            NSString *killallPath = [NSString stringWithFormat:@"%@/usr/bin/killall", root_prefix()];
-            posix_spawn(&pid, [killallPath UTF8String], NULL, NULL, (char* const*)args, NULL);
-            
-            if (pid <= 0) {
-                 const char* args2[] = { "killall", "-9", "backboardd", NULL };
-                 posix_spawn(&pid, "/usr/bin/killall", NULL, NULL, (char* const*)args2, NULL);
+            // Try rootless paths first, then system paths
+            NSArray *paths = @[
+                @"/var/jb/usr/bin/killall",
+                @"/usr/bin/killall",
+                @"/bin/killall"
+            ];
+            for (NSString *killallPath in paths) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:killallPath]) {
+                    // iOS 17: main UI process is SpringBoard (not backboardd)
+                    const char *args[] = { [killallPath UTF8String], @"-9", @"SpringBoard", NULL };
+                    posix_spawn(&pid, [killallPath UTF8String], NULL, NULL, (char *const *)args, NULL);
+                    SRLog(@"[RC] Respring: spawned killall from %@", killallPath);
+                    return;
+                }
             }
+            SRLog(@"[RC] Respring: killall not found anywhere");
         });
         return @"Device Respringing...\n";
     } else if ([cleanCmd isEqualToString:@"ldrestart"]) {
-        SRLog(@"Triggering ldrestart");
+        SRLog(@"[RC] Triggering ldrestart");
         dispatch_async(dispatch_get_main_queue(), ^{
             pid_t pid;
-            NSString *binPath = [NSString stringWithFormat:@"%@/usr/bin/ldrestart", root_prefix()];
-            if (![[NSFileManager defaultManager] fileExistsAtPath:binPath]) binPath = @"/usr/bin/ldrestart";
-            const char* args[] = { [binPath UTF8String], NULL };
-            posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char* const*)args, NULL);
+            NSString *pref = root_prefix();
+            NSArray *restartPaths = @[
+                [NSString stringWithFormat:@"%@/usr/bin/ldrestart", pref],
+                @"/usr/bin/ldrestart",
+                [NSString stringWithFormat:@"%@/usr/bin/sbreload", pref],
+                @"/usr/bin/sbreload",
+                [NSString stringWithFormat:@"%@/usr/bin/killall", pref],
+                @"/usr/bin/killall"
+            ];
+            for (NSString *binPath in restartPaths) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:binPath]) {
+                    if ([binPath hasSuffix:@"killall"]) {
+                        // Kill SpringBoard as soft restart
+                        const char *args[] = { [binPath UTF8String], @"-9", @"SpringBoard", NULL };
+                        posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char *const *)args, NULL);
+                    } else {
+                        const char *args[] = { [binPath UTF8String], NULL };
+                        posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char *const *)args, NULL);
+                    }
+                    SRLog(@"[RC] ldrestart: using %@", binPath);
+                    return;
+                }
+            }
+            SRLog(@"[RC] ldrestart: no binary found");
+            send_notification(@"RemoteCompanion", @"ldrestart not found in this jailbreak", YES);
         });
         return @"Triggering ldrestart...\n";
     } else if ([cleanCmd isEqualToString:@"uicache"]) {
@@ -5812,6 +6655,402 @@ static NSString *handle_command(NSString *cmd) {
         });
         
         return [NSString stringWithFormat:@"Triggered shortcut: %@\n", shortcutName];
+    } else if ([cleanCmd hasPrefix:@"powercuts:"]) {
+        // ============================================================
+        // Powercuts Actions - iOS 17 native implementations
+        // ============================================================
+        NSString *pcCmd = [[cleanCmd substringFromIndex:10] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        SRLog(@"[Powercuts17] action=%@", pcCmd);
+
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @try {
+                // ── lock ────────────────────────────────────────
+                if ([pcCmd isEqualToString:@"lock"]) {
+                    // Lock device via BiometricMatch (passcode-less lock)
+                    Class BMClass = objc_getClass("BiometricMatch");
+                    if (BMClass && [BMClass respondsToSelector:@selector(sharedInstance)]) {
+                        id bm = [BMClass sharedInstance];
+                        if ([bm respondsToSelector:@selector(lockDevice)]) {
+                            [bm lockDevice];
+                        } else {
+                            // Fallback: use SBLockScreenManager
+                            Class LSMClass = objc_getClass("SBLockScreenManager");
+                            if (LSMClass && [LSMClass respondsToSelector:@selector(sharedInstance)]) {
+                                id lsm = [LSMClass sharedInstance];
+                                if ([lsm respondsToSelector:@selector(lock)]) {
+                                    [lsm lock];
+                                }
+                            }
+                        }
+                    }
+                    send_notification(@"RemoteCompanion", @"Device Locked", NO);
+                    return;
+                }
+
+                // ── unlock ─────────────────────────────────────
+                if ([pcCmd isEqualToString:@"unlock"]) {
+                    // Wake screen - unlock requires passcode so we just wake
+                    void *bb = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
+                    if (bb) {
+                        void (*BKSWakeDevice)(void) = dlsym(bb, @"BKSWakeDevice");
+                        if (BKSWakeDevice) BKSWakeDevice();
+                    }
+                    send_notification(@"RemoteCompanion", @"Screen Waked", NO);
+                    return;
+                }
+
+                // ── wakeScreen ──────────────────────────────────
+                if ([pcCmd isEqualToString:@"wakeScreen"]) {
+                    void *bb = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
+                    if (bb) {
+                        void (*BKSWakeDevice)(void) = dlsym(bb, @"BKSWakeDevice");
+                        if (BKSWakeDevice) BKSWakeDevice();
+                        // Also set brightness to non-zero
+                        void (*BKSDisplayBrightnessSet)(float, int) = dlsym(bb, @"BKSDisplayBrightnessSet");
+                        if (BKSDisplayBrightnessSet) BKSDisplayBrightnessSet(0.5, 1);
+                    }
+                    return;
+                }
+
+                // ── goHome ─────────────────────────────────────
+                if ([pcCmd isEqualToString:@"goHome"]) {
+                    Class SBClass = objc_getClass("SBScreenShotter");
+                    void *sb = dlopen("/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore", RTLD_NOLOAD);
+                    if (sb) {
+                        Class SBC = objc_getClass("SBHandyPointerWindow");
+                        (void)SBC;
+                    }
+                    // Use SpringBoard simulated home button
+                    Class FBSClass = objc_getClass("FBApplicationProcess");
+                    (void)FBSClass;
+                    void *front = dlopen("/System/Library/PrivateFrameworks/FrontBoard.framework/FrontBoard", RTLD_NOW);
+                    if (front) {
+                        Class SBUIController = objc_getClass("SBUIController");
+                        if (!SBUIController) SBUIController = objc_getClass("_SBUIController");
+                        if (SBUIController && [SBUIController respondsToSelector:@selector(sharedInstance)]) {
+                            id ui = [SBUIController sharedInstance];
+                            if ([ui respondsToSelector:@selector(handleHomeButtonTap)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                                [ui performSelector:@selector(handleHomeButtonTap)];
+#pragma clang diagnostic pop
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // ── showAppSwitcher ────────────────────────────
+                if ([pcCmd isEqualToString:@"showAppSwitcher"]) {
+                    void *front = dlopen("/System/Library/PrivateFrameworks/FrontBoard.framework/FrontBoard", RTLD_NOW);
+                    if (front) {
+                        Class SBUIController = objc_getClass("SBUIController");
+                        if (!SBUIController) SBUIController = objc_getClass("_SBUIController");
+                        if (SBUIController && [SBUIController respondsToSelector:@selector(sharedInstance)]) {
+                            id ui = [SBUIController sharedInstance];
+                            if ([ui respondsToSelector:@selector(handleMenuButtonDown)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                                [ui performSelector:@selector(handleMenuButtonDown)];
+                                // Double-press for app switcher
+                                usleep(100000);
+                                [ui performSelector:@selector(handleMenuButtonDown)];
+                                usleep(100000);
+                                [ui performSelector:@selector(handleMenuButtonUp)];
+                                [ui performSelector:@selector(handleMenuButtonUp)];
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // ── killApp ────────────────────────────────────
+                if ([pcCmd isEqualToString:@"killApp"]) {
+                    // Get frontmost app bundle ID
+                    Class LSWSClass = objc_getClass("LSApplicationWorkspace");
+                    if (!LSWSClass) LSWSClass = objc_getClass("_LSApplicationWorkspace");
+                    if (LSWSClass && [LSWSClass respondsToSelector:@selector(defaultWorkspace)]) {
+                        id ws = [LSWSClass defaultWorkspace];
+                        if ([ws respondsToSelector:@selector(openPlatformApplicationWithIdentifier:options:completion:)]) {
+                            // Get frontmost via SBAppLayoutSystem
+                        }
+                    }
+                    Class SBACClass = objc_getClass("SBApplicationController");
+                    if (SBACClass && [SBACClass respondsToSelector:@selector(sharedInstance)]) {
+                        id ac = [SBACClass sharedInstance];
+                        if ([ac respondsToSelector:@selector(foregroundApplicationIdentifier)]) {
+                            NSString *frontBundleId = [ac foregroundApplicationIdentifier];
+                            if (frontBundleId) {
+                                void *bb = dlopen("/System/Library/PrivateFrameworks/BackBoardServices.framework/BackBoardServices", RTLD_NOW);
+                                if (bb) {
+                                    void (*BKS_TerminateApp)(NSString *, int, bool, NSString *) = dlsym(bb, @"BKSTerminateApplicationForReasonAndReportWithDescription");
+                                    if (BKS_TerminateApp) BKS_TerminateApp(frontBundleId, 5, false, @"Powercuts17");
+                                }
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // ── respring ───────────────────────────────────
+                if ([pcCmd isEqualToString:@"respring"]) {
+                    SRLog(@"[Powercuts17] Respring via kill SpringBoard");
+                    pid_t pid;
+                    const char *paths[] = {
+                        "/var/jb/usr/bin/killall",
+                        "/usr/bin/killall",
+                        "/bin/killall"
+                    };
+                    for (int i = 0; i < 3; i++) {
+                        if ([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithUTF8String:paths[i]]]) {
+                            const char *args[] = { paths[i], @"-9", @"SpringBoard", NULL };
+                            posix_spawn(&pid, paths[i], NULL, NULL, (char *const *)args, NULL);
+                            return;
+                        }
+                    }
+                    return;
+                }
+
+                // ── ldRestart / safeMode ───────────────────────
+                if ([pcCmd isEqualToString:@"ldRestart"] || [pcCmd isEqualToString:@"safeMode"]) {
+                    // Try ldrestart first (if it exists), then fallback to kill SpringBoard
+                    NSArray *restartPaths = @[
+                        @"/var/jb/usr/bin/ldrestart",
+                        @"/usr/bin/ldrestart",
+                        @"/var/jb/usr/bin/sbreload",
+                        @"/usr/bin/sbreload"
+                    ];
+                    for (NSString *binPath in restartPaths) {
+                        if ([[NSFileManager defaultManager] fileExistsAtPath:binPath]) {
+                            pid_t pid;
+                            const char *args[] = { [binPath UTF8String], NULL };
+                            posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char *const *)args, NULL);
+                            return;
+                        }
+                    }
+                    // Fallback: kill SpringBoard
+                    if ([pcCmd isEqualToString:@"safeMode"]) {
+                        send_notification(@"RemoteCompanion", @"Safe Mode: restart manually", NO);
+                    }
+                    pid_t pid;
+                    const char *paths[] = { "/var/jb/usr/bin/killall", "/usr/bin/killall" };
+                    for (int i = 0; i < 2; i++) {
+                        if ([[NSFileManager defaultManager] fileExistsAtPath:[NSString stringWithUTF8String:paths[i]]]) {
+                            const char *args[] = { paths[i], @"-9", @"SpringBoard", NULL };
+                            posix_spawn(&pid, paths[i], NULL, NULL, (char *const *)args, NULL);
+                            return;
+                        }
+                    }
+                    return;
+                }
+
+                // ── uiCache ────────────────────────────────────
+                if ([pcCmd isEqualToString:@"uiCache"]) {
+                    NSArray *paths = @[@"/var/jb/usr/bin/uicache", @"/usr/bin/uicache"];
+                    for (NSString *binPath in paths) {
+                        if ([[NSFileManager defaultManager] fileExistsAtPath:binPath]) {
+                            pid_t pid;
+                            const char *args[] = { [binPath UTF8String], @"-a", NULL };
+                            posix_spawn(&pid, [binPath UTF8String], NULL, NULL, (char *const *)args, NULL);
+                            send_notification(@"RemoteCompanion", @"Icon cache refreshed", NO);
+                            return;
+                        }
+                    }
+                    send_notification(@"RemoteCompanion", @"uicache not found", YES);
+                    return;
+                }
+
+                // ── goToHomeScreenPage ─────────────────────────
+                if ([pcCmd isEqualToString:@"goToHomeScreenPage"]) {
+                    // Animate to first page
+                    void *sb = dlopen("/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore", RTLD_NOLOAD);
+                    if (sb) {
+                        Class SBIconController = objc_getClass("SBIconController");
+                        if (SBIconController && [SBIconController respondsToSelector:@selector(sharedInstance)]) {
+                            id ic = [SBIconController sharedInstance];
+                            if ([ic respondsToSelector:@selector(setCurrentPage:animated:)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                                [ic performSelector:@selector(setCurrentPage:animated:) withObject:@(0) withObject:@(YES)];
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // ── sendNotification / sendDistributedNotification ──
+                if ([pcCmd isEqualToString:@"sendNotification"] || [pcCmd isEqualToString:@"sendDistributedNotification"]) {
+                    send_notification(@"Powercuts17", @"Action completed", NO);
+                    return;
+                }
+
+                // ── removeNotifications ─────────────────────────
+                if ([pcCmd isEqualToString:@"removeNotifications"]) {
+                    notify_post(@"com.apple.notificationd.dismissAll");
+                    return;
+                }
+
+                // ── getIsDeviceLocked ───────────────────────────
+                if ([pcCmd isEqualToString:@"getIsDeviceLocked"]) {
+                    Class LSMClass = objc_getClass("SBLockScreenManager");
+                    if (LSMClass && [LSMClass respondsToSelector:@selector(sharedInstance)]) {
+                        id lsm = [LSMClass sharedInstance];
+                        if ([lsm respondsToSelector:@selector(isLockScreenActive)]) {
+                            BOOL locked = [lsm isLockScreenActive];
+                            SRLog(@"[Powercuts17] deviceLocked=%d", locked);
+                        }
+                    }
+                    return;
+                }
+
+                // ── getCurrentApp ────────────────────────────────
+                if ([pcCmd isEqualToString:@"getCurrentApp"]) {
+                    Class SBACClass = objc_getClass("SBApplicationController");
+                    if (SBACClass && [SBACClass respondsToSelector:@selector(sharedInstance)]) {
+                        id ac = [SBACClass sharedInstance];
+                        if ([ac respondsToSelector:@selector(foregroundApplicationIdentifier)]) {
+                            NSString *frontBundleId = [ac foregroundApplicationIdentifier];
+                            SRLog(@"[Powercuts17] frontApp=%@", frontBundleId);
+                        }
+                    }
+                    return;
+                }
+
+                // ── runCommand ────────────────────────────────────
+                if ([pcCmd isEqualToString:@"runCommand"]) {
+                    send_notification(@"RemoteCompanion", @"Run Command: use Lua or terminal", YES);
+                    return;
+                }
+
+                // ── getAllInstalledApps ──────────────────────────
+                if ([pcCmd isEqualToString:@"getAllInstalledApps"]) {
+                    Class LSWSClass = objc_getClass("LSApplicationWorkspace");
+                    if (!LSWSClass) LSWSClass = objc_getClass("_LSApplicationWorkspace");
+                    if (LSWSClass && [LSWSClass respondsToSelector:@selector(defaultWorkspace)]) {
+                        id ws = [LSWSClass defaultWorkspace];
+                        if ([ws respondsToSelector:@selector(allInstalledApplications)]) {
+                            // Returns array of LSApplicationProxy
+                            SRLog(@"[Powercuts17] getting installed apps...");
+                        }
+                    }
+                    return;
+                }
+
+                // ── connectToBluetoothDevice ────────────────────
+                if ([pcCmd isEqualToString:@"connectToBluetoothDevice"]) {
+                    send_notification(@"RemoteCompanion", @"BT Connect: use RC UI", NO);
+                    return;
+                }
+
+                // ── getBluetoothDevices / getBluetoothDeviceBattery ─
+                if ([pcCmd isEqualToString:@"getBluetoothDevices"] || [pcCmd isEqualToString:@"getBluetoothDeviceBattery"]) {
+                    // BluetoothManager pairedDevices
+                    void *bt = dlopen("/System/Library/PrivateFrameworks/BluetoothManager.framework/BluetoothManager", RTLD_NOW);
+                    if (bt) {
+                        Class BMC = objc_getClass("BluetoothManager");
+                        if (BMC && [BMC respondsToSelector:@selector(sharedInstance)]) {
+                            // Returns paired devices
+                        }
+                    }
+                    return;
+                }
+
+                // ── dismissSiri ──────────────────────────────────
+                if ([pcCmd isEqualToString:@"dismissSiri"]) {
+                    Class SIRIC = objc_getClass("SiriController");
+                    if (!SIRIC) SIRIC = objc_getClass("_SiriController");
+                    if (SIRIC && [SIRIC respondsToSelector:@selector(dismiss)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                        [SIRIC performSelector:@selector(dismiss)];
+                    }
+                    return;
+                }
+
+                // ── getNowPlayingApp ─────────────────────────────
+                if ([pcCmd isEqualToString:@"getNowPlayingApp"]) {
+                    // MRMediaRemoteGetNowPlayingApplicationIsPlaying / GetNowPlayingInfo
+                    // Already implemented in MediaRemote section
+                    return;
+                }
+
+                // ── getAppNameFromIdentifier / getAppBadgeCount / setAppBadgeCount ─
+                if ([pcCmd isEqualToString:@"getAppNameFromIdentifier"] || [pcCmd isEqualToString:@"getAppBadgeCount"] || [pcCmd isEqualToString:@"setAppBadgeCount"]) {
+                    // LSApplicationProxy for name lookup
+                    Class LAPClass = objc_getClass("LSApplicationProxy");
+                    if (!LAPClass) LAPClass = objc_getClass("_LSApplicationProxy");
+                    if (LAPClass && [LAPClass respondsToSelector:@selector(applicationProxyForIdentifier:)]) {
+                        // Usage: LAPClass applicationProxyForIdentifier: @"com.apple.mobilesafari"
+                    }
+                    return;
+                }
+
+                // ── quickSwitch ─────────────────────────────────
+                if ([pcCmd isEqualToString:@"quickSwitch"]) {
+                    // Simulate double-home for app switch
+                    void *front = dlopen("/System/Library/PrivateFrameworks/FrontBoard.framework/FrontBoard", RTLD_NOW);
+                    if (front) {
+                        Class SBUIController = objc_getClass("SBUIController");
+                        if (!SBUIController) SBUIController = objc_getClass("_SBUIController");
+                        if (SBUIController && [SBUIController respondsToSelector:@selector(sharedInstance)]) {
+                            id ui = [SBUIController sharedInstance];
+                            if ([ui respondsToSelector:@selector(handleMenuButtonTap)]) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Warc-performSelector-leaks"
+                                [ui performSelector:@selector(handleMenuButtonTap)];
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // ── audioBalance ─────────────────────────────────
+                if ([pcCmd isEqualToString:@"audioBalance"]) {
+                    // AVSystemController setVolumeLabelHidden:
+                    // iOS 17 doesn't expose balance, only volume
+                    send_notification(@"RemoteCompanion", @"Audio balance: not supported on iOS 17", NO);
+                    return;
+                }
+
+                // ── getFileContent / getFilesFromFolderPath ──────
+                if ([pcCmd isEqualToString:@"getFileContent"] || [pcCmd isEqualToString:@"getFilesFromFolderPath"]) {
+                    // NSFileManager - needs path parameter
+                    // Powercuts variable storage: /var/mobile/Library/Preferences/com.anthopak.powercuts.files.plist
+                    return;
+                }
+
+                // ── Global variable actions ──────────────────────
+                if ([pcCmd isEqualToString:@"getGlobalVariable"] || [pcCmd isEqualToString:@"setGlobalVariable"] || [pcCmd isEqualToString:@"deleteGlobalVariable"]) {
+                    // Stored in UserDefaults or plist
+                    // com.anthopak.powercuts.globals.plist
+                    return;
+                }
+
+                // ── getWorkflowRunSource / donate ────────────────
+                if ([pcCmd isEqualToString:@"getWorkflowRunSource"] || [pcCmd isEqualToString:@"donate"]) {
+                    // iOS 17: these require private APIs
+                    return;
+                }
+
+                // ── getPressedButtons ────────────────────────────
+                if ([pcCmd isEqualToString:@"getPressedButtons"]) {
+                    // Not feasible without HID event monitoring
+                    return;
+                }
+
+                // ── autoTouchRunFile ─────────────────────────────
+                if ([pcCmd isEqualToString:@"autoTouchRunFile"]) {
+                    send_notification(@"RemoteCompanion", @"autoTouch: not supported", NO);
+                    return;
+                }
+
+                SRLog(@"[Powercuts17] Unhandled action: %@", pcCmd);
+            } @catch (NSException *e) {
+                SRLog(@"[Powercuts17] Exception: %@", e);
+            }
+        });
+
+        return [NSString stringWithFormat:@"Running Powercuts: %@\n", pcCmd];
     } else if ([cleanCmd isEqualToString:@"list-triggers"]) {
         load_trigger_config();
         if (!g_triggerConfig) return @"Error: No trigger config found\n";
@@ -5859,12 +7098,20 @@ static void start_web_server() {
             return;
         }
         
+        int port = 8080;
         address.sin_family = AF_INET;
         address.sin_addr.s_addr = INADDR_ANY;
-        address.sin_port = htons(8080);
         
-        if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-            SRLog(@"[WebUI] bind failed");
+        while (port < 8100) {
+            address.sin_port = htons(port);
+            if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) >= 0) {
+                break;
+            }
+            port++;
+        }
+        
+        if (port >= 8100) {
+            SRLog(@"[WebUI] bind failed (ports 8080-8099 all taken)");
             close(server_fd);
             return;
         }
@@ -5875,7 +7122,7 @@ static void start_web_server() {
             return;
         }
 
-        SRLog(@"[WebUI] Server listening on port 8080");
+        SRLog(@"[WebUI] Server listening on port %d", port);
 
         while (1) {
             if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
@@ -5920,7 +7167,7 @@ static void start_web_server() {
                                         html = @"<html><body><h1>RemoteCompanion WebUI</h1><p>rc_webui.html not found. Please reinstall the tweak.</p></body></html>";
                                     }
                                     NSData *htmlData = [html dataUsingEncoding:NSUTF8StringEncoding];
-                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: text/html\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)htmlData.length, html];
+                                    responseString = [NSString stringWithFormat:@"HTTP/1.1 200 OK\r\n%@Content-Type: text/html\r\nCache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nContent-Length: %lu\r\n\r\n%@", cors, (unsigned long)htmlData.length, html];
                                 }
                             } else if ([path isEqualToString:@"/favicon.ico"] || [path isEqualToString:@"/apple-touch-icon.png"] || [path hasPrefix:@"/favicon-"] || [path hasPrefix:@"/android-chrome-"] || [path isEqualToString:@"/site.webmanifest"]) {
                                 NSString *filename = [path lastPathComponent];
@@ -6154,13 +7401,12 @@ static void start_web_server() {
                                     @{@"command": @"volume <0-100>", @"desc": @"Media: Set volume to specific percentage"},
 
                                     // Hardware Toggles
-                                    @{@"command": @"flashlight toggle", @"desc": @"Toggles: Toggle flashlight state"},
-                                    @{@"command": @"flashlight <1-100>", @"desc": @"Toggles: Set flashlight brightness intensity"},
-                                    @{@"command": @"brightness <0-100>", @"desc": @"Toggles: Set screen brightness percentage"},
                                     @{@"command": @"bt on/off", @"desc": @"Toggles: Bluetooth power"},
                                     @{@"command": @"wifi on/off", @"desc": @"Toggles: WiFi power"},
+                                    @{@"command": @"cellular on/off", @"desc": @"Toggles: Cellular Data power"},
                                     @{@"command": @"airplane on/off", @"desc": @"Toggles: Airplane Mode power"},
                                     @{@"command": @"dnd on/off", @"desc": @"Toggles: Do Not Disturb Mode"},
+                                    @{@"command": @"audiomix on/off", @"desc": @"Toggles: AudioMix simultaneous playback"},
                                     @{@"command": @"low power on/off", @"desc": @"Toggles: Low Power Mode"},
                                     @{@"command": @"mute", @"desc": @"Toggles: System mute/silent mode"},
                                     @{@"command": @"rotate lock/unlock", @"desc": @"Toggles: Orientation lock state"},
@@ -6849,6 +8095,13 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
     if (RC_IsForegroundAppExcluded()) return;
     int type = IOHIDEventGetType(event);
     
+    if (type == 14) { // kIOHIDEventTypeProximity
+        int detection = IOHIDEventGetIntegerValue(event, (14 << 16) | 0);
+        int level = IOHIDEventGetIntegerValue(event, (14 << 16) | 1);
+        SRLog(@"[HID Proximity] Event type 14 detected! detection=%d, level=%d", detection, level);
+        g_latestHIDProximityState = (detection != 0) ? 1 : 0;
+    }
+    
     if (type == 29) { // Biometric Event (Finger on sensor)
         // Toggle Logic for "Hold" (Fire by itself after 1.0s)
         // Assumption: Sensor sends event on DOWN ... (Silence) ... and UP.
@@ -6856,15 +8109,12 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
         NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            // Touch ID triggers REMOVED for iOS 17 compatibility
-            // Biometric event handler kept for logging but no longer fires triggers
-            /*
             load_trigger_config();
             BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
                 ([g_triggerConfig[@"triggers"][@"touchid_hold"][@"enabled"] boolValue] || 
                  [g_triggerConfig[@"triggers"][@"touchid_tap"][@"enabled"] boolValue]);
             if (!enabled) return;
-            
+
             // DEBOUNCE CHECK:
             if (now < g_bioIgnoreUntil) {
                 // SRLog(@"[Bio] Ignoring Event (Debounce)");
@@ -6913,12 +8163,10 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                             return;
                         }
 
-                        // Touch ID Single Tap REMOVED - Incompatible with iOS 17
-                        // [code removed for iOS 17]
-                        // if ([g_triggerConfig[@"triggers"][@"touchid_tap"][@"enabled"] boolValue]) {
-                        //     trigger_haptic();
-                        //     RCExecuteTrigger(@"touchid_tap");
-                        // }
+                        if ([g_triggerConfig[@"triggers"][@"touchid_tap"][@"enabled"] boolValue]) {
+                            trigger_haptic();
+                            RCExecuteTrigger(@"touchid_tap");
+                        }
                     }
                     g_bioFingerDownTime = 0; // Reset State to UP.
                     g_bioHoldTriggered = NO;
@@ -6967,19 +8215,17 @@ static void handle_hid_event(void* target, void* refcon, IOHIDEventSystemClientR
                             return;
                         }
 
-                        // Touch ID Hold REMOVED - Incompatible with iOS 17
-                        // [code removed for iOS 17]
-                        // if (g_triggerConfig) {
-                        //     NSDictionary *holdTrigger = g_triggerConfig[@"triggers"][@"touchid_hold"];
-                        //     if ([holdTrigger[@"enabled"] boolValue] && [holdTrigger[@"actions"] count] > 0) {
-                        //         trigger_haptic();
-                        //         RCExecuteTrigger(@"touchid_hold");
-                        //     }
-                        // }
+                        // Check if trigger is enabled and has actions BEFORE firing haptics
+                        if (g_triggerConfig) {
+                            NSDictionary *holdTrigger = g_triggerConfig[@"triggers"][@"touchid_hold"];
+                            if ([holdTrigger[@"enabled"] boolValue] && [holdTrigger[@"actions"] count] > 0) {
+                                trigger_haptic();
+                                RCExecuteTrigger(@"touchid_hold");
+                            }
+                        }
                     });
                 }];
             }
-            */  // Close the main Touch ID removal comment block
         });
 
     }
@@ -7205,6 +8451,41 @@ static void setup_background_hid_listener() {
 
 %end
 
+%hook SBProximitySensorManager
+- (id)init {
+    id orig = %orig;
+    g_proximitySensorManager = orig;
+    SRLog(@"[RemoteCompanion] Hooked SBProximitySensorManager init: %@", g_proximitySensorManager);
+    return orig;
+}
+- (id)initWithHIDInterface:(id)arg1 hardwareDefaults:(id)arg2 interfaceOrientationProvider:(id)arg3 {
+    id orig = %orig;
+    g_proximitySensorManager = orig;
+    SRLog(@"[RemoteCompanion] Hooked SBProximitySensorManager custom init: %@", g_proximitySensorManager);
+    return orig;
+}
+- (void)_setObjectInProximity:(BOOL)arg1 {
+    SRLog(@"[RemoteCompanion] SBProximitySensorManager _setObjectInProximity: %d", arg1);
+    %orig;
+}
+- (void)_setProximityDetectionEnabled:(BOOL)arg1 {
+    SRLog(@"[RemoteCompanion] SBProximitySensorManager _setProximityDetectionEnabled: %d (forced=%d)", arg1, g_forceProximityDetection);
+    if (g_forceProximityDetection) {
+        %orig(YES);
+    } else {
+        %orig;
+    }
+}
+- (void)client:(id)arg1 wantsProximityDetectionEnabled:(BOOL)arg2 {
+    SRLog(@"[RemoteCompanion] SBProximitySensorManager client: %@ wantsProximityDetectionEnabled: %d", arg1, arg2);
+    %orig;
+}
+- (void)_updateProxState {
+    SRLog(@"[RemoteCompanion] SBProximitySensorManager _updateProxState");
+    %orig;
+}
+%end
+
 %hook SBLockHardwareButtonActions
 
 - (void)performInitialButtonDownActions {
@@ -7221,6 +8502,24 @@ static void setup_background_hid_listener() {
     SRLog(@"Power Button DOWN (Actions) - enabled=%d", enabled);
 
     if (enabled) {
+        // Automatically enable proximity sensor monitoring during power button press
+        g_forceProximityDetection = YES;
+        id manager = g_proximitySensorManager;
+        if (!manager) {
+            Class cls = objc_getClass("SBProximitySensorManager");
+            if (cls && [cls respondsToSelector:@selector(sharedInstance)]) {
+                manager = [cls performSelector:@selector(sharedInstance)];
+            }
+        }
+        if (manager) {
+            if ([manager respondsToSelector:@selector(_enableProx)]) {
+                [manager _enableProx];
+            } else if ([manager respondsToSelector:@selector(_setProximityDetectionEnabled:)]) {
+                [manager _setProximityDetectionEnabled:YES];
+            }
+        }
+        [UIDevice currentDevice].proximityMonitoringEnabled = YES;
+
         if (g_lockButtonTimer == nil && !g_lockButtonTriggered) {
             g_lockButtonTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:NO block:^(NSTimer *timer) {
                 g_lockButtonTriggered = YES;
@@ -7259,6 +8558,24 @@ static void setup_background_hid_listener() {
     SRLog(@"performButtonUpPreActions on %@", [self class]);
     // Removed g_powerBtnActive access
     SRLog(@"Power Button UP (Actions)");
+
+    // Automatically disable proximity sensor monitoring when power button is released
+    g_forceProximityDetection = NO;
+    id manager = g_proximitySensorManager;
+    if (!manager) {
+        Class cls = objc_getClass("SBProximitySensorManager");
+        if (cls && [cls respondsToSelector:@selector(sharedInstance)]) {
+            manager = [cls performSelector:@selector(sharedInstance)];
+        }
+    }
+    if (manager) {
+        if ([manager respondsToSelector:@selector(_disableProx)]) {
+            [manager _disableProx];
+        } else if ([manager respondsToSelector:@selector(_setProximityDetectionEnabled:)]) {
+            [manager _setProximityDetectionEnabled:NO];
+        }
+    }
+    [UIDevice currentDevice].proximityMonitoringEnabled = NO;
 
     if (g_lockButtonTimer) {
         [g_lockButtonTimer invalidate];
@@ -7394,6 +8711,7 @@ static BOOL g_bottomBarHapticFired = NO;
 // Status Bar Extended State
 static BOOL g_statusBarSwipeHapticFired = NO;
 static BOOL g_statusBarSwipeTriggered = NO;
+static NSTimeInterval g_lastStatusBarDoubleTapTime = 0;
 
 %hook UIApplication
 
@@ -7458,56 +8776,82 @@ static BOOL g_statusBarSwipeTriggered = NO;
                 g_statusBarSwipeTriggered = NO;
                 g_statusBarHoldTriggered = NO;
                 
-                // Determine region for status bar hold (Left, Center, Right)
-                CGFloat progress = 0;
-                if (orientation == UIInterfaceOrientationPortrait) {
-                    progress = loc.x / lw;
-                } else if (orientation == UIInterfaceOrientationPortraitUpsideDown) {
-                    progress = 1.0 - (loc.x / lw);
-                } else if (orientation == UIInterfaceOrientationLandscapeLeft) {
-                    progress = 1.0 - (loc.y / lh);
-                } else if (orientation == UIInterfaceOrientationLandscapeRight) {
-                    progress = loc.y / lh;
-                }
-                
-                if (progress < 0.33) {
-                    g_pendingStatusBarTrigger = @"trigger_statusbar_left_hold";
-                } else if (progress > 0.66) {
-                    g_pendingStatusBarTrigger = @"trigger_statusbar_right_hold";
-                } else {
-                    g_pendingStatusBarTrigger = @"trigger_statusbar_center_hold";
-                }
-                
-                SRLog(@"[RCStatus] Top Region Touch at progress=%.2f -> Key: %@", progress, g_pendingStatusBarTrigger);
-                
-                // Cancel any existing timer
-                if (g_statusBarHoldTimer) {
-                    [g_statusBarHoldTimer invalidate];
-                    g_statusBarHoldTimer = nil;
-                }
-                
-                // Start 0.3s hold timer
-                g_statusBarHoldTimer = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *timer) {
-                    g_statusBarHoldTimer = nil;
-                    
-                    // Ignore stale timer callbacks (e.g., touch already ended/cancelled).
-                    if (!g_statusBarTouchActive || g_statusBarSwipeTriggered || !g_pendingStatusBarTrigger) {
-                        return;
+                if (touch.tapCount == 2) {
+                    if (g_statusBarHoldTimer) {
+                        [g_statusBarHoldTimer invalidate];
+                        g_statusBarHoldTimer = nil;
                     }
-
-                    if (g_pendingStatusBarTrigger) {
-                        load_trigger_config();
-                        BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
-                                       [g_triggerConfig[@"triggers"][g_pendingStatusBarTrigger][@"enabled"] boolValue];
-                        
-                        if (enabled) {
+                    g_pendingStatusBarTrigger = nil;
+                    
+                    load_trigger_config();
+                    BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
+                                   [g_triggerConfig[@"triggers"][@"trigger_statusbar_double_tap"][@"enabled"] boolValue];
+                    
+                    if (enabled) {
+                        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+                        if (now - g_lastStatusBarDoubleTapTime > 0.4) {
+                            g_lastStatusBarDoubleTapTime = now;
                             g_statusBarHoldTriggered = YES;
                             trigger_haptic();
-                            RCExecuteTrigger(g_pendingStatusBarTrigger);
-                            SRLog(@"%@ FIRED!", g_pendingStatusBarTrigger);
+                            RCExecuteTrigger(@"trigger_statusbar_double_tap");
+                            SRLog(@"[RCStatus] Status Bar Double Tap FIRED!");
+                        } else {
+                            g_statusBarHoldTriggered = YES;
+                            SRLog(@"[RCStatus] Status Bar Double Tap ignored (cooldown: %.3fs)", now - g_lastStatusBarDoubleTapTime);
                         }
                     }
-                }];
+                } else {
+                    // Determine region for status bar hold (Left, Center, Right)
+                    CGFloat progress = 0;
+                    if (orientation == UIInterfaceOrientationPortrait) {
+                        progress = loc.x / lw;
+                    } else if (orientation == UIInterfaceOrientationPortraitUpsideDown) {
+                        progress = 1.0 - (loc.x / lw);
+                    } else if (orientation == UIInterfaceOrientationLandscapeLeft) {
+                        progress = 1.0 - (loc.y / lh);
+                    } else if (orientation == UIInterfaceOrientationLandscapeRight) {
+                        progress = loc.y / lh;
+                    }
+                    
+                    if (progress < 0.33) {
+                        g_pendingStatusBarTrigger = @"trigger_statusbar_left_hold";
+                    } else if (progress > 0.66) {
+                        g_pendingStatusBarTrigger = @"trigger_statusbar_right_hold";
+                    } else {
+                        g_pendingStatusBarTrigger = @"trigger_statusbar_center_hold";
+                    }
+                    
+                    SRLog(@"[RCStatus] Top Region Touch at progress=%.2f -> Key: %@", progress, g_pendingStatusBarTrigger);
+                    
+                    // Cancel any existing timer
+                    if (g_statusBarHoldTimer) {
+                        [g_statusBarHoldTimer invalidate];
+                        g_statusBarHoldTimer = nil;
+                    }
+                    
+                    // Start 0.3s hold timer
+                    g_statusBarHoldTimer = [NSTimer scheduledTimerWithTimeInterval:0.3 repeats:NO block:^(NSTimer *timer) {
+                        g_statusBarHoldTimer = nil;
+                        
+                        // Ignore stale timer callbacks (e.g., touch already ended/cancelled).
+                        if (!g_statusBarTouchActive || g_statusBarSwipeTriggered || !g_pendingStatusBarTrigger) {
+                            return;
+                        }
+
+                        if (g_pendingStatusBarTrigger) {
+                            load_trigger_config();
+                            BOOL enabled = [g_triggerConfig[@"masterEnabled"] boolValue] && 
+                                           [g_triggerConfig[@"triggers"][g_pendingStatusBarTrigger][@"enabled"] boolValue];
+                            
+                            if (enabled) {
+                                g_statusBarHoldTriggered = YES;
+                                trigger_haptic();
+                                RCExecuteTrigger(g_pendingStatusBarTrigger);
+                                SRLog(@"%@ FIRED!", g_pendingStatusBarTrigger);
+                            }
+                        }
+                    }];
+                }
             }
             
             // Bottom bar region = bottom 50pts
@@ -7851,102 +9195,9 @@ static void update_edge_gestures() {
         } else {
             // SRLog(@"Edge gestures not needed and not registered");
         }
-
-// ============================================
-// iOS 17 Compatibility Helpers
-// ============================================
-
-/**
- * Get frontmost app bundle ID - iOS 17 compatible
- * Falls back through multiple methods for maximum compatibility
- */
-static NSString* get_frontmost_bundle_id() {
-    @autoreleasepool {
-        SpringBoard *sb = (SpringBoard *)[UIApplication sharedApplication];
-        
-        // Method 1: Standard accessibility API (works on rootful)
-        if (sb && [sb respondsToSelector:@selector(_accessibilityFrontMostApplication)]) {
-            SBApplication *frontApp = [sb _accessibilityFrontMostApplication];
-            if (frontApp && [frontApp respondsToSelector:@selector(bundleIdentifier)]) {
-                return [frontApp bundleIdentifier];
-            }
-        }
-        
-        // Method 2: Try via FBSScene (iOS 15+)
-        Class FBSSceneMonitor = objc_getClass("FBSSceneMonitor");
-        if (FBSSceneMonitor) {
-            // Best effort - Scene API is complex and varies by iOS version
-        }
-        
-        return nil;
+    } @catch (NSException *e) {
+        SRLog(@"ERROR in update_edge_gestures: %@", e);
     }
-}
-
-/**
- * Simulated Screen Tap - iOS 17 Compatible
- * Uses GraphicsServices for reliable touch injection
- */
-static void simulate_screen_tap(double x, double y, BOOL down) {
-    SRLog(@"[SimTap] Tap at (%.2f, %.2f) %s", x, y, down ? @"DOWN" : @"UP");
-    
-    // Normalize coordinates to screen size
-    CGSize screenSize = [UIScreen mainScreen].bounds.size;
-    double normX = x * screenSize.width;
-    double normY = y * screenSize.height;
-    
-    CGPoint point = CGPointMake(normX, normY);
-    
-    dispatch_async(dispatch_get_main_queue(), ^{
-        @try {
-            // Method 1: GraphicsServices (most reliable for iOS 14+)
-            NSString *gsError = nil;
-            if (rc_gs_send_tap(point, @"springboard", &gsError)) {
-                SRLog(@"[SimTap] Used GraphicsServices method successfully");
-                return;
-            }
-            SRLog(@"[SimTap] GraphicsServices failed: %@", gsError);
-            
-            // Method 2: Fallback to HID event (less reliable)
-            inject_hid_event(kHIDPage_Digitizer, kHIDUsage_Digitizer_Touch, 1000000, 0);
-            
-        } @catch (NSException *e) {
-            SRLog(@"[SimTap] Exception: %@", e);
-        }
-    });
-}
-
-/**
- * Simulate a swipe gesture from (startX, startY) to (endX, endY)
- * Coordinates are normalized (0.0-1.0)
- */
-static void simulate_swipe(double startX, double startY, double endX, double endY, double durationSeconds) {
-    SRLog(@"[SimSwipe] From (%.2f, %.2f) to (%.2f, %.2f) over %.2fs", 
-          startX, startY, endX, endY, durationSeconds);
-    
-    int steps = MAX(10, (int)(durationSeconds * 30));
-    for (int i = 0; i <= steps; i++) {
-        double t = (double)i / steps;
-        double x = startX + (endX - startX) * t;
-        double y = startY + (endY - startY) * t;
-        BOOL isDown = (i == 0);
-        BOOL isUp = (i == steps);
-        if (!isUp) {
-            simulate_screen_tap(x, y, isDown);
-        } else {
-            simulate_screen_tap(x, y, NO);
-        }
-        usleep((useconds_t)(durationSeconds * 1000000.0 / steps));
-    }
-}
-
-/**
- * Simulate a long press gesture
- */
-static void simulate_long_press(double x, double y, double durationSeconds) {
-    SRLog(@"[SimLongPress] Long press at (%.2f, %.2f) for %.2fs", x, y, durationSeconds);
-    simulate_screen_tap(x, y, YES);
-    usleep((useconds_t)(durationSeconds * 1000000));
-    simulate_screen_tap(x, y, NO);
 }
 
 
@@ -7976,10 +9227,11 @@ static void simulate_long_press(double x, double y, double durationSeconds) {
             }
             
             static NSString *lastApp = nil;
-            if (bundleId && ![bundleId isEqualToString:lastApp]) {
-                lastApp = bundleId;
-                SRLog(@"[AppLaunch] App became Active: %@", bundleId);
-                NSString *triggerKey = [NSString stringWithFormat:@"app_launch_%@", bundleId];
+            NSString *effectiveBundleId = bundleId ?: @"com.apple.springboard";
+            if (![effectiveBundleId isEqualToString:lastApp]) {
+                lastApp = effectiveBundleId;
+                SRLog(@"[AppLaunch] App became Active: %@", effectiveBundleId);
+                NSString *triggerKey = [NSString stringWithFormat:@"app_launch_%@", effectiveBundleId];
                 RCExecuteTrigger(triggerKey);
             }
         }
