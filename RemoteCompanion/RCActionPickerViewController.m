@@ -62,7 +62,7 @@
     
     // Categories and actions
     // Each action: @{ @"name": display name, @"command": rc command }
-    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Audio", @"Scripting & Logic"];
+    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Ringer & Silent", @"Audio", @"App Launchers", @"Scripting & Logic"];
     
     _sections = @[
         // Media
@@ -75,13 +75,19 @@
             @{ @"name": @"Volume Up", @"command": @"volume up", @"icon": @"speaker.wave.3.fill" },
             @{ @"name": @"Volume Down", @"command": @"volume down", @"icon": @"speaker.wave.1.fill" },
             @{ @"name": @"Set Volume...", @"command": @"__SET_VOLUME__", @"icon": @"speaker.wave.3.fill" },
-            @{ @"name": @"Set Brightness...", @"command": @"__SET_BRIGHTNESS__", @"icon": @"sun.max.fill" }
+            @{ @"name": @"Set Brightness...", @"command": @"__SET_BRIGHTNESS__", @"icon": @"sun.max.fill" },
+            @{ @"name": @"Mute Toggle", @"command": @"mute toggle", @"icon": @"speaker.slash.fill" },
+            @{ @"name": @"Queue Album", @"command": @"queuealbum", @"icon": @"music.note.list" },
+            @{ @"name": @"Queue Artist", @"command": @"queueartist", @"icon": @"music.mic" }
         ],
         // Device Controls
         @[
             @{ @"name": @"Flashlight Toggle", @"command": @"flashlight toggle", @"icon": @"flashlight.on.fill" },
             @{ @"name": @"Flashlight On", @"command": @"flashlight on", @"icon": @"flashlight.on.fill" },
             @{ @"name": @"Flashlight Off", @"command": @"flashlight off", @"icon": @"flashlight.off.fill" },
+            @{ @"name": @"Flashlight Status", @"command": @"flashlight status", @"icon": @"flashlight.off.fill" },
+            @{ @"name": @"Dark Mode", @"command": @"dark", @"icon": @"moon.fill" },
+            @{ @"name": @"Light Mode", @"command": @"light", @"icon": @"sun.max.fill" },
             @{ @"name": @"Rotate Lock", @"command": @"rotate lock", @"icon": @"lock.rotation" },
             @{ @"name": @"Rotate Unlock", @"command": @"rotate unlock", @"icon": @"lock.rotation.open" },
             @{ @"name": @"Rotate Toggle", @"command": @"rotate toggle", @"icon": @"lock.rotation" }
@@ -100,7 +106,11 @@
             @{ @"name": @"Connect Bluetooth...", @"command": @"__BT_CONNECT__", @"icon": @"link" },
             @{ @"name": @"Disconnect Bluetooth...", @"command": @"__BT_DISCONNECT__", @"icon": @"xmark.circle" },
             @{ @"name": @"Connect AirPlay...", @"command": @"__AIRPLAY_CONNECT__", @"icon": @"airplayaudio" },
-            @{ @"name": @"Disconnect AirPlay", @"command": @"airplay disconnect", @"icon": @"airplayaudio.badge.exclamationmark" }
+            @{ @"name": @"Disconnect AirPlay", @"command": @"airplay disconnect", @"icon": @"airplayaudio.badge.exclamationmark" },
+            @{ @"name": @"AirPlay Device List", @"command": @"airplay list", @"icon": @"airplayaudio" },
+            @{ @"name": @"Cellular On", @"command": @"cell on", @"icon": @"antenna.radiowaves.left.and.right" },
+            @{ @"name": @"Cellular Off", @"command": @"cell off", @"icon": @"antenna.radiowaves.left.and.right.slash" },
+            @{ @"name": @"Cellular Toggle", @"command": @"cell toggle", @"icon": @"antenna.radiowaves.left.and.right" }
         ],
         // System
         @[
@@ -131,13 +141,41 @@
  
             @{ @"name": @"Low Power Mode On", @"command": @"low power on", @"icon": @"battery.25" },
             @{ @"name": @"Low Power Mode Off", @"command": @"low power off", @"icon": @"battery.100" },
-            @{ @"name": @"Low Power Mode Toggle", @"command": @"low power toggle", @"icon": @"battery.25" }
+            @{ @"name": @"Low Power Mode Toggle", @"command": @"low power toggle", @"icon": @"battery.25" },
+            @{ @"name": @"Wake Screen", @"command": @"wakeScreen", @"icon": @"sun.max.circle" },
+            @{ @"name": @"Lock Toggle", @"command": @"lock toggle", @"icon": @"lock.rotation" }
+        ],
+        // Ringer & Silent
+        @[
+            @{ @"name": @"Ringer On", @"command": @"ring-on", @"icon": @"bell.fill" },
+            @{ @"name": @"Ringer Off", @"command": @"ring-off", @"icon": @"bell.slash.fill" },
+            @{ @"name": @"Ringer Toggle", @"command": @"ring-toggle", @"icon": @"bell.badge" },
+            @{ @"name": @"Silent Mode On", @"command": @"silent-on", @"icon": @"speaker.slash.fill" },
+            @{ @"name": @"Silent Mode Off", @"command": @"silent-off", @"icon": @"speaker.wave.2.fill" },
+            @{ @"name": @"Silent Mode Toggle", @"command": @"silent-toggle", @"icon": @"speaker.wave.1.fill" }
         ],
         // Audio (ANC)
         @[
             @{ @"name": @"ANC On", @"command": @"anc on", @"icon": @"ear.badge.checkmark" },
             @{ @"name": @"ANC Off", @"command": @"anc off", @"icon": @"ear" },
-            @{ @"name": @"Transparency Mode", @"command": @"anc transparency", @"icon": @"waveform.circle.fill" }
+            @{ @"name": @"Transparency Mode", @"command": @"anc transparency", @"icon": @"waveform.circle.fill" },
+            @{ @"name": @"ANC Toggle", @"command": @"anc toggle", @"icon": @"ear.badge.waveform" }
+        ],
+        // App Launchers
+        @[
+            @{ @"name": @"Launch Spotify", @"command": @"spotify", @"icon": @"music.note" },
+            @{ @"name": @"Launch YouTube", @"command": @"youtube", @"icon": @"play.rectangle.fill" },
+            @{ @"name": @"Launch Weather", @"command": @"weather", @"icon": @"cloud.sun.fill" },
+            @{ @"name": @"Launch Settings", @"command": @"settings", @"icon": @"gear" },
+            @{ @"name": @"Launch Camera", @"command": @"camera", @"icon": @"camera.fill" },
+            @{ @"name": @"Launch Shortcuts", @"command": @"shortcuts", @"icon": @"command" },
+            @{ @"name": @"Launch Maps", @"command": @"maps", @"icon": @"map.fill" },
+            @{ @"name": @"Launch Safari", @"command": @"safari", @"icon": @"safari.fill" },
+            @{ @"name": @"Launch Messages", @"command": @"messages", @"icon": @"message.fill" },
+            @{ @"name": @"Launch Music", @"command": @"music", @"icon": @"music.note.list" },
+            @{ @"name": @"Launch Photos", @"command": @"photos", @"icon": @"photo.fill" },
+            @{ @"name": @"Launch Notes", @"command": @"notes", @"icon": @"note.text" },
+            @{ @"name": @"Launch Reminders", @"command": @"reminders", @"icon": @"checklist" }
         ],
         // Scripting & Logic
         @[
