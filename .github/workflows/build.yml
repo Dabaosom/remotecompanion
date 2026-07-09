@@ -16,7 +16,7 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-13
     env:
       THEOS: ${{ github.workspace }}/theos
       THEOS_PACKAGE_SCHEME: rootless
@@ -84,7 +84,7 @@ jobs:
           retention-days: 7
 
   build-nativelua:
-    runs-on: macos-14
+    runs-on: macos-13
     env:
       THEOS: ${{ github.workspace }}/theos
       THEOS_PACKAGE_SCHEME: rootless
