@@ -62,7 +62,7 @@
     
     // Categories and actions
     // Each action: @{ @"name": display name, @"command": rc command }
-    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Ringer & Silent", @"Audio", @"App Launchers", @"Scripting & Logic"];
+    _sectionTitles = @[@"Media", @"Device Controls", @"Connectivity", @"System", @"Ringer & Silent", @"Audio", @"App Launchers", @"Powercuts17", @"Scripting & Logic"];
     
     _sections = @[
         // Media
@@ -176,6 +176,44 @@
             @{ @"name": @"Launch Photos", @"command": @"photos", @"icon": @"photo.fill" },
             @{ @"name": @"Launch Notes", @"command": @"notes", @"icon": @"note.text" },
             @{ @"name": @"Launch Reminders", @"command": @"reminders", @"icon": @"checklist" }
+        ],
+        // Powercuts17 (iOS 17 native implementations)
+        @[
+            @{ @"name": @"PC: Lock Device", @"command": @"powercuts:lock", @"icon": @"lock.fill" },
+            @{ @"name": @"PC: Unlock/Wake Screen", @"command": @"powercuts:unlock", @"icon": @"lock.open.fill" },
+            @{ @"name": @"PC: Wake Screen", @"command": @"powercuts:wakeScreen", @"icon": @"sun.max.circle" },
+            @{ @"name": @"PC: Go Home", @"command": @"powercuts:goHome", @"icon": @"house.fill" },
+            @{ @"name": @"PC: App Switcher", @"command": @"powercuts:showAppSwitcher", @"icon": @"square.stack.3d.up.fill" },
+            @{ @"name": @"PC: Kill Frontmost App", @"command": @"powercuts:killApp", @"icon": @"xmark.app.fill" },
+            @{ @"name": @"PC: Respring", @"command": @"powercuts:respring", @"icon": @"arrow.clockwise" },
+            @{ @"name": @"PC: Soft Reboot", @"command": @"powercuts:ldRestart", @"icon": @"arrow.triangle.2.circlepath" },
+            @{ @"name": @"PC: Safe Mode", @"command": @"powercuts:safeMode", @"icon": @"exclamationmark.triangle.fill" },
+            @{ @"name": @"PC: Refresh Icon Cache", @"command": @"powercuts:uiCache", @"icon": @"square.grid.2x2" },
+            @{ @"name": @"PC: Go To Home Page", @"command": @"powercuts:goToHomeScreenPage", @"icon": @"house.fill" },
+            @{ @"name": @"PC: Dismiss Siri", @"command": @"powercuts:dismissSiri", @"icon": @"mic.slash.fill" },
+            @{ @"name": @"PC: Quick Switch", @"command": @"powercuts:quickSwitch", @"icon": @"arrow.left.arrow.right" },
+            @{ @"name": @"PC: Send Notification", @"command": @"powercuts:sendNotification", @"icon": @"bell.fill" },
+            @{ @"name": @"PC: Clear Notifications", @"command": @"powercuts:removeNotifications", @"icon": @"bell.slash.fill" },
+            @{ @"name": @"PC: Get Device Locked?", @"command": @"powercuts:getIsDeviceLocked", @"icon": @"lock.questionmark" },
+            @{ @"name": @"PC: Get Current App", @"command": @"powercuts:getCurrentApp", @"icon": @"app.fill" },
+            @{ @"name": @"PC: Get Now Playing", @"command": @"powercuts:getNowPlayingApp", @"icon": @"play.circle.fill" },
+            @{ @"name": @"PC: Get All Apps", @"command": @"powercuts:getAllInstalledApps", @"icon": @"square.grid.3x3.fill" },
+            @{ @"name": @"PC: Set App Badge", @"command": @"powercuts:setAppBadgeCount", @"icon": @"app.badge.fill" },
+            @{ @"name": @"PC: Run Command", @"command": @"powercuts:runCommand", @"icon": @"terminal.fill" },
+            @{ @"name": @"PC: Connect BT Device", @"command": @"powercuts:connectToBluetoothDevice", @"icon": @"link" },
+            @{ @"name": @"PC: Get BT Battery", @"command": @"powercuts:getBluetoothDeviceBattery", @"icon": @"battery.100.bolt" },
+            @{ @"name": @"PC: Get BT Devices", @"command": @"powercuts:getBluetoothDevices", @"icon": @"list.bullet" },
+            @{ @"name": @"PC: Get App Name", @"command": @"powercuts:getAppNameFromIdentifier", @"icon": @"tag.fill" },
+            @{ @"name": @"PC: Get File Content", @"command": @"powercuts:getFileContent", @"icon": @"doc.text.fill" },
+            @{ @"name": @"PC: List Folder", @"command": @"powercuts:getFilesFromFolderPath", @"icon": @"folder.fill" },
+            @{ @"name": @"PC: Get Global Var", @"command": @"powercuts:getGlobalVariable", @"icon": @"cube.fill" },
+            @{ @"name": @"PC: Set Global Var", @"command": @"powercuts:setGlobalVariable", @"icon": @"pencil.circle.fill" },
+            @{ @"name": @"PC: Delete Global Var", @"command": @"powercuts:deleteGlobalVariable", @"icon": @"trash.fill" },
+            @{ @"name": @"PC: Audio Balance", @"command": @"powercuts:audioBalance", @"icon": @"speaker.wave.3.fill" },
+            @{ @"name": @"PC: AutoTouch Run", @"command": @"powercuts:autoTouchRunFile", @"icon": @"hand.tap.fill" },
+            @{ @"name": @"PC: Get Pressed Buttons", @"command": @"powercuts:getPressedButtons", @"icon": @"button.horizontal" },
+            @{ @"name": @"PC: Get Workflow Source", @"command": @"powercuts:getWorkflowRunSource", @"icon": @"arrow.triangle.pull" },
+            @{ @"name": @"PC: Donate", @"command": @"powercuts:donate", @"icon": @"heart.fill" }
         ],
         // Scripting & Logic
         @[
