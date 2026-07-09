@@ -19,47 +19,59 @@ jobs:
     runs-on: macos-14
     env:
       THEOS: ${{ github.workspace }}/theos
-      TARGET: iphone:clang:latest:17.0
-      ARCHS: arm64 arm64e
       THEOS_PACKAGE_SCHEME: rootless
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install THEOS
-        run: |
-          brew install ldid xz
-          # Clone THEOS
-          git clone --depth=1 https://github.com/theos/theos.git $THEOS
-          echo "$THEOS/bin" >> $GITHUB_PATH
-
       - name: Find iOS SDK
         id: sdk
         run: |
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          SDK_BASENAME=$(basename "$SDK_PATH")
+          SDK_VERSION=$(echo "$SDK_BASENAME" | sed 's/iPhoneOS//;s/.sdk//')
           echo "sdk=$SDK_PATH" >> $GITHUB_OUTPUT
-          echo "SDK: $SDK_PATH"
+          echo "basename=$SDK_BASENAME" >> $GITHUB_OUTPUT
+          echo "version=$SDK_VERSION" >> $GITHUB_OUTPUT
+          echo "SDK: $SDK_PATH (version: $SDK_VERSION)"
+
+      - name: Install THEOS + ldid
+        run: |
+          brew install ldid xz
+          git clone --depth=1 https://github.com/theos/theos.git $THEOS
+          $THEOS/bin/update-theos
+          echo "$THEOS/bin" >> $GITHUB_PATH
 
       - name: Build tweak
         env:
           SDK_PATH: ${{ steps.sdk.outputs.sdk }}
+          SDK_VERSION: ${{ steps.sdk.outputs.version }}
         run: |
-          cd Tweak
-          # Symlink correct SDK
+          # Symlink SDK with exact name THEOS expects
           mkdir -p $THEOS/sdks
-          ln -sfn "$SDK_PATH" $THEOS/sdks/iPhoneOS17.4.sdk
-          # Patch Makefile to use detected SDK
-          sed -i '' 's|iPhoneOS16\.5\.sdk|iPhoneOS17.4.sdk|g' Makefile
-          # Build
+          ln -sfn "$SDK_PATH" "$THEOS/sdks/iPhoneOS$SDK_VERSION.sdk"
+
+          cd Tweak
+          # Patch Makefile: fix SDK path + set SDKVERSION to detected version
+          sed -i '' "s|iPhoneOS16\.5\.sdk|iPhoneOS$SDK_VERSION.sdk|g" Makefile
+          sed -i '' "s|latest:14\.0|latest:$SDK_VERSION|g" Makefile
+
           make clean 2>/dev/null || true
-          make -j$(sysctl -n hw.ncpu) THEOS=$THEOS THEOS_DEVICE_IP=127.0.0.1 THEOS_PACKAGE_SCHEME=$THEOS_PACKAGE_SCHEME
+          make -j$(sysctl -n hw.ncpu) \
+            THEOS=$THEOS \
+            THEOS_DEVICE_IP=127.0.0.1 \
+            THEOS_PACKAGE_SCHEME=$THEOS_PACKAGE_SCHEME
 
       - name: Package .deb
+        env:
+          SDK_VERSION: ${{ steps.sdk.outputs.version }}
         run: |
           cd Tweak
-          make package FINALPACKAGE=1 THEOS=$THEOS THEOS_PACKAGE_SCHEME=$THEOS_PACKAGE_SCHEME
-          ls -lh *.deb 2>/dev/null || echo "no deb found"
+          make package FINALPACKAGE=1 \
+            THEOS=$THEOS \
+            THEOS_PACKAGE_SCHEME=$THEOS_PACKAGE_SCHEME
+          ls -lh packages/*.deb 2>/dev/null && mv packages/*.deb . 2>/dev/null || ls -lh *.deb 2>/dev/null || echo "no deb found"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -78,37 +90,45 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install THEOS
-        run: |
-          brew install ldid xz
-          git clone --depth=1 https://github.com/theos/theos.git $THEOS
-          echo "$THEOS/bin" >> $GITHUB_PATH
-
       - name: Find iOS SDK
         id: sdk
         run: |
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          SDK_BASENAME=$(basename "$SDK_PATH")
+          SDK_VERSION=$(echo "$SDK_BASENAME" | sed 's/iPhoneOS//;s/.sdk//')
           echo "sdk=$SDK_PATH" >> $GITHUB_OUTPUT
+          echo "version=$SDK_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build rc-root subproject
+      - name: Install THEOS + ldid
+        run: |
+          brew install ldid xz
+          git clone --depth=1 https://github.com/theos/theos.git $THEOS
+          $THEOS/bin/update-theos
+          echo "$THEOS/bin" >> $GITHUB_PATH
+
+      - name: Build rc-root
         env:
           SDK_PATH: ${{ steps.sdk.outputs.sdk }}
+          SDK_VERSION: ${{ steps.sdk.outputs.version }}
         run: |
+          mkdir -p $THEOS/sdks
+          ln -sfn "$SDK_PATH" "$THEOS/sdks/iPhoneOS$SDK_VERSION.sdk"
+          ln -sfn "$THEOS" Tweak/theos_link
           cd Tweak/rc-root
-          ln -sfn "$SDK_PATH" $THEOS/sdks/iPhoneOS17.4.sdk 2>/dev/null || true
-          ln -sfn "$THEOS" ../theos_link 2>/dev/null || true
           make -j$(sysctl -n hw.ncpu)
 
-      - name: Build rc-client subproject
+      - name: Build rc-client
         env:
           SDK_PATH: ${{ steps.sdk.outputs.sdk }}
+          SDK_VERSION: ${{ steps.sdk.outputs.version }}
         run: |
+          mkdir -p $THEOS/sdks
+          ln -sfn "$SDK_PATH" "$THEOS/sdks/iPhoneOS$SDK_VERSION.sdk"
+          ln -sfn "$THEOS" Tweak/theos_link
           cd Tweak/rc-client
-          ln -sfn "$SDK_PATH" $THEOS/sdks/iPhoneOS17.4.sdk 2>/dev/null || true
-          ln -sfn "$THEOS" ../theos_link 2>/dev/null || true
           make -j$(sysctl -n hw.ncpu)
 
-      - name: Upload rc-root/client artifacts
+      - name: Upload rc artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rc-binaries
