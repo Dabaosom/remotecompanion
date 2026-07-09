@@ -35,7 +35,7 @@ jobs:
         
         # Clone THEOS if not present
         if [ ! -d "$HOME/theos" ]; then
-          git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+          git clone --recursive --depth=1 https://github.com/theos/theos.git "$HOME/theos"
         fi
         echo "export THEOS=$HOME/theos" >> $GITHUB_ENV
 
