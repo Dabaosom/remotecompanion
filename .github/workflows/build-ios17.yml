@@ -3,8 +3,16 @@ name: Build RemoteCompanion iOS 17
 on:
   push:
     branches: [ main, ios17 ]
+    paths:
+      - 'Tweak/**'
+      - 'RemoteCompanion/**'
+      - '.github/workflows/build-ios17.yml'
   pull_request:
     branches: [ main, ios17 ]
+    paths:
+      - 'Tweak/**'
+      - 'RemoteCompanion/**'
+      - '.github/workflows/build-ios17.yml'
   workflow_dispatch:
 
 jobs:
@@ -18,9 +26,17 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install Theos
+    - name: Install ldid + THEOS
       run: |
-        git clone --recursive https://github.com/theos/theos.git $HOME/theos
+        # Install ldid (required for code signing)
+        brew install ldid xz
+        export PATH="/opt/homebrew/bin:$PATH"
+        echo "$PATH" >> $GITHUB_PATH
+        
+        # Clone THEOS if not present
+        if [ ! -d "$HOME/theos" ]; then
+          git clone --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+        fi
         echo "export THEOS=$HOME/theos" >> $GITHUB_ENV
 
     - name: Install iOS 17.0 SDK
@@ -30,15 +46,24 @@ jobs:
         unzip -o /tmp/sdk.zip -d $HOME/theos/sdks/
 
     - name: Build for rootless
+      env:
+        PATH: "/opt/homebrew/bin:$HOME/bin:$PATH"
       run: |
-        cd Tweak
+        export PATH="/opt/homebrew/bin:$PATH"
         export THEOS=$HOME/theos
+        # Ensure ldid is available
+        which ldid || brew install ldid
+        cd Tweak
         make package THEOS_PACKAGE_SCHEME=rootless
         
     - name: Build for roothide
+      env:
+        PATH: "/opt/homebrew/bin:$HOME/bin:$PATH"
       run: |
-        cd Tweak
+        export PATH="/opt/homebrew/bin:$PATH"
         export THEOS=$HOME/theos
+        which ldid || brew install ldid
+        cd Tweak
         make package THEOS_PACKAGE_SCHEME=roothide
         
     - name: Upload deb packages
